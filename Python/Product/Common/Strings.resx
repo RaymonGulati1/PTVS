@@ -828,9 +828,6 @@ Packages that cannot be installed using pip may prevent all listed packages from
   <data name="CustomCommandPrerequisitesRunAnyway" xml:space="preserve">
     <value>Run the command without installing the packages</value>
   </data>
-  <data name="ImportWizardUwpProjectCustomization" xml:space="preserve">
-    <value>Python UWP Project</value>
-  </data>
   <data name="ErrorLoadingEnvironmentViewExtension" xml:space="preserve">
     <value>An error occurred loading '{0}' for the environments window.
 {1}</value>
@@ -2040,6 +2037,9 @@ Expand selection to the full expression?</value>
     <value>Packages (PyPI)</value>
     <comment>Do not translate 'PyPI'</comment>
   </data>
+  <data name="WorkspaceEnvironmentDescription" xml:space="preserve">
+    <value>Workspace Environment</value>
+  </data>
   <data name="CondaEnvironmentDescription" xml:space="preserve">
     <value>Conda Environment</value>
     <comment>Do not translate 'Conda'</comment>
@@ -2195,31 +2195,31 @@ Expand selection to the full expression?</value>
     <value>Packages installed successfully</value>
   </data>
   <data name="CondaInfoBarCreateNewMessage" xml:space="preserve">
-    <value>The project '{0}' has a conda environment.yml file, but no conda environments. Would you like to create one?</value>
+    <value>The project '{0}' has a conda environment.yml file, but no conda environments.</value>
   </data>
   <data name="CondaInfoBarRecreateMessage" xml:space="preserve">
-    <value>The project '{0}' has a reference to a missing conda environment '{1}'. Would you like to create it?</value>
+    <value>The project '{0}' has a reference to a missing conda environment '{1}'.</value>
   </data>
   <data name="CondaInfoBarCreateAction" xml:space="preserve">
-    <value>Yes</value>
+    <value>Create environment</value>
   </data>
   <data name="CondaInfoBarProjectIgnoreAction" xml:space="preserve">
-    <value>Don't Show This Again</value>
+    <value>Don't show this again</value>
   </data>
   <data name="RequirementsTxtCreateVirtualEnvInfoBarMessage" xml:space="preserve">
-    <value>Package specification file '{0}' was detected in project '{1}'. Would you like to add a virtual environment?</value>
+    <value>Python package specification file '{0}' was detected in project '{1}'.</value>
   </data>
   <data name="RequirementsTxtInstallPackagesInfoBarMessage" xml:space="preserve">
-    <value>One or more packages listed in '{0}' of project '{1}' are missing. Would you like to install packages in the '{2}' environment?</value>
+    <value>One or more packages listed in '{0}' of project '{1}' are missing from the '{2}' environment.</value>
   </data>
   <data name="RequirementsTxtInfoBarCreateVirtualEnvAction" xml:space="preserve">
-    <value>Yes</value>
+    <value>Create virtual environment</value>
   </data>
   <data name="RequirementsTxtInfoBarInstallPackagesAction" xml:space="preserve">
-    <value>Yes</value>
+    <value>Install packages</value>
   </data>
   <data name="RequirementsTxtInfoBarProjectIgnoreAction" xml:space="preserve">
-    <value>Don't Show This Again</value>
+    <value>Don't show this again</value>
   </data>
   <data name="CondaNotFoundError" xml:space="preserve">
     <value>Conda is required for this functionality. Please install either Anaconda or Miniconda and try again.</value>
@@ -2481,6 +2481,16 @@ Please specify at least one package.</value>
   </data>
   <data name="CondaExecutableFilter" xml:space="preserve">
     <value>Executable Files (*.exe)|*.exe|All Files (*.*)|*.*</value>
+  </data>
+  <data name="EnvironmentSwitcherNoCurrentEnvironment" xml:space="preserve">
+    <value>(no Python environment)</value>
+  </data>
+  <data name="EnvironmentSwitcherTooltipWithKeyBinding" xml:space="preserve">
+    <value>Python Environment ({0})</value>
+    <comment>{0} is a string that contains a keyboard shortcut ie "CTRL+K, CTRL+E"</comment>
+  </data>
+  <data name="EnvironmentSwitcherTooltipWithoutKeyBinding" xml:space="preserve">
+    <value>Python Environment</value>
   </data>
   <data name="ConfigurationExtensionDescriptionWatermark" xml:space="preserve">
     <value>e.g. My Custom Environment</value>

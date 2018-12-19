@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -251,10 +251,11 @@ namespace Microsoft.PythonTools.Intellisense {
 
             initialize.liveLinting = _services.FeatureFlags?.IsFeatureEnabled("Python.Analyzer.LiveLinting", false) ?? false;
 
-            var lso = _services.Python.LanguageServerOptions;
-            lso.Changed += LanguageServerOptions_Changed;
-
-            _analysisOptions.typeStubPaths = GetTypeStubPaths(lso);
+            var lso = _services.Python?.LanguageServerOptions;
+            if (lso != null) {
+                lso.Changed += LanguageServerOptions_Changed;
+                _analysisOptions.typeStubPaths = GetTypeStubPaths(lso);
+            }
 
             if (_analysisOptions.analysisLimits == null) {
                 using (var key = Registry.CurrentUser.OpenSubKey(AnalysisLimitsKey)) {
@@ -1768,7 +1769,21 @@ namespace Microsoft.PythonTools.Intellisense {
                 _logger?.LogEvent(Logging.PythonLogEvent.AnalysisOperationFailed, r.error);
                 return defaultValue;
             }
-            if (r.body is Newtonsoft.Json.Linq.JObject o) {
+
+            if (typeof(U).IsArray && r.body is Newtonsoft.Json.Linq.JArray arr) {
+                try {
+                    var el = typeof(U).GetElementType();
+                    var result = Array.CreateInstance(el, arr.Count);
+                    for (int i = 0; i < arr.Count; ++i) {
+                        result.SetValue(arr[i].ToObject(el), i);
+                    }
+                    return (U)(object)result;
+                } catch (Exception e) {
+                    Debug.WriteLine($"Response failed: {e}");
+                    _logger?.LogEvent(Logging.PythonLogEvent.AnalysisOperationFailed, e.Message);
+                }
+            }
+            if (r.body is Newtonsoft.Json.Linq.JToken o) {
                 try {
                     return o.ToObject<U>();
                 } catch (Newtonsoft.Json.JsonException e) {

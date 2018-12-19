@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -104,8 +104,8 @@ namespace Microsoft.PythonTools.Project {
                     Project.Caption,
                     pm.Factory.Configuration.Description
             )));
-            actions.Add(new InfoBarButton(Strings.RequirementsTxtInfoBarInstallPackagesAction, installPackages));
-            actions.Add(new InfoBarButton(Strings.RequirementsTxtInfoBarProjectIgnoreAction, projectIgnore));
+            actions.Add(new InfoBarHyperlink(Strings.RequirementsTxtInfoBarInstallPackagesAction, installPackages));
+            actions.Add(new InfoBarHyperlink(Strings.RequirementsTxtInfoBarProjectIgnoreAction, projectIgnore));
 
             Logger?.LogEvent(
                 PythonLogEvent.PackageInstallInfoBar,

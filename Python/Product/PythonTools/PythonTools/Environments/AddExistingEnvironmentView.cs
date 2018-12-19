@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -466,7 +466,7 @@ namespace Microsoft.PythonTools.Environments {
                 }
             } else {
                 try {
-                    ApplyExisting();
+                    await ApplyExistingAsync();
                 } catch (Exception ex) when (!ex.IsCriticalException()) {
                     failed = true;
                     throw;
@@ -508,24 +508,32 @@ namespace Microsoft.PythonTools.Environments {
                         version = null;
                     }
 
-                    factory = SelectedProject.Node.AddMSBuildEnvironment(
-                        RegistryService,
-                        PrefixPath,
-                        InterpreterPath,
-                        WindowsInterpreterPath,
-                        PathEnvironmentVariable,
-                        version,
-                        InterpreterArchitecture.TryParse(ArchitectureName ?? ""),
-                        Description
-                    );
+                    if (SelectedProject.Node != null) {
+                        factory = SelectedProject.Node.AddMSBuildEnvironment(
+                            RegistryService,
+                            PrefixPath,
+                            InterpreterPath,
+                            WindowsInterpreterPath,
+                            PathEnvironmentVariable,
+                            version,
+                            InterpreterArchitecture.TryParse(ArchitectureName ?? ""),
+                            Description
+                        );
+                    } else if (SelectedProject.Workspace != null) {
+                        await SelectedProject.Workspace.SetInterpreterAsync(InterpreterPath);
+                    }
                 }
             }
 
             if (factory != null) {
                 if (SelectedProject != null) {
-                    SelectedProject.Node.AddInterpreter(factory.Configuration.Id);
-                    if (SetAsCurrent) {
-                        SelectedProject.Node.SetInterpreterFactory(factory);
+                    if (SelectedProject.Node != null) {
+                        SelectedProject.Node.AddInterpreter(factory.Configuration.Id);
+                        if (SetAsCurrent) {
+                            SelectedProject.Node.SetInterpreterFactory(factory);
+                        }
+                    } else if (SelectedProject.Workspace != null) {
+                        await SelectedProject.Workspace.SetInterpreterFactoryAsync(factory);
                     }
                 }
 
@@ -535,9 +543,16 @@ namespace Microsoft.PythonTools.Environments {
             }
         }
 
-        private void ApplyExisting() {
-            var ids = SelectedProject.InterpreterIds.Union(new string[] { SelectedInterpreter.Id }).ToArray();
-            SelectedProject?.Node.ChangeInterpreters(ids);
+        private async Task ApplyExistingAsync() {
+            if (SelectedProject.Node != null) {
+                var ids = SelectedProject.InterpreterIds.Union(new string[] { SelectedInterpreter.Id }).ToArray();
+                SelectedProject?.Node.ChangeInterpreters(ids);
+            } else if (SelectedProject.Workspace != null) {
+                var factory = RegistryService.FindInterpreter(SelectedInterpreter.Id);
+                if (factory != null) {
+                    await SelectedProject.Workspace.SetInterpreterFactoryAsync(factory);
+                }
+            }
         }
 
         public override string ToString() {

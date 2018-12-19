@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -122,6 +122,15 @@ namespace Microsoft.VisualStudioTools {
                         mcs.AddCommand(menuToolWin);
                         _commands[command] = menuToolWin;
                     }
+                }
+            }
+        }
+
+        internal void RegisterCommands(params MenuCommand[] commands) {
+            _uiThread.MustBeCalledFromUIThreadOrThrow();
+            if (GetService(typeof(IMenuCommandService)) is OleMenuCommandService mcs) {
+                foreach (var command in commands) {
+                    mcs.AddCommand(command);
                 }
             }
         }

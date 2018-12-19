@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,8 +17,8 @@
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
 #if DEV16_OR_LATER
-using Microsoft.WebTools.Languages.Editor.Controller;
-using Microsoft.WebTools.Languages.Editor.Services;
+using Microsoft.WebTools.Languages.Shared.Editor.Controller;
+using Microsoft.WebTools.Languages.Shared.Editor.Services;
 #else
 using Microsoft.Web.Editor.Controller;
 using Microsoft.Web.Editor.Services;

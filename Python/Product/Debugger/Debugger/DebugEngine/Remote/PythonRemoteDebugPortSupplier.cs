@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -76,7 +76,7 @@ namespace Microsoft.PythonTools.Debugger.Remote {
 
             var port = new PythonRemoteDebugPort(this, pRequest, uri, DebugLog);
 
-            if (!ExperimentalOptions.UseVsCodeDebugger) {
+            if (PythonDebugOptionsServiceHelper.Options.UseLegacyDebugger) {
                 // Validate connection early. Debugger automation (DTE) objects are not consistent in error checking from this
                 // point on, so errors reported from EnumProcesses and further calls may be ignored and treated as successes
                 // (with empty result). Reporting an error here works around that.

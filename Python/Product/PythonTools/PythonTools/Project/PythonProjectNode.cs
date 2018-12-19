@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -2383,6 +2383,7 @@ namespace Microsoft.PythonTools.Project {
                 Site,
                 this,
                 null,
+                null,
                 GetEnvironmentYmlPath(),
                 GetRequirementsTxtPath()
             ).HandleAllExceptions(Site, typeof(PythonProjectNode)).DoNotWait();
@@ -2393,6 +2394,7 @@ namespace Microsoft.PythonTools.Project {
             AddEnvironmentDialog.ShowAddExistingEnvironmentDialogAsync(
                 Site,
                 this,
+                null,
                 null,
                 GetEnvironmentYmlPath(),
                 GetRequirementsTxtPath()
@@ -2444,6 +2446,7 @@ namespace Microsoft.PythonTools.Project {
                 await AddEnvironmentDialog.ShowAddVirtualEnvironmentDialogAsync(
                     Site,
                     this,
+                    null,
                     null,
                     null,
                     requirementsPath
@@ -2527,7 +2530,7 @@ namespace Microsoft.PythonTools.Project {
                 pathVar,
                 architecture,
                 languageVersion,
-                InterpreterUIMode.CannotBeDefault | InterpreterUIMode.CannotBeConfigured | InterpreterUIMode.SupportsDatabase
+                InterpreterUIMode.CannotBeDefault | InterpreterUIMode.CannotBeConfigured
             );
 
             if (!QueryEditProjectFile(false)) {
@@ -2625,9 +2628,11 @@ namespace Microsoft.PythonTools.Project {
             AddEnvironmentDialog.ShowAddCondaEnvironmentDialogAsync(
                 Site,
                 this,
+                null,
                 existingName,
-                yamlPath).HandleAllExceptions(Site, typeof(PythonProjectNode)
-            ).DoNotWait();
+                yamlPath,
+                null
+            ).HandleAllExceptions(Site, typeof(PythonProjectNode)).DoNotWait();
             return VSConstants.S_OK;
         }
 

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -66,6 +66,7 @@ namespace Microsoft.PythonTools.Project {
                     Project,
                     null,
                     null,
+                    null,
                     txtPath
                 ).HandleAllExceptions(Project.Site, typeof(VirtualEnvCreateInfoBar)).DoNotWait();
                 Close();
@@ -90,8 +91,8 @@ namespace Microsoft.PythonTools.Project {
                     PathUtils.GetFileOrDirectoryName(txtPath),
                     Project.Caption
             )));
-            actions.Add(new InfoBarButton(Strings.RequirementsTxtInfoBarCreateVirtualEnvAction, createVirtualEnv));
-            actions.Add(new InfoBarButton(Strings.RequirementsTxtInfoBarProjectIgnoreAction, projectIgnore));
+            actions.Add(new InfoBarHyperlink(Strings.RequirementsTxtInfoBarCreateVirtualEnvAction, createVirtualEnv));
+            actions.Add(new InfoBarHyperlink(Strings.RequirementsTxtInfoBarProjectIgnoreAction, projectIgnore));
 
             Logger?.LogEvent(
                 PythonLogEvent.VirtualEnvCreateInfoBar,

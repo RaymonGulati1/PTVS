@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -104,8 +104,8 @@ namespace Microsoft.PythonTools.Project {
                 : Strings.CondaInfoBarCreateNewMessage.FormatUI(Project.Caption);
 
             messages.Add(new InfoBarTextSpan(msg));
-            actions.Add(new InfoBarButton(Strings.CondaInfoBarCreateAction, create));
-            actions.Add(new InfoBarButton(Strings.CondaInfoBarProjectIgnoreAction, projectIgnore));
+            actions.Add(new InfoBarHyperlink(Strings.CondaInfoBarCreateAction, create));
+            actions.Add(new InfoBarHyperlink(Strings.CondaInfoBarProjectIgnoreAction, projectIgnore));
 
             Logger?.LogEvent(
                 PythonLogEvent.CondaEnvCreateInfoBar,

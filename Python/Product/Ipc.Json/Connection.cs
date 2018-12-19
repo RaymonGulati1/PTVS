@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -549,7 +549,7 @@ namespace Microsoft.PythonTools.Ipc.Json {
         /// Base protocol defined at https://github.com/Microsoft/language-server-protocol/blob/master/protocol.md#base-protocol
         /// </remarks>
         private async Task SendMessage(ProtocolMessage packet, CancellationToken cancel) {
-            var str = JsonConvert.SerializeObject(packet);
+            var str = JsonConvert.SerializeObject(packet, UriJsonConverter.Instance);
 
             try {
                 try {

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -66,14 +66,6 @@ namespace Microsoft.PythonTools.Project {
                 !PathUtils.IsSubpathOf(rootDir, installPath)) {
                 MSBuild.ProjectCollection.GlobalProjectCollection.SetGlobalProperty("_PythonToolsPath", installPath);
                 Environment.SetEnvironmentVariable("_PythonToolsPath", installPath);
-
-                // Also find and set the UWP tools path
-                var uwp = PathUtils.FindFile(PathUtils.GetParent(PathUtils.GetParent(installPath)), "Microsoft.PythonTools.Uwp.targets", depthLimit: 3);
-                if (!string.IsNullOrEmpty(uwp)) {
-                    uwp = PathUtils.GetParent(uwp);
-                    MSBuild.ProjectCollection.GlobalProjectCollection.SetGlobalProperty("_PythonUwpToolsPath", uwp);
-                    Environment.SetEnvironmentVariable("_PythonUwpToolsPath", installPath);
-                }
             }
 
             base.Initialize();

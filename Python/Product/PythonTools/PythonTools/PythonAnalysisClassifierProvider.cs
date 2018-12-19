@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,6 +21,7 @@ using System.Windows.Media;
 using Microsoft.PythonTools.Editor;
 using Microsoft.PythonTools.Options;
 using Microsoft.VisualStudio.Language.StandardClassification;
+using Microsoft.VisualStudio.LanguageServer.Client;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
 using Microsoft.VisualStudio.Utilities;
@@ -99,6 +100,10 @@ namespace Microsoft.PythonTools {
         public IClassifier GetClassifier(ITextBuffer buffer) {
             if (_categoryMap == null) {
                 _categoryMap = FillCategoryMap(_classificationRegistry);
+            }
+
+            if (buffer.ContentType.IsOfType(CodeRemoteContentDefinition.CodeRemoteContentTypeName)) {
+                return null;
             }
 
             return _services.GetBufferInfo(buffer)

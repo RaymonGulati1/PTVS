@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -45,7 +45,7 @@ namespace Microsoft.PythonTools {
 
         public const uint cmdidAddEnvironment = 0x4006;
         public const uint cmdidAddVirtualEnv = 0x4007;
-        public const uint cmdidAddExistingVirtualEnv = 0x4008;
+        public const uint cmdidAddExistingEnv = 0x4008;
         public const uint cmdidActivateEnvironment = 0x4009;
         public const uint cmdidInstallPythonPackage = 0x400A;
         public const uint cmdidViewAllEnvironments = 0x400B;
@@ -55,6 +55,9 @@ namespace Microsoft.PythonTools {
 
         public const uint cmdidOpenInteractiveScopeInEditor = 0x4035;
 
+        public const uint cmdidAddCondaEnv = 0x4037;
+        public const uint cmdidAddEnvironmentNoIcon = 0x4038;
+
         public const uint cmdidWebPythonAtMicrosoft = 0x4040;
         public const uint cmdidWebPTVSSupport = 0x4041;
         public const uint cmdidWebDGProducts = 0x4042;
@@ -63,5 +66,7 @@ namespace Microsoft.PythonTools {
         public const uint comboIdReplScopesGetList = 0x5001;
         public const uint comboIdReplEvaluators = 0x5002;
         public const uint comboIdReplEvaluatorsGetList = 0x5003;
+        public const uint comboIdCurrentEnvironment = 0x5004;
+        public const uint comboIdCurrentEnvironmentList = 0x5005;
     };
 }

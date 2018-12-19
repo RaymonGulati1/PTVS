@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -24,6 +24,7 @@ using System.Threading.Tasks;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Project;
+using Microsoft.VisualStudio.Workspace;
 
 namespace Microsoft.PythonTools.Environments {
     static class VirtualEnv {
@@ -65,6 +66,7 @@ namespace Microsoft.PythonTools.Environments {
             IInterpreterRegistryService registry,
             IInterpreterOptionsService options,
             PythonProjectNode project,
+            IWorkspace workspace,
             string path,
             IPythonInterpreterFactory baseInterp,
             bool registerAsCustomEnv,
@@ -112,14 +114,31 @@ namespace Microsoft.PythonTools.Environments {
                     customEnvName
                 );
 
-                if (project != null && factory != null) {
-                    project.AddInterpreter(factory.Configuration.Id);
+                if (factory != null) {
+                    if (project != null) {
+                        project.AddInterpreter(factory.Configuration.Id);
+                    } else if (workspace != null) {
+                        await workspace.SetInterpreterFactoryAsync(factory);
+                    }
                 }
 
                 return factory;
             } else {
                 if (project != null) {
                     return project.AddVirtualEnvironment(registry, path, baseInterp);
+                } else if (workspace != null) {
+                    // In workspaces, always store the path to the virtual env's python.exe
+                    GetVirtualEnvConfig(path, baseInterp, out string interpExe, out string winterpExe, out string pathVar);
+
+                    var workspaceFactoryProvider = site.GetComponentModel().GetService<WorkspaceInterpreterFactoryProvider>();
+                    using (workspaceFactoryProvider?.SuppressDiscoverFactories(forceDiscoveryOnDispose: true)) {
+                        await workspace.SetInterpreterAsync(interpExe);
+                    }
+
+                    var factory = workspaceFactoryProvider?
+                        .GetInterpreterFactories()
+                        .FirstOrDefault(f => PathUtils.IsSamePath(f.Configuration.InterpreterPath, interpExe));
+                    return factory;
                 } else {
                     return null;
                 }
@@ -140,34 +159,37 @@ namespace Microsoft.PythonTools.Environments {
                 }
             }
 
-            // Ensure the target directory exists.
-            Directory.CreateDirectory(dir);
+            var workspaceFactoryProvider = provider.GetComponentModel().GetService<WorkspaceInterpreterFactoryProvider>();
+            using (workspaceFactoryProvider?.SuppressDiscoverFactories(forceDiscoveryOnDispose: true)) {
+                // Ensure the target directory exists.
+                Directory.CreateDirectory(dir);
 
-            using (var proc = ProcessOutput.Run(
-                factory.Configuration.InterpreterPath,
-                new[] { "-m", useVEnv ? "venv" : "virtualenv", name },
-                dir,
-                UnbufferedEnv,
-                false,
-                output
-            )) {
-                var exitCode = await proc;
+                using (var proc = ProcessOutput.Run(
+                    factory.Configuration.InterpreterPath,
+                    new[] { "-m", useVEnv ? "venv" : "virtualenv", name },
+                    dir,
+                    UnbufferedEnv,
+                    false,
+                    output
+                )) {
+                    var exitCode = await proc;
 
-                if (output != null) {
-                    if (exitCode == 0) {
-                        output.WriteLine(Strings.VirtualEnvCreationSucceeded.FormatUI(path));
-                    } else {
-                        output.WriteLine(Strings.VirtualEnvCreationFailedExitCode.FormatUI(path, exitCode));
+                    if (output != null) {
+                        if (exitCode == 0) {
+                            output.WriteLine(Strings.VirtualEnvCreationSucceeded.FormatUI(path));
+                        } else {
+                            output.WriteLine(Strings.VirtualEnvCreationFailedExitCode.FormatUI(path, exitCode));
+                        }
+                        if (provider.GetPythonToolsService().GeneralOptions.ShowOutputWindowForVirtualEnvCreate) {
+                            output.ShowAndActivate();
+                        } else {
+                            output.Show();
+                        }
                     }
-                    if (provider.GetPythonToolsService().GeneralOptions.ShowOutputWindowForVirtualEnvCreate) {
-                        output.ShowAndActivate();
-                    } else {
-                        output.Show();
-                    }
-                }
 
-                if (exitCode != 0 || !Directory.Exists(path)) {
-                    throw new InvalidOperationException(Strings.VirtualEnvCreationFailed.FormatUI(path));
+                    if (exitCode != 0 || !Directory.Exists(path)) {
+                        throw new InvalidOperationException(Strings.VirtualEnvCreationFailed.FormatUI(path));
+                    }
                 }
             }
         }
@@ -309,7 +331,7 @@ namespace Microsoft.PythonTools.Environments {
                 pathVar,
                 baseInterpreter.Configuration.Architecture,
                 baseInterpreter.Configuration.Version,
-                InterpreterUIMode.CannotBeDefault | InterpreterUIMode.CannotBeConfigured | InterpreterUIMode.SupportsDatabase
+                InterpreterUIMode.CannotBeDefault | InterpreterUIMode.CannotBeConfigured
             );
         }
 

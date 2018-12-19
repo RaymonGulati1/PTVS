@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,7 +21,7 @@ using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Text.Operations;
 using Microsoft.VisualStudio.Utilities;
 #if DEV16_OR_LATER
-using Microsoft.WebTools.Languages.Editor.Controller;
+using Microsoft.WebTools.Languages.Shared.Editor.Controller;
 #else
 using Microsoft.Web.Editor.Controller;
 #endif
@@ -44,8 +44,10 @@ namespace Microsoft.PythonTools.Django.Intellisense {
                 new TemplateTypingCommandHandler(
                     textView, textBuffer,
                     _editorOptionsFactory.GetOptions(textView),
-                    _editorOperationsFactory.GetEditorOperations(textView)),
-                new TemplateCompletionCommandHandler(textView)
+                    _editorOperationsFactory.GetEditorOperations(textView))
+#if !DEV16_OR_LATER
+                , new TemplateCompletionCommandHandler(textView)
+#endif
             };
         }
     }

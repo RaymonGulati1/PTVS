@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -104,6 +104,9 @@ namespace Microsoft.PythonTools.Debugger {
             }
             if (pyService.DebuggerOptions.DebugStdLib) {
                 options.Append(";" + AD7Engine.DebugStdLib + "=True");
+            }
+            if (pyService.DebuggerOptions.ShowFunctionReturnValue) {
+                options.Append(";" + AD7Engine.ShowReturnValue + "=True");
             }
 
             engine.SetMetric(AD7Engine.DebugOptionsMetric, options.ToString());
