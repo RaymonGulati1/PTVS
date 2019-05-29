@@ -101,10 +101,6 @@
     <Compile Include="VSPackage.cs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\Product\Debugger\Debugger.csproj">
-      <Project>{DECC7971-FA58-4DB0-9561-BFFADD393BBD}</Project>
-      <Name>Debugger</Name>
-    </ProjectReference>
     <ProjectReference Include="..\..\Product\Django\Django.csproj">
       <Project>{639f1efb-5a8b-4f8b-bf49-bc73f244d38d}</Project>
       <Name>Django</Name>
