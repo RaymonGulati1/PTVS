@@ -9,6 +9,8 @@
 
   
   
+  
+  
   <!-- If any references packages have been installed, use them. -->
   <PropertyGroup>
     <ResolveAssemblyReferencesDependsOn>$(ResolveAssemblyReferencesDependsOn);_AddPTVSReferences</ResolveAssemblyReferencesDependsOn>
