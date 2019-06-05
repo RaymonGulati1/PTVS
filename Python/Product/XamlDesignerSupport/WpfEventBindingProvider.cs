@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,9 +19,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Microsoft.PythonTools.Infrastructure;
-using Microsoft.PythonTools.Intellisense;
 using Microsoft.VisualStudio.Text;
-using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Text.Editor.OptionsExtensionMethods;
 using Microsoft.Windows.Design.Host;
 
@@ -51,6 +49,10 @@ namespace Microsoft.PythonTools.XamlDesignerSupport {
         }
 
         public override bool CreateMethod(EventDescription eventDescription, string methodName, string initialStatements) {
+            if (!_callback.EnsureDocumentIsOpen()) {
+                return false;
+            }
+
             // build the new method handler
             var insertPoint = _callback.GetInsertionPoint(null);
 

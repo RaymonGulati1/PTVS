@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -50,7 +50,6 @@ namespace PythonToolsMockTests {
             IVsWritableSettingsStore store;
             ErrorHandler.ThrowOnFailure(settings.GetWritableSettingsStore((uint)SettingsScope.Configuration, out store));
             
-            
             _serviceContainer.AddService(typeof(IPythonToolsOptionsService), (sp, t) => new MockPythonToolsOptionsService());
             _serviceContainer.AddService(typeof(IClipboardService), (sp, t) => new MockClipboardService());
             _serviceContainer.AddService(typeof(MockErrorProviderFactory), (sp, t) => new MockErrorProviderFactory(), true);
@@ -59,8 +58,7 @@ namespace PythonToolsMockTests {
             _serviceContainer.AddService(typeof(ErrorTaskProvider), CreateTaskProviderService, true);
             _serviceContainer.AddService(typeof(CommentTaskProvider), CreateTaskProviderService, true);
             _serviceContainer.AddService(typeof(SolutionEventsListener), (sp, t) => new SolutionEventsListener(sp), true);
-
-            UIThread.EnsureService(_serviceContainer);
+            _serviceContainer.AddService(typeof(UIThreadBase), new UIThread(null), true);
 
             _serviceContainer.AddService(typeof(IPythonLibraryManager), (object)null);
 
@@ -85,11 +83,10 @@ namespace PythonToolsMockTests {
             if (SuppressTaskProvider) {
                 return null;
             }
-            var errorProvider = container.GetComponentModel().GetService<IErrorProviderFactory>();
             if (typeof(ErrorTaskProvider).IsEquivalentTo(type) || typeof(ErrorTaskProvider).GUID == type.GUID) {
-                return new ErrorTaskProvider(container, null, errorProvider);
+                return ErrorTaskProvider.CreateService(container, typeof(ErrorTaskProvider));
             } else if (typeof(CommentTaskProvider).IsEquivalentTo(type) || typeof(CommentTaskProvider).GUID == type.GUID) {
-                return new CommentTaskProvider(container, null, errorProvider);
+                return CommentTaskProvider.CreateService(container, typeof(CommentTaskProvider));
             } else {
                 return null;
             }

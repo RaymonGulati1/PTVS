@@ -9,27 +9,17 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
-using System;
 using System.IO;
 using System.Linq;
-using Microsoft.PythonTools;
-using Microsoft.PythonTools.Debugger;
 using Microsoft.PythonTools.Intellisense;
-using Microsoft.PythonTools.Interpreter;
-using Microsoft.PythonTools.Interpreter.Default;
 using Microsoft.PythonTools.Parsing;
-using Microsoft.PythonTools.Parsing.Ast;
-using Microsoft.PythonTools.Refactoring;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Microsoft.VisualStudio.Text;
 using TestUtilities;
-using TestUtilities.Mocks;
-using TestUtilities.Python;
 
 namespace PythonToolsTests {
     [TestClass]
@@ -37,10 +27,9 @@ namespace PythonToolsTests {
         [ClassInitialize]
         public static void DoDeployment(TestContext context) {
             AssertListener.Initialize();
-            PythonTestData.Deploy();
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void AutosRangeCheck() {
             string code = @"
 a; b.\
@@ -51,12 +40,12 @@ len(i)";
             ProximityTest(code, 3, 4, "b.c.d[e]", "e", "abs(f.g)", "f.g");
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void AutosNames() {
             ProximityTest("a", "a");
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void AutosMembers() {
             string code = @"
 a.b.c
@@ -66,32 +55,32 @@ d.e[0].f
 abs(f.g).e
 h(i.j).k
 ";
-            ProximityTest(code, "a.b.c", "d", "d.e[0].f", "g", " (g + 1).e", "abs(f.g).e", "f.g", "i.j");
+            ProximityTest(code, "a.b.c", "d", "d.e[0].f", "g", "(g + 1).e", "abs(f.g).e", "f.g", "i.j");
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void AutosIndexing() {
             string code = @"
-a[b.c[d.e], f:g].h[abs(i[j])].k[l(m[n])].o[p]
+a[b.c[d.e],f:g].h[abs(i[j])].k[l(m[n])].o[p]
 abs(q[r])[s]
 ";
             ProximityTest(code,
-                "a[(b.c[d.e],f :g)].h[abs(i[j])].k",
+                "a[(b.c[d.e], f:g)].h[abs(i[j])].k",
                 "b.c[d.e]", "d.e", "f", "g", "abs(i[j])", "i[j]", "j",
                 "m[n]", "n", "p", "abs(q[r])[s]", "q[r]", "r", "s");
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void AutosCalls() {
             string code = @"
 abs(a, len(b))
 c(d)
 e.f.g(h)
 ";
-            ProximityTest(code, "abs(a,len(b))", "a", "len(b)", "b", "d", "e.f", "h");
+            ProximityTest(code, "abs(a, len(b))", "a", "len(b)", "b", "d", "e.f", "h");
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void AutosNoYield() {
             string code = @"
 a.b
@@ -101,7 +90,7 @@ a.b
             ProximityTest(code, "a.b", "c", "e");
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void AutosNoBackQuotes() {
             string code = @"
 a.b
@@ -111,7 +100,7 @@ a.b
         }
 
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void AutosNoTrueFalseInV27() {
             string code = @"
 a = True

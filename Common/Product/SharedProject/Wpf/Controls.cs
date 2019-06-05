@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -35,12 +35,21 @@ namespace Microsoft.VisualStudioTools.Wpf {
         public static readonly object GrayTextKey = VsBrushes.GrayTextKey;
         public static readonly object HighlightKey = VsBrushes.HighlightKey;
         public static readonly object HighlightTextKey = VsBrushes.HighlightTextKey;
-        public static readonly object HotTrackKey = VsBrushes.CommandBarMouseOverBackgroundGradientKey;
+        public static readonly object HotTrackKey = VsBrushes.CommandBarHoverKey;
+        public static readonly object HotTrackTextKey = VsBrushes.CommandBarTextHoverKey;
+
+        public static readonly object ListBoxItemSelectedKey = TreeViewColors.SelectedItemActiveBrushKey;
+        public static readonly object ListBoxItemSelectedTextKey = TreeViewColors.SelectedItemActiveTextBrushKey;
 
         public static readonly object TooltipBackgroundKey = new ThemeResourceKey(EnvCategory, "ToolTip", ThemeResourceKeyType.BackgroundBrush);
         public static readonly object TooltipBackgroundColorKey = new ThemeResourceKey(EnvCategory, "ToolTip", ThemeResourceKeyType.BackgroundColor);
         public static readonly object TooltipTextKey = new ThemeResourceKey(EnvCategory, "ToolTip", ThemeResourceKeyType.ForegroundBrush);
         public static readonly object TooltipTextColorKey = new ThemeResourceKey(EnvCategory, "ToolTip", ThemeResourceKeyType.ForegroundColor);
+
+        public static readonly object InfoBackgroundKey = VsBrushes.InfoBackgroundKey;
+        public static readonly object InfoBackgroundColorKey = VsColors.InfoBackgroundKey;
+        public static readonly object InfoTextKey = VsBrushes.InfoTextKey;
+        public static readonly object InfoTextColorKey = VsColors.InfoTextKey;
 
         public static readonly object HyperlinkKey = VsBrushes.ControlLinkTextKey;
         public static readonly object HyperlinkHoverKey = VsBrushes.ControlLinkTextHoverKey;
@@ -49,7 +58,8 @@ namespace Microsoft.VisualStudioTools.Wpf {
         public static readonly object ControlForegroundKey = VsBrushes.WindowTextKey;
         public static readonly object ControlBorderKey = VsBrushes.ComboBoxBorderKey;
         public static readonly object ControlBackgroundHoverKey = VsBrushes.ComboBoxMouseOverBackgroundGradientKey;
-        public static readonly object ControlBorderHoverKey = VsBrushes.ComboBoxMouseOverGlyphKey;
+        public static readonly object ControlBorderHoverKey = VsBrushes.ComboBoxMouseOverBorderKey;
+        public static readonly object ControlForegroundHoverKey = VsBrushes.CommandBarTextHoverKey;
         public static readonly object ControlBackgroundPressedKey = VsBrushes.ComboBoxMouseDownBackgroundKey;
         public static readonly object ControlForegroundPressedKey = VsBrushes.ComboBoxGlyphKey;
         public static readonly object ControlBorderPressedKey = VsBrushes.ComboBoxMouseDownBorderKey;
@@ -80,13 +90,15 @@ namespace Microsoft.VisualStudioTools.Wpf {
         public static readonly object ComboBoxPopupForegroundKey = VsBrushes.WindowTextKey;
 
         public static readonly object ButtonForegroundPressedKey = VsBrushes.ToolWindowButtonDownActiveGlyphKey;
-        public static readonly object ButtonBackgroundPressedKey = VsBrushes.ComboBoxMouseOverBorderKey;
-        public static readonly object ButtonBackgroundHoverKey = VsBrushes.CommandBarHoverOverSelectedKey;
-        public static readonly object ButtonBorderHoverKey = VsBrushes.ComboBoxMouseOverGlyphKey;
+        public static readonly object ButtonBackgroundPressedKey = VsBrushes.ToolWindowButtonDownKey;
+        public static readonly object ButtonForegroundHoverKey = VsBrushes.ToolWindowButtonHoverActiveGlyphKey;
+        public static readonly object ButtonBackgroundHoverKey = VsBrushes.ToolWindowButtonHoverActiveKey;
+        public static readonly object ButtonBorderHoverKey = VsBrushes.ToolWindowButtonHoverActiveBorderKey;
         public static readonly object ButtonForegroundPressedColorKey = VsColors.ToolWindowButtonDownActiveGlyphKey;
-        public static readonly object ButtonBackgroundPressedColorKey = VsColors.ComboBoxMouseOverBorderKey;
-        public static readonly object ButtonBackgroundHoverColorKey = VsColors.CommandBarHoverOverSelectedKey;
-        public static readonly object ButtonBorderHoverColorKey = VsColors.ComboBoxMouseOverGlyphKey;
+        public static readonly object ButtonBackgroundPressedColorKey = VsColors.ToolWindowButtonDownKey;
+        public static readonly object ButtonForegroundHoverColorKey = VsColors.ComboBoxMouseOverGlyphKey;
+        public static readonly object ButtonBackgroundHoverColorKey = VsColors.ComboBoxMouseOverBackgroundBeginKey;
+        public static readonly object ButtonBorderHoverColorKey = VsColors.ToolWindowButtonHoverActiveBorderKey;
 
         public static readonly object ScrollBarBackgroundKey = VsBrushes.ScrollBarBackgroundKey;
         public static readonly object ScrollBarThumbBackgroundKey = VsBrushes.ScrollBarThumbBackgroundKey;

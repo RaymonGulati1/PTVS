@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,6 +20,7 @@ using System.Linq;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Text;
 using Microsoft.PythonTools.Django.TemplateParsing.DjangoBlocks;
+using Microsoft.PythonTools.Infrastructure;
 
 namespace Microsoft.PythonTools.Django.TemplateParsing {
     class DjangoBlock {
@@ -41,7 +42,7 @@ namespace Microsoft.PythonTools.Django.TemplateParsing {
         /// </summary>
         public static DjangoBlock Parse(string text, bool trim = false) {
             int start = 0;
-            if (text.StartsWith("{%")) {
+            if (text.StartsWithOrdinal("{%")) {
                 text = DjangoVariable.GetTrimmedFilterText(text, ref start);
                 if (text == null) {
                     return null;

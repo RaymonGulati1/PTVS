@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,15 +19,16 @@ using Microsoft.VisualStudio.Text;
 
 namespace Microsoft.PythonTools.Intellisense {
     class SnapshotCookie : IIntellisenseCookie {
-        private readonly ITextSnapshot _snapshot;
+        private readonly WeakReference<ITextSnapshot> _snapshot;
         
         public SnapshotCookie(ITextSnapshot snapshot) {
-            _snapshot = snapshot;
+            _snapshot = new WeakReference<ITextSnapshot>(snapshot);
         }
 
         public ITextSnapshot Snapshot {
             get {
-                return _snapshot;
+                ITextSnapshot value;
+                return _snapshot.TryGetTarget(out value) ? value : null;
             }
         }
 
@@ -35,7 +36,7 @@ namespace Microsoft.PythonTools.Intellisense {
 
         public string GetLine(int lineNo) {
             try {
-                return _snapshot.GetLineFromLineNumber(lineNo - 1).GetText();
+                return Snapshot?.GetLineFromLineNumber(lineNo - 1).GetText() ?? string.Empty;
             } catch (ArgumentOutOfRangeException) {
                 return string.Empty;
             }

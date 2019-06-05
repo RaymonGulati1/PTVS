@@ -9,20 +9,20 @@
 # THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 # OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 # IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-# MERCHANTABLITY OR NON-INFRINGEMENT.
+# MERCHANTABILITY OR NON-INFRINGEMENT.
 # 
 # See the Apache Version 2.0 License for specific language governing
 # permissions and limitations under the License.
 
 __author__ = "Microsoft Corporation <ptvshelp@microsoft.com>"
-__version__ = "3.1.0.0"
+__version__ = "3.2.1.0"
 
 import os
 import sys
 from optparse import OptionParser
-from ptvsd.visualstudio_py_util import exec_file
-from ptvsd.visualstudio_py_debugger import DONT_DEBUG
-from ptvsd.attach_server import DEFAULT_PORT, enable_attach, wait_for_attach
+from ptvsd.util import exec_file
+from ptvsd.debugger import DONT_DEBUG
+from ptvsd import DEFAULT_PORT, enable_attach, wait_for_attach
 
 parser = OptionParser(prog = 'ptvsd', usage = 'Usage: %prog [<option>]... <file> [- <args>]', version = '%prog ' + __version__)
 parser.add_option('-s', '--secret', metavar = '<secret>', help = 'restrict server to only allow clients that specify <secret> when connecting')

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,5 +20,19 @@ namespace Microsoft.CookiecutterTools.Model {
     class TemplateContext {
         public List<ContextItem> Items { get; } = new List<ContextItem>();
         public List<DteCommand> Commands { get; } = new List<DteCommand>();
+
+        public TemplateContext() :
+            this(null, null) {
+        }
+
+        public TemplateContext(ContextItem[] items = null, DteCommand[] cmds = null) {
+            if (items != null) {
+                Items.AddRange(items);
+            }
+
+            if (cmds != null) {
+                Commands.AddRange(cmds);
+            }
+        }
     }
 }

@@ -9,12 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Microsoft.PythonTools.Interpreter;
@@ -31,7 +32,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
             var seqInfo = klass as SequenceBuiltinClassInfo;
             if (seqInfo != null) {
-                UnionType = seqInfo.IndexTypes;
+                UnionType = AnalysisSet.UnionAll(seqInfo.IndexTypes);
             } else if (sequenceOfSelf) {
                 UnionType = SelfSet;
             } else {
@@ -39,8 +40,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
             }
         }
 
-        protected override void EnsureUnionType() {
-        }
+        protected override void EnsureUnionType() { }
 
         protected override IAnalysisSet MakeIteratorInfo(Node n, AnalysisUnit unit) {
             return new FixedIteratorValue(
@@ -50,12 +50,29 @@ namespace Microsoft.PythonTools.Analysis.Values {
         }
 
         public override IAnalysisSet GetIndex(Node node, AnalysisUnit unit, IAnalysisSet index) {
+            if (ClassInfo is SequenceBuiltinClassInfo seq && seq.IndexTypes?.Count > 0) {
+                int? constIndex = SequenceInfo.GetConstantIndex(index);
+
+                if (constIndex != null) {
+                    if (constIndex.Value < 0) {
+                        constIndex += seq.IndexTypes.Count;
+                    }
+                    if (0 <= constIndex.Value && constIndex.Value < seq.IndexTypes.Count) {
+                        return seq.IndexTypes[constIndex.Value];
+                    }
+                }
+
+                if (index.Split(out IReadOnlyList<SliceInfo> sliceInfo, out _)) {
+                    return this.SelfSet;
+                }
+            }
+
             return UnionType;
         }
 
         public override IAnalysisSet GetEnumeratorTypes(Node node, AnalysisUnit unit) {
             return UnionType;
-        }       
+        }
 
         public override IAnalysisSet BinaryOperation(Node node, AnalysisUnit unit, Parsing.PythonOperator operation, IAnalysisSet rhs) {
             var res = AnalysisSet.Empty;
@@ -93,25 +110,13 @@ namespace Microsoft.PythonTools.Analysis.Values {
             return res;
         }
 
-        public override string ToString() {
-            return Description;
-        }
-
-        public override string ShortDescription {
-            get {
-                return Description;
+        public override IEnumerable<KeyValuePair<string, string>> GetRichDescription() {
+            if (UnionType == this) {
+                return new[] {
+                    new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Type, _type.Name)
+                };
             }
+            return base.GetRichDescription();
         }
-
-        public override string Description {
-            get {
-                if (UnionType == this) {
-                    return _type.Name;
-                } else {
-                    return IterableValue.MakeDescription(this, _type.Name, UnionType);
-                }
-            }
-        }
-
     }
 }

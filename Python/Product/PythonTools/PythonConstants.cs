@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,17 +17,21 @@
 using System;
 
 namespace Microsoft.PythonTools {
-    public static class PythonConstants {
+    static class PythonConstants {
         //Language name
         public const string LanguageName = "Python";
         internal const string TextEditorSettingsRegistryKey = LanguageName;
-        internal const string FileExtension = ".py";
         internal const string ProjectFileFilter = "Python Project File (*.pyproj)\n*.pyproj\nAll Files (*.*)\n*.*\n";
         /// <summary>
         /// The extension for Python files which represent Windows applications.
         /// </summary>
-        internal const string WindowsFileExtension = ".pyw";
         internal const string ProjectImageList = "Microsoft.PythonImageList.png";
+
+        internal const string FileExtension = ".py";
+        internal const string WindowsFileExtension = ".pyw";
+        internal const string StubFileExtension = ".pyi";
+        internal const string SourceFileExtensions = ".py;.pyw;.pyi";
+        internal static readonly string[] SourceFileExtensionsArray = SourceFileExtensions.Split(';');
 
         internal const string LibraryManagerGuid = "888888e5-b976-4366-9e98-e7bc01f1842c";
         internal const string LibraryManagerServiceGuid = "88888859-2f95-416e-9e2b-cac4678e5af7";
@@ -61,12 +65,13 @@ namespace Microsoft.PythonTools {
         // Command IDs
         internal const int AddEnvironment = 0x4006;
         internal const int AddVirtualEnv = 0x4007;
-        internal const int AddExistingVirtualEnv = 0x4008;
+        internal const int AddExistingEnv = 0x4008;
         internal const int ActivateEnvironment = 0x4009;
         internal const int InstallPythonPackage = 0x400A;
         internal const int InstallRequirementsTxt = 0x4033;
         internal const int GenerateRequirementsTxt = 0x4034;
-        internal const int ProcessRequirementsTxt = 0x4036;
+        internal const int ProcessRequirementsTxt = 0x4036; // deprecated
+        internal const int AddCondaEnv = 0x4037;
         internal const int OpenInteractiveForEnvironment = 0x4031;
         internal const int ViewAllEnvironments = 0x400B;
 
@@ -81,11 +86,16 @@ namespace Microsoft.PythonTools {
         internal const int SearchPathContainerMenuId = 0x2009;
         internal const int SearchPathMenuId = 0x200A;
         internal const int ReplWindowToolbar = 0x200B;
+        internal const int EnvironmentStatusBarMenu = 0x200D;
 
         // Custom (per-project) commands
         internal const int FirstCustomCmdId = 0x4010;
         internal const int LastCustomCmdId = 0x402F;
         internal const int CustomProjectCommandsMenu = 0x2005;
+
+        // Environments status bar switcher commands
+        internal const int FirstEnvironmentCmdId = 0x4050;
+        internal const int LastEnvironmentCmdId = 0x4090;
 
         // Shows up before references
         internal const int InterpretersContainerNodeSortPriority = 200;
@@ -135,6 +145,12 @@ namespace Microsoft.PythonTools {
 
         // Mixed-mode debugging project property
         public const string EnableNativeCodeDebugging = "EnableNativeCodeDebugging";
+
+        // Suppress the prompt for environment creation project property
+        public const string SuppressEnvironmentCreationPrompt = "SuppressEnvironmentCreationPrompt";
+
+        // Suppress the prompt for package installation project property
+        public const string SuppressPackageInstallationPrompt = "SuppressPackageInstallationPrompt";
 
         // Launch option to ignore pause on exist settings
         internal const string NeverPauseOnExit = "NeverPauseOnExit";

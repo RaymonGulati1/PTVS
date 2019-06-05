@@ -9,13 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
-using System.Globalization;
+using Microsoft.CookiecutterTools.Infrastructure;
 
 namespace Microsoft.CookiecutterTools.Model {
     [Serializable]
@@ -23,7 +23,7 @@ namespace Microsoft.CookiecutterTools.Model {
         public ProcessOutputResult Result { get; }
 
         public ProcessException(ProcessOutputResult result) :
-            base(string.Format(CultureInfo.CurrentUICulture, Strings.ProcessExitCodeMessage, result.ExeFileName, result.ExitCode)) {
+            base(Strings.ProcessExitCodeMessage.FormatUI(result.ExeFileName, result.ExitCode)) {
             Result = result;
         }
     }

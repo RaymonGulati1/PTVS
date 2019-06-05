@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,7 +20,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using Microsoft.PythonTools.Analysis.Analyzer;
-using Microsoft.PythonTools.Infrastructure;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Parsing.Ast;
@@ -44,21 +44,11 @@ namespace Microsoft.PythonTools.Analysis.Values {
             _members = members;
         }
 
-        public AnalysisValue[] Members {
-            get {
-                return _members;
-            }
-        }
+        public AnalysisValue[] Members => _members;
 
-        public override PythonMemberType MemberType {
-            get { return PythonMemberType.Multiple; }
-        }
-
-        public override IEnumerable<OverloadResult> Overloads {
-            get {
-                return _members.SelectMany(m => m.Overloads).Distinct(OverloadResultComparer.Instance);
-            }
-        }
+        public override PythonMemberType MemberType => PythonMemberType.Multiple;
+        public override IEnumerable<OverloadResult> Overloads
+            => _members.SelectMany(m => m.Overloads).Distinct(OverloadResultComparer.Instance);
 
         public override IAnalysisSet GetTypeMember(Node node, AnalysisUnit unit, string name) {
             var res = AnalysisSet.Empty;
@@ -236,11 +226,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
             }
         }
 
-        public override IEnumerable<LocationInfo> Locations {
-            get {
-                return _members.SelectMany(m => m.Locations);
-            }
-        }
+        public override IEnumerable<LocationInfo> Locations => _members.SelectMany(m => m.Locations);
 
         IModule IModule.GetChildPackage(IModuleContext context, string name) {
             var children = new List<AnalysisValue>();

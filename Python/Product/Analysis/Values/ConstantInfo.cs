@@ -9,12 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System.Collections.Generic;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Parsing.Ast;
@@ -25,22 +26,6 @@ namespace Microsoft.PythonTools.Analysis.Values {
         private readonly BuiltinInstanceInfo _builtinInfo;
         private readonly PythonMemberType _memberType;
         private string _doc;
-
-        public static ConstantInfo Create(PythonAnalyzer state, object value) {
-            var constant = value as IPythonConstant;
-            var constantType = constant?.Type;
-            var av = state.GetAnalysisValueFromObjectsThrowOnNull(constantType ?? state.GetTypeFromObject(value));
-
-            var ci = av as ConstantInfo;
-            if (ci != null) {
-                return ci;
-            }
-            var bci = av as BuiltinClassInfo;
-            if (bci != null) {
-                return new ConstantInfo(bci, value, constant?.MemberType ?? PythonMemberType.Constant);
-            }
-            return null;
-        }
 
         internal ConstantInfo(BuiltinClassInfo klass, object value, PythonMemberType memberType)
             : base(klass) {
@@ -57,7 +42,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
             var res = AnalysisSet.Empty;
             var lhsType = lhs.TypeId;
 
-            foreach(var ns in rhs) {
+            foreach (var ns in rhs) {
                 var rhsType = ns.TypeId;
 
                 // First handle string operations
@@ -74,35 +59,43 @@ namespace Microsoft.PythonTools.Analysis.Values {
                     continue;
                 } else if (operation == PythonOperator.Multiply &&
                            (lhsType == BuiltinTypeId.Int || lhsType == BuiltinTypeId.Long)) {
-                    if (rhsType == BuiltinTypeId.Str || rhsType == BuiltinTypeId.Bytes || rhsType == BuiltinTypeId.Unicode ||
-                        rhsType == BuiltinTypeId.Tuple || rhsType == BuiltinTypeId.List) {
-                        res = res.Union(unit.ProjectState.ClassInfos[rhsType].Instance);
+                    if (rhsType == BuiltinTypeId.Str || rhsType == BuiltinTypeId.Bytes || rhsType == BuiltinTypeId.Unicode) {
+                        res = res.Union(unit.State.ClassInfos[rhsType].Instance);
+                        continue;
+                    } else if (rhsType == BuiltinTypeId.Tuple || rhsType == BuiltinTypeId.List) {
+                        res = res.Union(rhs);
                         continue;
                     }
+                } else if (operation.IsComparison()) {
+                    // This is simplified check to make analysis assume boolean type
+                    // over the comparison operator. This is not always correct and
+                    // may break if class redefines comparison operators differently.
+                    res = res.Union(unit.State.ClassInfos[BuiltinTypeId.Bool].Instance);
+                    continue;
                 }
 
                 // These specializations change rhsType before type promotion
                 // rules are applied.
-                if ((operation == PythonOperator.TrueDivide || 
-                    (operation == PythonOperator.Divide && unit.ProjectState.LanguageVersion.Is3x())) &&
+                if ((operation == PythonOperator.TrueDivide ||
+                    (operation == PythonOperator.Divide && unit.State.LanguageVersion.Is3x())) &&
                     (lhsType == BuiltinTypeId.Int || lhsType == BuiltinTypeId.Long) &&
                     (rhsType == BuiltinTypeId.Int || rhsType == BuiltinTypeId.Long)) {
                     rhsType = BuiltinTypeId.Float;
                 }
 
                 // Type promotion rules are applied 
-                if (lhsType == BuiltinTypeId.Unknown || lhsType > BuiltinTypeId.Complex || 
-                    rhsType == BuiltinTypeId.Unknown || rhsType > BuiltinTypeId.Complex) {
+                if (lhsType <= BuiltinTypeId.NoneType || lhsType > BuiltinTypeId.Complex ||
+                    rhsType <= BuiltinTypeId.NoneType || rhsType > BuiltinTypeId.Complex) {
                     // Non-numeric types require the reverse operation
                     res = res.Union(ns.ReverseBinaryOperation(node, unit, operation, lhs));
                 } else if (lhsType == BuiltinTypeId.Complex || rhsType == BuiltinTypeId.Complex) {
-                    res = res.Union(unit.ProjectState.ClassInfos[BuiltinTypeId.Complex].Instance);
+                    res = res.Union(unit.State.ClassInfos[BuiltinTypeId.Complex].Instance);
                 } else if (lhsType == BuiltinTypeId.Float || rhsType == BuiltinTypeId.Float) {
-                    res = res.Union(unit.ProjectState.ClassInfos[BuiltinTypeId.Float].Instance);
+                    res = res.Union(unit.State.ClassInfos[BuiltinTypeId.Float].Instance);
                 } else if (lhsType == BuiltinTypeId.Long || rhsType == BuiltinTypeId.Long) {
-                    res = res.Union(unit.ProjectState.ClassInfos[BuiltinTypeId.Long].Instance);
+                    res = res.Union(unit.State.ClassInfos[BuiltinTypeId.Long].Instance);
                 } else {
-                    res = res.Union(unit.ProjectState.ClassInfos[BuiltinTypeId.Int].Instance);
+                    res = res.Union(unit.State.ClassInfos[BuiltinTypeId.Int].Instance);
                 }
             }
 
@@ -110,6 +103,16 @@ namespace Microsoft.PythonTools.Analysis.Values {
         }
 
         public override IAnalysisSet UnaryOperation(Node node, AnalysisUnit unit, PythonOperator operation) {
+            if (operation == PythonOperator.Negate && _value != null) {
+                if (_value is int i) {
+                    return ProjectState.GetConstant(-i);
+                } else if (_value is float f) {
+                    return ProjectState.GetConstant(-f);
+                } else if (_value is double d) {
+                    return ProjectState.GetConstant(-d);
+                }
+            }
+
             return _builtinInfo.UnaryOperation(node, unit, operation);
         }
 
@@ -184,6 +187,9 @@ namespace Microsoft.PythonTools.Analysis.Values {
         public override string ToString() {
             var valueStr = (_value == null || _value is IPythonConstant) ? "" : (" '" + _value.ToString() + "'");
             valueStr = valueStr.Replace("\r", "\\r").Replace("\n", "\\n");
+            for (char c = '\0'; c < ' '; ++c) {
+                valueStr = valueStr.Replace(c.ToString(), "\\x{0:X2}".FormatInvariant((int)c));
+            }
             return "<" + Description + valueStr + ">"; // " at " + hex(id(self))
         }
 

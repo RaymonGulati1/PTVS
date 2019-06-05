@@ -9,10 +9,12 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
+
+using System;
 
 namespace Microsoft.CookiecutterTools.Model {
     interface IProjectSystemClient {
@@ -36,6 +38,22 @@ namespace Microsoft.CookiecutterTools.Model {
         /// All paths are relative.
         /// </param>
         void AddToProject(ProjectLocation location, CreateFilesOperationResult creationResult);
+
+        /// <summary>
+        /// Add the specified project to the currently loaded solution.
+        /// </summary>
+        /// <param name="projectFilePath">Path to project file to add.</param>
+        void AddToSolution(string projectFilePath);
+
+        /// <summary>
+        /// Returns whether a solution is currently open in the IDE.
+        /// </summary>
+        bool IsSolutionOpen { get; }
+
+        /// <summary>
+        /// Notification for when a solution is opened or closed in the IDE.
+        /// </summary>
+        event EventHandler SolutionOpenChanged;
     }
 
     class ProjectLocation {

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -64,7 +64,7 @@ namespace TestUtilities.UI {
             for (int i = 1; i < path.Length; i++) {
                 basePath = Path.Combine(basePath, path[i]);
             }
-            Assert.IsTrue(Directory.Exists(basePath), "File doesn't exist: " + basePath);
+            Assert.IsTrue(Directory.Exists(basePath), "Folder doesn't exist: " + basePath);
         }
 
         public void AssertFolderDoesntExist(string projectLocation, params string[] path) {
@@ -74,7 +74,7 @@ namespace TestUtilities.UI {
             for (int i = 1; i < path.Length; i++) {
                 basePath = Path.Combine(basePath, path[i]);
             }
-            Assert.IsFalse(Directory.Exists(basePath), "File exists: " + basePath);
+            Assert.IsFalse(Directory.Exists(basePath), "Folder exists: " + basePath);
         }
 
         private void AssertItemExistsInTree(string[] path) {
@@ -104,7 +104,11 @@ namespace TestUtilities.UI {
         }
 
         public TreeNode WaitForChildOfProject(EnvDTE.Project project, params string[] path) {
-            var item = WaitForItemHelper(p => FindChildOfProjectHelper(project, p, false), path);
+            return WaitForChildOfProject(project, TimeSpan.FromSeconds(10), path);
+        }
+
+        public TreeNode WaitForChildOfProject(EnvDTE.Project project, TimeSpan timeout, params string[] path) {
+            var item = WaitForItemHelper(p => FindChildOfProjectHelper(project, p, false), path, timeout);
             // Check one more time, but now let the assertions be raised.
             return new TreeNode(FindChildOfProjectHelper(project, path, true));
         }
@@ -119,6 +123,40 @@ namespace TestUtilities.UI {
 
         public TreeNode TryFindChildOfProject(EnvDTE.Project project, params string[] path) {
             return new TreeNode(FindChildOfProjectHelper(project, path, false));
+        }
+
+        public TreeNode WaitForChildOfWorkspace(params string[] path) {
+            return WaitForChildOfWorkspace(TimeSpan.FromSeconds(10), path);
+        }
+
+        public TreeNode WaitForChildOfWorkspace(TimeSpan timeout, params string[] path) {
+            var item = WaitForItemHelper(p => FindChildOfWorkspaceHelper(p, false), path, timeout);
+            // Check one more time, but now let the assertions be raised.
+            return new TreeNode(FindChildOfWorkspaceHelper(path, true));
+        }
+
+        private AutomationElement FindChildOfWorkspaceHelper(string[] path, bool assertOnFailure) {
+            var projElement = Nodes.FirstOrDefault()?.Element;
+            if (assertOnFailure) {
+                AutomationWrapper.DumpElement(Element);
+                Assert.IsNotNull(projElement, "Did not find solution explorer workspace root element");
+            }
+
+            if (projElement == null) {
+                return null;
+            }
+
+            var itemElement = path.Any() ? FindNode(
+                projElement.FindAll(TreeScope.Children, Condition.TrueCondition),
+                path,
+                0
+            ) : projElement;
+
+            if (assertOnFailure) {
+                AutomationWrapper.DumpElement(Element);
+                Assert.IsNotNull(itemElement, string.Format("Did not find element <{0}>", string.Join("\\", path)));
+            }
+            return itemElement;
         }
 
         private AutomationElement FindChildOfProjectHelper(EnvDTE.Project project, string[] path, bool assertOnFailure) {

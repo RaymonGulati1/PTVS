@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,7 +21,7 @@ namespace TestUtilities.UI {
     public class CheckBox : AutomationWrapper {
         public string Name { get; set; }
 
-        public CheckBox(AutomationElement element, CheckListView parent)
+        public CheckBox(AutomationElement element)
             : base(element) {
             Name = (string)Element.GetCurrentPropertyValue(AutomationElement.NameProperty);
         }
@@ -43,6 +43,21 @@ namespace TestUtilities.UI {
             if (pattern.Current.ToggleState != ToggleState.Off) pattern.Toggle();
             if (pattern.Current.ToggleState != ToggleState.Off) pattern.Toggle();
             Assert.AreEqual(pattern.Current.ToggleState, ToggleState.Off, "Could not toggle " + Name + " to Off.");
+        }
+
+        public ToggleState ToggleState {
+            get {
+                TogglePattern pattern = (TogglePattern)Element.GetCurrentPattern(TogglePattern.Pattern);
+                return pattern.Current.ToggleState;
+            }
+
+            set {
+                if (value == ToggleState.On) {
+                    SetSelected();
+                } else if (value == ToggleState.Off) {
+                    SetUnselected();
+                }
+            }
         }
     }
 }

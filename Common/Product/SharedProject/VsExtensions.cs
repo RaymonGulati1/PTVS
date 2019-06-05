@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -27,14 +27,13 @@ namespace Microsoft.VisualStudioTools {
         internal static EnvDTE.Project GetProject(this IVsHierarchy hierarchy) {
             object project;
 
-            int hr = hierarchy.GetProperty(
+            if (ErrorHandler.Failed(hierarchy.GetProperty(
                 VSConstants.VSITEMID_ROOT,
                 (int)__VSHPROPID.VSHPROPID_ExtObject,
                 out project
-            );
-
-            Debug.Assert(ErrorHandler.Succeeded(hr), string.Format("unexpected HR={0:X08}", hr));
-            ErrorHandler.ThrowOnFailure(hr);
+            ))) {
+                return null;
+            }
 
             return (project as EnvDTE.Project);
         }

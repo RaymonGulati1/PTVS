@@ -9,76 +9,71 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
+extern alias analysis;
+extern alias pythontools;
+extern alias util;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using analysis::Microsoft.PythonTools.Parsing;
 using EnvDTE;
-using Microsoft.PythonTools;
-using Microsoft.PythonTools.Intellisense;
-using Microsoft.PythonTools.Parsing;
+using Microsoft.PythonTools.Infrastructure;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
+using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Text.Tagging;
 using Microsoft.VisualStudio.TextManager.Interop;
 using Microsoft.VisualStudioTools;
+using pythontools::Microsoft.PythonTools;
+using pythontools::Microsoft.PythonTools.Editor;
+using pythontools::Microsoft.PythonTools.Intellisense;
 using TestUtilities;
-using TestUtilities.Python;
-using TestUtilities.UI;
 using TestUtilities.UI.Python;
+using util::TestUtilities.UI;
 
 namespace PythonToolsUITests {
-    [TestClass]
     public class EditorTests {
-        [ClassInitialize]
-        public static void DoDeployment(TestContext context) {
-            AssertListener.Initialize();
-            PythonTestData.Deploy();
-        }
-
         #region Test Cases
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void AutomaticBraceCompletion() {
-            using (var app = new PythonVisualStudioApp()) {
-                var project = app.OpenProject(@"TestData\AutomaticBraceCompletion.sln");
+        public void AutomaticBraceCompletion(PythonVisualStudioApp app) {
+            var project = app.OpenProject(@"TestData\AutomaticBraceCompletion.sln");
 
-                bool oldState = EnableAutoBraceCompletion(app, true);
-                app.OnDispose(() => EnableAutoBraceCompletion(app, oldState));
+            bool oldState = EnableAutoBraceCompletion(app, true);
+            app.OnDispose(() => EnableAutoBraceCompletion(app, oldState));
 
-                // check that braces get auto completed
-                AutoBraceCompetionTest(app, project, "foo(", "foo()");
-                AutoBraceCompetionTest(app, project, "foo[", "foo[]");
-                AutoBraceCompetionTest(app, project, "foo{", "foo{}");
-                AutoBraceCompetionTest(app, project, "\"foo", "\"foo\"");
-                AutoBraceCompetionTest(app, project, "'foo", "'foo'");
+            // check that braces get auto completed
+            AutoBraceCompetionTest(app, project, "foo(", "foo()");
+            AutoBraceCompetionTest(app, project, "foo[", "foo[]");
+            AutoBraceCompetionTest(app, project, "foo{", "foo{}");
+            AutoBraceCompetionTest(app, project, "\"foo", "\"foo\"");
+            AutoBraceCompetionTest(app, project, "'foo", "'foo'");
 
-                // check that braces get not autocompleted in comments and strings
-                AutoBraceCompetionTest(app, project, "\"foo(\"", "\"foo(\"");
-                AutoBraceCompetionTest(app, project, "#foo(", "#foo(");
-                AutoBraceCompetionTest(app, project, "\"\"\"\rfoo(\r\"\"\"\"", "\"\"\"\r\nfoo(\r\n\"\"\"\"");
+            // check that braces get not autocompleted in comments and strings
+            AutoBraceCompetionTest(app, project, "\"foo(\"", "\"foo(\"");
+            AutoBraceCompetionTest(app, project, "#foo(", "#foo(");
+            AutoBraceCompetionTest(app, project, "\"\"\"\rfoo(\r\"\"\"\"", "\"\"\"\r\nfoo(\r\n\"\"\"\"");
 
-                // check that end braces gets skiped
-                AutoBraceCompetionTest(app, project, "foo(bar)", "foo(bar)");
-                AutoBraceCompetionTest(app, project, "foo[bar]", "foo[bar]");
-                AutoBraceCompetionTest(app, project, "foo{bar}", "foo{bar}");
-                AutoBraceCompetionTest(app, project, "\"foo\"", "\"foo\"");
-                AutoBraceCompetionTest(app, project, "'foo'", "'foo'");
-                AutoBraceCompetionTest(app, project, "foo({[\"\"]})", "foo({[\"\"]})");
-            }
+            // check that end braces gets skiped
+            AutoBraceCompetionTest(app, project, "foo(bar)", "foo(bar)");
+            AutoBraceCompetionTest(app, project, "foo[bar]", "foo[bar]");
+            AutoBraceCompetionTest(app, project, "foo{bar}", "foo{bar}");
+            AutoBraceCompetionTest(app, project, "\"foo\"", "\"foo\"");
+            AutoBraceCompetionTest(app, project, "'foo'", "'foo'");
+            AutoBraceCompetionTest(app, project, "foo({[\"\"]})", "foo({[\"\"]})");
         }
 
         private static void AutoBraceCompetionTest(VisualStudioApp app, Project project, string typedText, string expectedText) {
@@ -120,31 +115,25 @@ namespace PythonToolsUITests {
         }
 
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void UnregisteredFileExtensionEditor() {
-            using (var app = new PythonVisualStudioApp()) {
-                var project = app.OpenProject(@"TestData\UnregisteredFileExtension.sln");
+        public void UnregisteredFileExtensionEditor(PythonVisualStudioApp app) {
+            var project = app.OpenProject(@"TestData\UnregisteredFileExtension.sln");
 
-                var item = project.ProjectItems.Item("Fob.unregfileext");
-                var window = item.Open();
-                window.Activate();
+            var item = project.ProjectItems.Item("Fob.unregfileext");
+            var window = item.Open();
+            window.Activate();
 
-                var doc = app.GetDocument(item.Document.FullName);
-                var snapshot = doc.TextView.TextBuffer.CurrentSnapshot;
+            var doc = app.GetDocument(item.Document.FullName);
+            var snapshot = doc.TextView.TextBuffer.CurrentSnapshot;
 
-                // we shouldn't have opened this as a .py file, so we should have no classifications.
-                var classifier = doc.Classifier;
-                var spans = classifier.GetClassificationSpans(new SnapshotSpan(snapshot, 0, snapshot.Length));
-                Assert.AreEqual(spans.Count, 0);
-            }
+            // we shouldn't have opened this as a .py file, so we should have no classifications.
+            var classifier = doc.Classifier;
+            var spans = classifier.GetClassificationSpans(new SnapshotSpan(snapshot, 0, snapshot.Length));
+            Assert.AreEqual(spans.Count, 0);
         }
 
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void OutliningTest() {
-            OutlineTest("Program.py",
+        public void OutliningTest(PythonVisualStudioApp app) {
+            OutlineTest(app, "Program.py",
                 new ExpectedTag(8, 64, "\r\n    print('hello')\r\n    print('world')\r\n    print('!')"),
                 new ExpectedTag(86, 142, "\r\n    print('hello')\r\n    print('world')\r\n    print('!')"),
                 new ExpectedTag(164, 220, "\r\n    print('hello')\r\n    print('world')\r\n    print('!')"),
@@ -157,50 +146,42 @@ namespace PythonToolsUITests {
             );
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void OutlineNestedFuncDef() {
-            OutlineTest("NestedFuncDef.py",
+        public void OutlineNestedFuncDef(PythonVisualStudioApp app) {
+            OutlineTest(app, "NestedFuncDef.py",
                 new ExpectedTag(8, 90, "\r\n    def g():\r\n        print('hello')\r\n        print('world')\r\n        print('!')"),
                 new ExpectedTag(22, 90, "\r\n        print('hello')\r\n        print('world')\r\n        print('!')"));
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void OutliningBadForStatement() {
+        public void OutliningBadForStatement(PythonVisualStudioApp app) {
             // there should be no exceptions and no outlining when parsing a malformed for statement
-            OutlineTest("BadForStatement.py");
+            OutlineTest(app, "BadForStatement.py");
         }
 
-        private void OutlineTest(string filename, params ExpectedTag[] expected) {
-            using (var app = new PythonVisualStudioApp()) {
+        private void OutlineTest(PythonVisualStudioApp app, string filename, params ExpectedTag[] expected) {
+            var prevOption = app.GetService<PythonToolsService>().AdvancedOptions.EnterOutliningModeOnOpen;
+            try {
+                app.GetService<PythonToolsService>().AdvancedOptions.EnterOutliningModeOnOpen = true;
 
-                var prevOption = app.GetService<PythonToolsService>().AdvancedOptions.EnterOutliningModeOnOpen;
-                try {
-                    app.GetService<PythonToolsService>().AdvancedOptions.EnterOutliningModeOnOpen = true;
+                var project = app.OpenProject(@"TestData\Outlining.sln");
 
-                    var project = app.OpenProject(@"TestData\Outlining.sln");
+                var item = project.ProjectItems.Item(filename);
+                var window = item.Open();
+                window.Activate();
 
-                    var item = project.ProjectItems.Item(filename);
-                    var window = item.Open();
-                    window.Activate();
+                var doc = app.GetDocument(item.Document.FullName);
 
-                    var doc = app.GetDocument(item.Document.FullName);
+                doc.InvokeTask(() => doc.WaitForAnalysisAtCaretAsync());
+                var snapshot = doc.TextView.TextBuffer.CurrentSnapshot;
+                var tags = doc.GetTaggerAggregator<IOutliningRegionTag>(doc.TextView.TextBuffer).GetTags(new SnapshotSpan(snapshot, 0, snapshot.Length));
 
-                    var snapshot = doc.TextView.TextBuffer.CurrentSnapshot;
-                    var tags = doc.GetTaggerAggregator<IOutliningRegionTag>(doc.TextView.TextBuffer).GetTags(new SnapshotSpan(snapshot, 0, snapshot.Length));
-
-                    VerifyTags(doc.TextView.TextBuffer, tags, expected);
-                } finally {
-                    app.GetService<PythonToolsService>().AdvancedOptions.EnterOutliningModeOnOpen = prevOption;
-                }
+                VerifyTags(doc.TextView.TextBuffer, tags, expected);
+            } finally {
+                app.GetService<PythonToolsService>().AdvancedOptions.EnterOutliningModeOnOpen = prevOption;
             }
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void ClassificationTest() {
-            Classification.Verify(GetClassifications("Program.py"),
+        public void ClassificationTest(PythonVisualStudioApp app) {
+            Classification.Verify(GetClassifications(app, "Program.py"),
                 new Classification("comment", 0, 8, "#comment"),
                 new Classification("whitespace", 8, 10, "\r\n"),
                 new Classification("literal", 10, 11, "1"),
@@ -226,10 +207,8 @@ namespace PythonToolsUITests {
             );
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void ClassificationMultiLineStringTest() {
-            Classification.Verify(GetClassifications("MultiLineString.py"),
+        public void ClassificationMultiLineStringTest(PythonVisualStudioApp app) {
+            Classification.Verify(GetClassifications(app, "MultiLineString.py"),
                 new Classification("identifier", 0, 1, "x"),
                 new Classification("Python operator", 38, 39, "="),
                 new Classification("string", 40, 117, "'''\r\ncontents = open(%(filename)r, 'rb').read().replace(\"\\\\r\\\\n\", \"\\\\n\")\r\n'''")
@@ -239,86 +218,80 @@ namespace PythonToolsUITests {
         /// <summary>
         /// http://pytools.codeplex.com/workitem/749
         /// </summary>
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void ClassificationMultiLineStringTest2() {
-            Classification.Verify(GetClassifications("MultiLineString2.py"),
+        public void ClassificationMultiLineStringTest2(PythonVisualStudioApp app) {
+            Classification.Verify(GetClassifications(app, "MultiLineString2.py"),
                 new Classification("string", 0, 15, "'''\r\nfob oar'''"),
                 new Classification("Python operator", 40, 41, "+"),
                 new Classification("string", 45, 125, "''')\r\n\r\n__visualstudio_debugger_init()\r\ndel __visualstudio_debugger_init\r\naaa'''")
             );
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void SignaturesTest() {
-            using (var app = new PythonVisualStudioApp()) {
-                var project = app.OpenProject(@"TestData\Signatures.sln");
+        public void SignaturesTest(PythonVisualStudioApp app) {
+            var project = app.OpenProject(@"TestData\Signatures.sln");
 
-                var item = project.ProjectItems.Item("sigs.py");
-                var window = item.Open();
+            var item = project.ProjectItems.Item("sigs.py");
+            var window = item.Open();
+            window.Activate();
+
+            var doc = app.GetDocument(item.Document.FullName);
+
+            doc.SetFocus();
+
+            ((UIElement)doc.TextView).Dispatcher.Invoke((Action)(() => {
+                doc.TextView.Caret.MoveTo(new SnapshotPoint(doc.TextView.TextBuffer.CurrentSnapshot, doc.TextView.TextBuffer.CurrentSnapshot.Length));
+                ((UIElement)doc.TextView).Focus();
+            }));
+            doc.WaitForAnalysisAtCaretAsync().WaitAndUnwrapExceptions();
+            
+            Keyboard.Type("f");
+            System.Threading.Thread.Sleep(500);
+            Keyboard.Type("(");
+
+            using (var sh = doc.WaitForSession<ISignatureHelpSession>()) {
+                var session = sh.Session;
+                Assert.IsNotNull(session, "No session active");
+                Assert.IsNotNull(session.SelectedSignature, "No signature selected");
+
+                Assert.AreEqual("a", session.SelectedSignature.CurrentParameter.Name);
+
+                Keyboard.Type("b=");
+
+                WaitForCurrentParameter(session, "b");
+                Assert.AreEqual("b", session.SelectedSignature.CurrentParameter.Name);
                 window.Activate();
 
-                var doc = app.GetDocument(item.Document.FullName);
+                Keyboard.Type("42,");
 
-                doc.SetFocus();
+                WaitForNoCurrentParameter(session);
+                Assert.AreEqual(null, session.SelectedSignature.CurrentParameter);
 
-                ((UIElement)doc.TextView).Dispatcher.Invoke((Action)(() => {
-                    doc.TextView.Caret.MoveTo(new SnapshotPoint(doc.TextView.TextBuffer.CurrentSnapshot, doc.TextView.TextBuffer.CurrentSnapshot.Length));
-                    ((UIElement)doc.TextView).Focus();
-                }));
-                
-                Keyboard.Type("f(");
-
-                using (var sh = doc.WaitForSession<ISignatureHelpSession>()) {
-                    var session = sh.Session;
-                    Assert.IsNotNull(session, "No session active");
-                    Assert.IsNotNull(session.SelectedSignature, "No signature selected");
-
-                    Assert.AreEqual("a", session.SelectedSignature.CurrentParameter.Name);
-
-                    Keyboard.Type("b=");
-
-                    WaitForCurrentParameter(session, "b");
-                    Assert.AreEqual("b", session.SelectedSignature.CurrentParameter.Name);
-                    window.Activate();
-
-                    Keyboard.Type("42,");
-
-                    WaitForNoCurrentParameter(session);
-                    Assert.AreEqual(null, session.SelectedSignature.CurrentParameter);
-
-                    Keyboard.Backspace();
-                    WaitForCurrentParameter(session);
-                    Assert.AreEqual("b", session.SelectedSignature.CurrentParameter.Name);
-                }
+                Keyboard.Backspace();
+                WaitForCurrentParameter(session);
+                Assert.AreEqual("b", session.SelectedSignature.CurrentParameter.Name);
             }
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void MultiLineSignaturesTest() {
-            using (var app = new PythonVisualStudioApp()) {
-                var project = app.OpenProject(@"TestData\Signatures.sln");
+        public void MultiLineSignaturesTest(PythonVisualStudioApp app) {
+            var project = app.OpenProject(@"TestData\Signatures.sln");
 
-                var item = project.ProjectItems.Item("multilinesigs.py");
-                var window = item.Open();
-                window.Activate();
+            var item = project.ProjectItems.Item("multilinesigs.py");
+            var window = item.Open();
+            window.Activate();
 
-                var doc = app.GetDocument(item.Document.FullName);
-                doc.SetFocus();
+            var doc = app.GetDocument(item.Document.FullName);
+            doc.SetFocus();
 
-                ((UIElement)doc.TextView).Dispatcher.Invoke((Action)(() => {
-                    var point = doc.TextView.TextBuffer.CurrentSnapshot.GetLineFromLineNumber(5 - 1).Start;
-                    doc.TextView.Caret.MoveTo(point);
-                    ((UIElement)doc.TextView).Focus();
-                }));
+            ((UIElement)doc.TextView).Dispatcher.Invoke((Action)(() => {
+                var point = doc.TextView.TextBuffer.CurrentSnapshot.GetLineFromLineNumber(5 - 1).Start;
+                doc.TextView.Caret.MoveTo(point);
+                ((UIElement)doc.TextView).Focus();
+            }));
+            doc.WaitForAnalysisAtCaretAsync().WaitAndUnwrapExceptions();
 
-                app.ExecuteCommand("Edit.ParameterInfo");
+            app.ExecuteCommand("Edit.ParameterInfo");
 
-                using (var sh = doc.WaitForSession<ISignatureHelpSession>()) {
-                    Assert.AreEqual("b", sh.Session.SelectedSignature.CurrentParameter.Name);
-                }
+            using (var sh = doc.WaitForSession<ISignatureHelpSession>()) {
+                Assert.AreEqual("b", sh.Session.SelectedSignature.CurrentParameter.Name);
             }
         }
 
@@ -349,61 +322,54 @@ namespace PythonToolsUITests {
             }
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void CompletionsCaseSensitive() {
+        public void CompletionsCaseSensitive(PythonVisualStudioApp app) {
             // http://pytools.codeplex.com/workitem/457
-            using (var app = new PythonVisualStudioApp()) {
-                var project = app.OpenProject(@"TestData\Completions.sln");
+            var project = app.OpenProject(@"TestData\Completions.sln");
 
-                var item = project.ProjectItems.Item("oar.py");
-                var window = item.Open();
-                window.Activate();
+            var item = project.ProjectItems.Item("oar.py");
+            var window = item.Open();
+            window.Activate();
 
-                var doc = app.GetDocument(item.Document.FullName);
-                System.Threading.Thread.Sleep(1000);
+            var doc = app.GetDocument(item.Document.FullName);
+            System.Threading.Thread.Sleep(1000);
 
-                Keyboard.Type("from fob import ba");
-                using (doc.WaitForSession<ICompletionSession>()) {
-                    Keyboard.Type("\r");
-                }
-
-                doc.WaitForText("from fob import baz");
-                Keyboard.Type("\r");
-
-                Keyboard.Type("from fob import Ba");
-                using (doc.WaitForSession<ICompletionSession>()) {
-                    Keyboard.Type("\r");
-                }
-                doc.WaitForText("from fob import baz\r\nfrom fob import Baz");
+            doc.Type("from fob import ba");
+            using (doc.WaitForSession<ICompletionSession>()) {
+                doc.Type("\r");
             }
+
+            doc.WaitForText("from fob import baz");
+            doc.Type("\r");
+
+            doc.Type("from fob import Ba");
+            using (doc.WaitForSession<ICompletionSession>()) {
+                doc.Type("\r");
+            }
+            doc.WaitForText("from fob import baz\r\nfrom fob import Baz");
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void AutoIndent() {
-            using (var app = new PythonVisualStudioApp()) {
-                var options = app.GetService<PythonToolsService>().AdvancedOptions;
-                var prevSetting = options.AddNewLineAtEndOfFullyTypedWord;
-                app.OnDispose(() => options.AddNewLineAtEndOfFullyTypedWord = prevSetting);
-                options.AddNewLineAtEndOfFullyTypedWord = true;
+        public void AutoIndent(PythonVisualStudioApp app) {
+            var options = app.GetService<PythonToolsService>().AdvancedOptions;
+            var prevSetting = options.AddNewLineAtEndOfFullyTypedWord;
+            app.OnDispose(() => options.AddNewLineAtEndOfFullyTypedWord = prevSetting);
+            options.AddNewLineAtEndOfFullyTypedWord = true;
 
-                var project = app.OpenProject(@"TestData\AutoIndent.sln");
+            var project = app.OpenProject(@"TestData\AutoIndent.sln");
 
 
-                // http://pytools.codeplex.com/workitem/116
-                AutoIndentTest(app, project, "def f():\rprint 'hi'\r\rdef inner(): pass←←←←←←←←←←←←←←←←←\r", @"def f():
+            // http://pytools.codeplex.com/workitem/116
+            AutoIndentTest(app, project, "def f():\rprint 'hi'\r\rdef inner(): pass←←←←←←←←←←←←←←←←←\r", @"def f():
     print 'hi'
 
     
     def inner(): pass");
 
-                // http://pytools.codeplex.com/workitem/121
-                AutoIndentTest(app, project, "x = {'a': [1, 2, 3],\r\r'b':42}", @"x = {'a': [1, 2, 3],
+            // http://pytools.codeplex.com/workitem/121
+            AutoIndentTest(app, project, "x = {'a': [1, 2, 3],\r\r'b':42}", @"x = {'a': [1, 2, 3],
 
      'b':42}");
 
-                AutoIndentTest(app, project, "x = {  #comment\r'a': [\r1,\r2,\r3\r],\r\r'b':42\r}", @"x = {  #comment
+            AutoIndentTest(app, project, "x = {  #comment\r'a': [\r1,\r2,\r3\r],\r\r'b':42\r}", @"x = {  #comment
     'a': [
         1,
         2,
@@ -413,21 +379,21 @@ namespace PythonToolsUITests {
     'b':42
     }");
 
-                AutoIndentTest(app, project, "if True:\rpass\r\r42\r\r", @"if True:
+            AutoIndentTest(app, project, "if True:\rpass\r\r42\r\r", @"if True:
     pass
 
 42
 
 ");
 
-                AutoIndentTest(app, project, "def f():\rreturn\r\r42\r\r", @"def f():
+            AutoIndentTest(app, project, "def f():\rreturn\r\r42\r\r", @"def f():
     return
 
 42
 
 ");
 
-                AutoIndentTest(app, project, "if True: #fob\rpass\relse: #oar\rpass\r\r42\r\r", @"if True: #fob
+            AutoIndentTest(app, project, "if True: #fob\rpass\relse: #oar\rpass\r\r42\r\r", @"if True: #fob
     pass
 else: #oar
     pass
@@ -436,107 +402,107 @@ else: #oar
 
 ");
 
-                AutoIndentTest(app, project, "if True:\rraise Exception()\r\r42\r\r", @"if True:
+            AutoIndentTest(app, project, "if True:\rraise Exception()\r\r42\r\r", @"if True:
     raise Exception()
 
 42
 
 ");
 
-                AutoIndentTest(app, project, "while True:\rcontinue\r\r42\r\r", @"while True:
+            AutoIndentTest(app, project, "while True:\rcontinue\r\r42\r\r", @"while True:
     continue
 
 42
 
 ");
 
-                AutoIndentTest(app, project, "while True:\rbreak\r\r42\r\r", @"while True:
+            AutoIndentTest(app, project, "while True:\rbreak\r\r42\r\r", @"while True:
     break
 
 42
 
 ");
-                // http://pytools.codeplex.com/workitem/127
-                AutoIndentTest(app, project, "print ('%s, %s' %\r(1, 2))", @"print ('%s, %s' %
+            // http://pytools.codeplex.com/workitem/127
+            AutoIndentTest(app, project, "print ('%s, %s' %\r(1, 2))", @"print ('%s, %s' %
        (1, 2))");
 
-                // http://pytools.codeplex.com/workitem/125
-                AutoIndentTest(app, project, "def f():\rx = (\r7)\rp", @"def f():
+            // http://pytools.codeplex.com/workitem/125
+            AutoIndentTest(app, project, "def f():\rx = (\r7)\rp", @"def f():
     x = (
         7)
     p");
 
-                AutoIndentTest(app, project, "def f():\rassert False, \\\r'A message'\rp", @"def f():
+            AutoIndentTest(app, project, "def f():\rassert False, \\\r'A message'\rp", @"def f():
     assert False, \
         'A message'
     p");
 
-                // other tests...
-                AutoIndentTest(app, project, "1 +\\\r2 +\\\r3 +\\\r4 + 5\r", @"1 +\
+            // other tests...
+            AutoIndentTest(app, project, "1 +\\\r2 +\\\r3 +\\\r4 + 5\r", @"1 +\
     2 +\
     3 +\
     4 + 5
 ");
 
 
-                AutoIndentTest(app, project, "x = {42 :\r42}\rp", @"x = {42 :
+            AutoIndentTest(app, project, "x = {42 :\r42}\rp", @"x = {42 :
      42}
 p");
 
-                AutoIndentTest(app, project, "def f():\rreturn (42,\r100)\r\rp", @"def f():
+            AutoIndentTest(app, project, "def f():\rreturn (42,\r100)\r\rp", @"def f():
     return (42,
             100)
 
 p");
 
-                AutoIndentTest(app, project, "print ('a',\r'b',\r'c')\rp", @"print ('a',
+            AutoIndentTest(app, project, "print ('a',\r'b',\r'c')\rp", @"print ('a',
        'b',
        'c')
 p");
 
-                AutoIndentTest(app, project, "foooo ('a',\r'b',\r'c')\rp", @"foooo ('a',
+            AutoIndentTest(app, project, "foooo ('a',\r'b',\r'c')\rp", @"foooo ('a',
        'b',
        'c')
 p");
 
-                // http://pytools.codeplex.com/workitem/157
-                AutoIndentTest(app, project, "def a():\rif b():\rif c():\rd()\rp", @"def a():
+            // http://pytools.codeplex.com/workitem/157
+            AutoIndentTest(app, project, "def a():\rif b():\rif c():\rd()\rp", @"def a():
     if b():
         if c():
             d()
             p");
 
-                AutoIndentTest(app, project, "a_list = [1, 2, 3]\rdef func():\rpass", @"a_list = [1, 2, 3]
+            AutoIndentTest(app, project, "a_list = [1, 2, 3]\rdef func():\rpass", @"a_list = [1, 2, 3]
 def func():
     pass");
 
-                AutoIndentTest(app, project, "class A:\rdef funcA(self, a):\rreturn a\r\rdef funcB(self):\rpass", @"class A:
+            AutoIndentTest(app, project, "class A:\rdef funcA(self, a):\rreturn a\r\rdef funcB(self):\rpass", @"class A:
     def funcA(self, a):
         return a
 
     def funcB(self):
         pass");
 
-                AutoIndentTest(app, project, "print('abc')\rimport sys\rpass", @"print('abc')
+            AutoIndentTest(app, project, "print('abc')\rimport sys\rpass", @"print('abc')
 import sys
 pass");
 
-                AutoIndentTest(app, project, "a_list = [1, 2, 3]\rimport sys\rpass", @"a_list = [1, 2, 3]
+            AutoIndentTest(app, project, "a_list = [1, 2, 3]\rimport sys\rpass", @"a_list = [1, 2, 3]
 import sys
 pass");
 
-                AutoIndentTest(app, project, "class C:\rdef fob(self):\r'doc string'\rpass", @"class C:
+            AutoIndentTest(app, project, "class C:\rdef fob(self):\r'doc string'\rpass", @"class C:
     def fob(self):
         'doc string'
         pass");
 
-                AutoIndentTest(app, project, "def g():\rfob(15)\r\r\bfob(1)\rpass", @"def g():
+            AutoIndentTest(app, project, "def g():\rfob(15)\r\r\bfob(1)\rpass", @"def g():
     fob(15)
 
 fob(1)
 pass");
 
-                AutoIndentTest(app, project, "def m():\rif True:\rpass\relse:\rabc()\r\r\b\bm()\r\rm()\rpass", @"def m():
+            AutoIndentTest(app, project, "def m():\rif True:\rpass\relse:\rabc()\r\r\b\bm()\r\rm()\rpass", @"def m():
     if True:
         pass
     else:
@@ -546,17 +512,14 @@ m()
 
 m()
 pass");
-            }
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void AutoIndentExisting() {
-            using (var app = new PythonVisualStudioApp()) {
-                var project = app.OpenProject(@"TestData\AutoIndent.sln");
+        public void AutoIndentExisting(PythonVisualStudioApp app) {
+            var sln = app.CopyProjectForTest(@"TestData\AutoIndent.sln");
+            var project = app.OpenProject(sln);
 
-                // http://pytools.codeplex.com/workitem/138
-                AutoIndentExistingTest(app, project, "Decorator.py", 4, 4, @"class C:
+            // http://pytools.codeplex.com/workitem/138
+            AutoIndentExistingTest(app, project, "Decorator.py", 4, 4, @"class C:
     def f(self):
         pass
 
@@ -565,12 +528,24 @@ pass");
     def oar(self):
         pass");
 
-                // http://pytools.codeplex.com/workitem/299
-                AutoIndentExistingTest(app, project, "ClassAndFunc.py", 2, 4, @"class C:
+            // Previously http://pytools.codeplex.com/workitem/299
+            // New expected behaviors are:
+            //      def f():                def f():
+            //      |   pass                   |pass
+            //
+            //                    become
+            //      def f():                def f():
+            //      
+            //      pass                        pass
+            AutoIndentExistingTest(app, project, "ClassAndFunc.py", 2, 4, @"class C:
     def f(self):
     
+    pass");
+
+            AutoIndentExistingTest(app, project, "ClassAndFunc.py", 2, 8, @"class C:
+    def f(self):
+        
         pass");
-            }
         }
 
         /// <summary>
@@ -583,6 +558,9 @@ pass");
         /// <param name="expectedText"></param>
         private static void AutoIndentExistingTest(VisualStudioApp app, Project project, string filename, int line, int column, string expectedText) {
             var item = project.ProjectItems.Item(filename);
+            if (item.IsOpen) {
+                item.Document.ActiveWindow?.Close();
+            }
             var window = item.Open();
             window.Activate();
 
@@ -606,7 +584,7 @@ pass");
                 }
                 System.Threading.Thread.Sleep(100);
             }
-            Assert.AreEqual(actual, expectedText);
+            Assert.AreEqual(expectedText, actual);
         }
 
         private static void AutoIndentTest(VisualStudioApp app, Project project, string typedText, string expectedText) {
@@ -616,9 +594,12 @@ pass");
 
             expectedText = Regex.Replace(expectedText, "^\\s+$", "", RegexOptions.Multiline);
 
-            Keyboard.Type(typedText);
-
             var doc = app.GetDocument(item.Document.FullName);
+            doc.InvokeTask(() => doc.WaitForAnalysisAtCaretAsync());
+            // A little extra time for things to load, because VS...
+            System.Threading.Thread.Sleep(500);
+
+            Keyboard.Type(typedText);
 
             string actual = null;
             for (int i = 0; i < 100; i++) {
@@ -635,55 +616,47 @@ pass");
             window.Document.Close(vsSaveChanges.vsSaveChangesNo);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void TypingTest() {
-            using (var app = new PythonVisualStudioApp()) {
-                var project = app.OpenProject(@"TestData\EditorTests.sln");
+        public void TypingTest(PythonVisualStudioApp app) {
+            var project = app.OpenProject(@"TestData\EditorTests.sln");
 
-                // http://pytools.codeplex.com/workitem/139
-                TypingTest(app, project, "DecoratorOnFunction.py", 0, 0, @"@classmethod
+            // http://pytools.codeplex.com/workitem/139
+            TypingTest(app, project, "DecoratorOnFunction.py", 0, 0, @"@classmethod
 def f(): pass
 ", () => {
-     Keyboard.Type("\r");
-     Keyboard.Type("↑");
-     Keyboard.Type("@@");
-     System.Threading.Thread.Sleep(5000);
-     Keyboard.Backspace();
-     Keyboard.Type("classmethod");
-     System.Threading.Thread.Sleep(5000);
- });
+                Keyboard.Type("\r");
+                Keyboard.Type("↑");
+                Keyboard.Type("@@");
+                System.Threading.Thread.Sleep(5000);
+                Keyboard.Backspace();
+                Keyboard.Type("classmethod");
+                System.Threading.Thread.Sleep(5000);
+            });
 
-                // http://pytools.codeplex.com/workitem/151
-                TypingTest(app, project, "DecoratorInClass.py", 1, 4, @"class C:
+            // http://pytools.codeplex.com/workitem/151
+            TypingTest(app, project, "DecoratorInClass.py", 1, 4, @"class C:
     @classmethod
     def f(self):
         pass
 ", () => {
-     Keyboard.Type("@");
-     System.Threading.Thread.Sleep(5000);
-     Keyboard.Type("classmethod");
-     System.Threading.Thread.Sleep(5000);
+                Keyboard.Type("@");
+                System.Threading.Thread.Sleep(5000);
+                Keyboard.Type("classmethod");
+                System.Threading.Thread.Sleep(5000);
 
-     // VS Bug 
-     // 72635 Exception occurrs and you're not prompted to save file when you close it while completion list is up. 
-     Keyboard.Type(System.Windows.Input.Key.Escape);
- });
-            }
+                // VS Bug 
+                // 72635 Exception occurrs and you're not prompted to save file when you close it while completion list is up. 
+                Keyboard.Type(System.Windows.Input.Key.Escape);
+            });
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void CompletionTests() {
-            using (var app = new PythonVisualStudioApp()) {
-                var project = app.OpenProject(@"TestData\EditorTests.sln");
+        public void CompletionTests(PythonVisualStudioApp app) {
+            var project = app.OpenProject(@"TestData\EditorTests.sln");
 
-                TypingTest(app, project, "BackslashCompletion.py", 2, 0, @"x = 42
+            TypingTest(app, project, "BackslashCompletion.py", 2, 0, @"x = 42
 x\
 .conjugate", () => {
-               Keyboard.Type(".con\t");
-           });
-            }
+                Keyboard.Type(".con\t");
+            });
         }
 
         /// <summary>
@@ -712,6 +685,8 @@ x\
                 }
             }));
 
+            doc.InvokeTask(() => doc.WaitForAnalysisAtCaretAsync());
+
             typing();
 
             string actual = null;
@@ -726,131 +701,109 @@ x\
             Assert.AreEqual(expectedText, actual);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void OpenInvalidUnicodeFile() {
-            using (var app = new PythonVisualStudioApp()) {
-                var project = app.OpenProject(@"TestData\ErrorProjectUnicode.sln");
-                var item = project.ProjectItems.Item("Program.py");
-                var windowTask = Task.Run(() => item.Open());
+        public void OpenInvalidUnicodeFile(PythonVisualStudioApp app) {
+            var project = app.OpenProject(@"TestData\ErrorProjectUnicode.sln");
+            var item = project.ProjectItems.Item("Program.py");
+            var windowTask = Task.Run(() => item.Open());
 
-                VisualStudioApp.CheckMessageBox(TestUtilities.MessageBoxButton.Ok, "File Load", "Program.py", "Unicode (UTF-8) encoding");
+            app.CheckMessageBox(TestUtilities.MessageBoxButton.Ok, "File Load", "Program.py", "Unicode (UTF-8) encoding");
 
-                var window = windowTask.Result;
-                window.Activate();
-                var doc = app.GetDocument(item.Document.FullName);
-                var text = doc.TextView.TextBuffer.CurrentSnapshot.GetText();
-                Console.WriteLine(string.Join(" ", text.Select(c => c < ' ' ? " .  " : string.Format(" {0}  ", c))));
-                Console.WriteLine(string.Join(" ", text.Select(c => string.Format("{0:X04}", (int)c))));
-                // Characters should have been replaced
-                Assert.AreNotEqual(-1, text.IndexOf("\uFFFD\uFFFD\uFFFD\uFFFD", StringComparison.Ordinal));
+            var window = windowTask.Result;
+            window.Activate();
+            var doc = app.GetDocument(item.Document.FullName);
+            var text = doc.TextView.TextBuffer.CurrentSnapshot.GetText();
+            Console.WriteLine(string.Join(" ", text.Select(c => c < ' ' ? " .  " : string.Format(" {0}  ", c))));
+            Console.WriteLine(string.Join(" ", text.Select(c => string.Format("{0:X04}", (int)c))));
+            // Characters should have been replaced
+            Assert.AreNotEqual(-1, text.IndexOf("\uFFFD\uFFFD\uFFFD\uFFFD", StringComparison.Ordinal));
+        }
+
+        public void IndentationInconsistencyWarning(PythonVisualStudioApp app) {
+            var oldSuppress = VsProjectAnalyzer.SuppressTaskProvider;
+            app.OnDispose(() => VsProjectAnalyzer.SuppressTaskProvider = oldSuppress);
+            var options = app.Options;
+            var severity = options.IndentationInconsistencySeverity;
+            options.IndentationInconsistencySeverity = Severity.Warning;
+            app.OnDispose(() => options.IndentationInconsistencySeverity = severity);
+
+            var project = app.OpenProject(@"TestData\InconsistentIndentation.sln");
+
+            var items = app.WaitForErrorListItems(1);
+            Assert.AreEqual(1, items.Count);
+
+            VSTASKPRIORITY[] pri = new VSTASKPRIORITY[1];
+            ErrorHandler.ThrowOnFailure(items[0].get_Priority(pri));
+            Assert.AreEqual(VSTASKPRIORITY.TP_NORMAL, pri[0]);
+        }
+
+        public void IndentationInconsistencyError(PythonVisualStudioApp app) {
+            var oldSuppress = VsProjectAnalyzer.SuppressTaskProvider;
+            app.OnDispose(() => VsProjectAnalyzer.SuppressTaskProvider = oldSuppress);
+            var options = app.Options;
+            var severity = options.IndentationInconsistencySeverity;
+            options.IndentationInconsistencySeverity = Severity.Error;
+            app.OnDispose(() => options.IndentationInconsistencySeverity = severity);
+
+            var project = app.OpenProject(@"TestData\InconsistentIndentation.sln");
+
+            var items = app.WaitForErrorListItems(1);
+            Assert.AreEqual(1, items.Count);
+
+            VSTASKPRIORITY[] pri = new VSTASKPRIORITY[1];
+            ErrorHandler.ThrowOnFailure(items[0].get_Priority(pri));
+            Assert.AreEqual(VSTASKPRIORITY.TP_HIGH, pri[0]);
+        }
+
+        public void IndentationInconsistencyIgnore(PythonVisualStudioApp app) {
+            var oldSuppress = VsProjectAnalyzer.SuppressTaskProvider;
+            app.OnDispose(() => VsProjectAnalyzer.SuppressTaskProvider = oldSuppress);
+            var options = app.Options;
+            var severity = options.IndentationInconsistencySeverity;
+            options.IndentationInconsistencySeverity = Severity.Ignore;
+            app.OnDispose(() => options.IndentationInconsistencySeverity = severity);
+
+            var project = app.OpenProject(@"TestData\InconsistentIndentation.sln");
+
+            List<IVsTaskItem> items = app.WaitForErrorListItems(0);
+            Assert.AreEqual(0, items.Count);
+        }
+
+        private static void SquiggleShowHide(PythonVisualStudioApp app, string document, Action test) {
+            var project = app.OpenProject(@"TestData\MissingImport.sln");
+
+            var editorWindows = app.Dte.Windows
+                .OfType<EnvDTE.Window>()
+                .Where(w => w.Kind == "Editor")
+                .ToArray();
+            foreach (var w in editorWindows) {
+                w.Close(vsSaveChanges.vsSaveChangesNo);
+            }
+
+            var wnd = project.ProjectItems.Item(document).Open();
+            wnd.Activate();
+            try {
+                test();
+            } finally {
+                wnd.Close();
             }
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void IndentationInconsistencyWarning() {
-            using (var app = new PythonVisualStudioApp()) {
-                var options = app.Options;
-                var severity = options.IndentationInconsistencySeverity;
-                options.IndentationInconsistencySeverity = Severity.Warning;
-                app.OnDispose(() => options.IndentationInconsistencySeverity = severity);
-
-                var project = app.OpenProject(@"TestData\InconsistentIndentation.sln");
-
-                var items = app.WaitForErrorListItems(1);
-                Assert.AreEqual(1, items.Count);
-
-                VSTASKPRIORITY[] pri = new VSTASKPRIORITY[1];
-                ErrorHandler.ThrowOnFailure(items[0].get_Priority(pri));
-                Assert.AreEqual(VSTASKPRIORITY.TP_NORMAL, pri[0]);
-            }
-        }
-
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void IndentationInconsistencyError() {
-            using (var app = new PythonVisualStudioApp()) {
-                var options = app.Options;
-                var severity = options.IndentationInconsistencySeverity;
-                options.IndentationInconsistencySeverity = Severity.Error;
-                app.OnDispose(() => options.IndentationInconsistencySeverity = severity);
-
-                var project = app.OpenProject(@"TestData\InconsistentIndentation.sln");
-
-                var items = app.WaitForErrorListItems(1);
-                Assert.AreEqual(1, items.Count);
-
-                VSTASKPRIORITY[] pri = new VSTASKPRIORITY[1];
-                ErrorHandler.ThrowOnFailure(items[0].get_Priority(pri));
-                Assert.AreEqual(VSTASKPRIORITY.TP_HIGH, pri[0]);
-            }
-        }
-
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void IndentationInconsistencyIgnore() {
-            using (var app = new PythonVisualStudioApp()) {
-                var options = app.Options;
-                var severity = options.IndentationInconsistencySeverity;
-                options.IndentationInconsistencySeverity = Severity.Ignore;
-                app.OnDispose(() => options.IndentationInconsistencySeverity = severity);
-
-                var project = app.OpenProject(@"TestData\InconsistentIndentation.sln");
-
-                List<IVsTaskItem> items = app.WaitForErrorListItems(0);
-                Assert.AreEqual(0, items.Count);
-            }
-        }
-
-        private static void SquiggleShowHide(string document, Action<PythonVisualStudioApp> test) {
-            using (var app = new PythonVisualStudioApp()) {
-                UnresolvedImportSquiggleProvider._alwaysCreateSquiggle = true;
-                app.OnDispose(() => UnresolvedImportSquiggleProvider._alwaysCreateSquiggle = false);
-
-
-                var project = app.OpenProject(@"TestData\MissingImport.sln");
-
-                var editorWindows = app.Dte.Windows
-                    .OfType<EnvDTE.Window>()
-                    .Where(w => w.Kind == "Editor")
-                    .ToArray();
-                foreach (var w in editorWindows) {
-                    w.Close(vsSaveChanges.vsSaveChangesNo);
-                }
-
-                var wnd = project.ProjectItems.Item(document).Open();
-                wnd.Activate();
-                try {
-                    test(app);
-                } finally {
-                    wnd.Close();
-                }
-            }
-        }
-
-        [TestMethod, Priority(1), TestCategory("Squiggle")]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void ImportPresent() {
-            SquiggleShowHide("ImportPresent.py", app => {
+        public void ImportPresent(PythonVisualStudioApp app) {
+            SquiggleShowHide(app, "ImportPresent.py", () => {
                 var items = app.WaitForErrorListItems(0);
                 Assert.AreEqual(0, items.Count);
             });
         }
 
-        [TestMethod, Priority(1), TestCategory("Squiggle")]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void ImportSelf() {
-            SquiggleShowHide("ImportSelf.py", app => {
+        public void ImportSelf(PythonVisualStudioApp app) {
+            SquiggleShowHide(app, "ImportSelf.py", () => {
                 var items = app.WaitForErrorListItems(0);
                 Assert.AreEqual(0, items.Count);
             });
         }
 
-        [TestMethod, Priority(1), TestCategory("Squiggle")]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void ImportMissingThenAddThenExcludeFile() {
-            SquiggleShowHide("ImportMissing.py", app => {
+        public void ImportMissingThenAddThenExcludeFile(PythonVisualStudioApp app) {
+            SquiggleShowHide(app, "ImportMissing.py", () => {
                 string text;
                 var items = app.WaitForErrorListItems(1);
                 Assert.AreEqual(1, items.Count);
@@ -872,21 +825,22 @@ x\
             });
         }
 
-        [TestMethod, Priority(1), TestCategory("Squiggle")]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void ImportPresentThenAddThenRemoveReference() {
+        public void ImportPresentThenAddThenRemoveReference(PythonVisualStudioApp app) {
             var python = PythonPaths.Versions.LastOrDefault(p => p.Version.Is3x() && !p.Isx64);
             python.AssertInstalled();
+            Console.WriteLine("Using {0}", python.InterpreterPath);
 
-            var vcproj = TestData.GetPath(@"TestData\ProjectReference\NativeModule\NativeModule.vcxproj");
+            var sln = app.CopyProjectForTest(@"TestData\ProjectReference\CProjectReference.sln");
+            var slnDir = PathUtils.GetParent(sln);
+
+            var vcproj = Path.Combine(slnDir, "NativeModule", "NativeModule.vcxproj");
             File.WriteAllText(vcproj, File.ReadAllText(vcproj)
                 .Replace("$(PYTHON_INCLUDE)", Path.Combine(python.PrefixPath, "include"))
                 .Replace("$(PYTHON_LIB)", Path.Combine(python.PrefixPath, "libs"))
             );
 
-            using (var app = new PythonVisualStudioApp())
             using (app.SelectDefaultInterpreter(python)) {
-                var project = app.OpenProject(@"TestData\ProjectReference\CProjectReference.sln", projectName: "PythonApplication2", expectedProjects: 2);
+                var project = app.OpenProject(sln, projectName: "PythonApplication2", expectedProjects: 2);
 
                 var wnd = project.ProjectItems.Item("Program.py").Open();
                 wnd.Activate();
@@ -905,7 +859,64 @@ x\
                     Assert.AreEqual(0, items.Count);
                 } finally {
                     wnd.Close();
+                    app.Dte.Solution.Close();
                 }
+            }
+        }
+
+        private class NotifyOnNewEntry : IPythonTextBufferInfoEventSink {
+            private TaskCompletionSource<AnalysisEntry> _tcs;
+
+            public Task<AnalysisEntry> WaitAsync() {
+                var tcs = new TaskCompletionSource<AnalysisEntry>();
+                var actualTcs = Interlocked.CompareExchange(ref _tcs, tcs, null) ?? tcs;
+                if (actualTcs == tcs) {
+                    var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                    cts.Token.Register(() => actualTcs.TrySetCanceled());
+                }
+                return actualTcs.Task;
+            }
+
+            public Task PythonTextBufferEventAsync(PythonTextBufferInfo sender, PythonTextBufferInfoEventArgs e) {
+                if (e.Event == PythonTextBufferInfoEvents.NewAnalysisEntry) {
+                    if (e.AnalysisEntry != null) {
+                        Console.WriteLine($"New entry in {e.AnalysisEntry.Analyzer}");
+                        var tcs = Interlocked.Exchange(ref _tcs, null);
+                        tcs?.SetResult(e.AnalysisEntry);
+                    } else {
+                        Console.WriteLine($"Entry cleared for {sender.Filename}");
+                    }
+                }
+                return Task.CompletedTask;
+            }
+        }
+
+        public async Task DefaultAnalyzerForNonProjectFile(PythonVisualStudioApp app) {
+            var wnd = app.OpenDocument(TestData.GetPath("TestData", "Typings", "usermod.py"));
+
+            var bi = ((ITextView)wnd.TextView).TextBuffer.TryGetInfo();
+            Assert.IsNotNull(bi);
+            var entry = new NotifyOnNewEntry();
+            bi.AddSink(entry, entry);
+            await entry.WaitAsync();
+
+            TestUtilities.UI.DefaultInterpreterSetter dis = null;
+            try {
+                foreach (var pv in PythonPaths.Versions) {
+                    var waitForEntry = entry.WaitAsync();
+                    if (dis == null) {
+                        dis = app.SelectDefaultInterpreter(pv);
+                    } else {
+                        dis.SetDefault(app.InterpreterService.FindInterpreter(pv.Id));
+                    }
+                    Console.WriteLine($"Changed to {pv.Id}");
+                    var e = await waitForEntry;
+                    Assert.IsNotNull(e);
+                    Assert.AreEqual(pv.Id, e.Analyzer.InterpreterFactory.Configuration.Id);
+                }
+            } finally {
+                wnd.CloseWindow();
+                dis?.Dispose();
             }
         }
 
@@ -949,21 +960,19 @@ x\
             }
         }
 
-        private static IList<ClassificationSpan> GetClassifications(string filename) {
-            using (var app = new PythonVisualStudioApp()) {
-                var project = app.OpenProject(@"TestData\Classification.sln");
+        private static IList<ClassificationSpan> GetClassifications(PythonVisualStudioApp app, string filename) {
+            var project = app.OpenProject(@"TestData\Classification.sln");
 
-                var item = project.ProjectItems.Item(filename);
-                var window = item.Open();
-                window.Activate();
+            var item = project.ProjectItems.Item(filename);
+            var window = item.Open();
+            window.Activate();
 
-                var doc = app.GetDocument(item.Document.FullName);
+            var doc = app.GetDocument(item.Document.FullName);
 
-                var snapshot = doc.TextView.TextBuffer.CurrentSnapshot;
-                var classifier = doc.Classifier;
-                var spans = classifier.GetClassificationSpans(new SnapshotSpan(snapshot, 0, snapshot.Length));
-                return spans;
-            }
+            var snapshot = doc.TextView.TextBuffer.CurrentSnapshot;
+            var classifier = doc.Classifier;
+            var spans = classifier.GetClassificationSpans(new SnapshotSpan(snapshot, 0, snapshot.Length));
+            return spans;
         }
 
         #endregion

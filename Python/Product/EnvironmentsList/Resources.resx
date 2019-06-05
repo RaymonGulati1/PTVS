@@ -123,6 +123,40 @@
   <data name="ConfigurationExtensionHelpContent" xml:space="preserve">
     <value>These environment settings may be configured. The tooltips on each field include more information and examples.</value>
   </data>
+  <data name="CondaExtensionDisplayName" xml:space="preserve">
+    <value>Create</value>
+  </data>
+  <data name="CondaExtensionHelpContent" xml:space="preserve">
+    <value>These environment settings may be configured. The tooltips on each field include more information and examples.</value>
+  </data>
+  <data name="CondaExtensionCreateLabel" xml:space="preserve">
+    <value>_Create</value>
+  </data>
+  <data name="CondaExtensionCreateTooltip" xml:space="preserve">
+    <value>Create the environment.</value>
+  </data>
+  <data name="CondaExtensionEnvironmentNameLabel" xml:space="preserve">
+    <value>Name</value>
+  </data>
+  <data name="CondaExtensionEnvironmentNameHelp" xml:space="preserve">
+    <value>The name of the new environment.</value>
+  </data>
+  <data name="CondaExtensionEnvironmentNameWatermark" xml:space="preserve">
+    <value>env</value>
+  </data>
+  <data name="CondaExtensionLanguageVersionLabel" xml:space="preserve">
+    <value>Python</value>
+  </data>
+  <data name="CondaExtensionLanguageVersionWatermark" xml:space="preserve">
+    <value>Python</value>
+  </data>
+  <data name="CondaExtensionLanguageVersionHelp" xml:space="preserve">
+    <value>The version of Python to install into the new environment.</value>
+  </data>
+  <data name="CondaExtensionNotAvailable" xml:space="preserve">
+    <value>This functionality requires Anaconda. You can install it using the Visual Studio installer.</value>
+    <comment>Do not translate 'Anaconda'</comment>
+  </data>
   <data name="DBExtensionDisplayName" xml:space="preserve">
     <value>IntelliSense</value>
   </data>
@@ -137,6 +171,10 @@
   </data>
   <data name="DBExtensionModuleCountLabel" xml:space="preserve">
     <value>({0} modules)</value>
+  </data>
+  <data name="DBExtensionModuleAutomationName" xml:space="preserve">
+    <value>{0} ({1} modules)</value>
+    <comment>{0} is the package name, {1} is the module count.</comment>
   </data>
   <data name="DBExtensionIsUpToDateToolTip" xml:space="preserve">
     <value>This package is up to date in the completion DB.</value>
@@ -195,12 +233,6 @@
   <data name="NoDescription" xml:space="preserve">
     <value>(No description)</value>
   </data>
-  <data name="PipDefaultIndexName" xml:space="preserve">
-    <value>PyPI</value>
-  </data>
-  <data name="PipExtensionDisplayName" xml:space="preserve">
-    <value>Packages</value>
-  </data>
   <data name="PipExtensionHelpContent" xml:space="preserve">
     <value>These packages can be managed using your environment's package manager. Type in the search box to install new packages, or use the buttons on existing packages to update or remove them.</value>
   </data>
@@ -242,7 +274,7 @@
     <value>e.g. C:\PythonXY\python.exe</value>
   </data>
   <data name="ConfigurationExtensionInterpreterPathHelp" xml:space="preserve">
-    <value>The interpreter path is the executable file used to run Python. Normally this is called &amp;quot;python.exe&amp;quot;, but it may be different for some interpreters.</value>
+    <value>The interpreter path is the executable file used to run Python. Normally this is called "python.exe", but it may be different for some interpreters.</value>
   </data>
   <data name="ConfigurationExtensionWindowedInterpreterPathLabel" xml:space="preserve">
     <value>Windowed interpreter</value>
@@ -254,7 +286,7 @@
     <value>e.g. C:\PythonXY\pythonw.exe</value>
   </data>
   <data name="ConfigurationExtensionWindowedInterpreterPathHelp" xml:space="preserve">
-    <value>The windowed interpreter path is the executable file used to start Python without displaying a console window. Normally this is called &amp;quot;pythonw.exe&amp;quot;, but it may be different for some interpreters.</value>
+    <value>The windowed interpreter path is the executable file used to start Python without displaying a console window. Normally this is called "pythonw.exe", but it may be different for some interpreters.</value>
   </data>
   <data name="ConfigurationExtensionWindowedInterpreterPathBrowseFilter" xml:space="preserve">
     <value>Executable Files (*.exe)|*.exe|All Files (*.*)|*.*</value>
@@ -287,7 +319,7 @@
     <value>e.g. PYTHONPATH</value>
   </data>
   <data name="ConfigurationExtensionPathEnvVarHelp" xml:space="preserve">
-    <value>This environment variable is set to specify search paths that should be added to sys.path. Normally this should be set to &amp;quot;PYTHONPATH&amp;quot;, but it may be different for some interpreters.</value>
+    <value>This environment variable is set to specify search paths that should be added to sys.path. Normally this should be set to "PYTHONPATH", but it may be different for some interpreters.</value>
   </data>
   <data name="ConfigurationExtensionApplyLabel" xml:space="preserve">
     <value>_Apply</value>
@@ -325,6 +357,9 @@
   <data name="EnvironmentViewCustomLabel" xml:space="preserve">
     <value>Custom...</value>
   </data>
+  <data name="EnvironmentViewCondaLabel" xml:space="preserve">
+    <value>Create conda environment...</value>
+  </data>
   <data name="EnvironmentViewOnlineHelpLabel" xml:space="preserve">
     <value>Go online and help me find other environments</value>
   </data>
@@ -339,6 +374,17 @@
   </data>
   <data name="EnvironmentViewCustomAutomationName" xml:space="preserve">
     <value>Add new environment</value>
+  </data>
+  <data name="EnvironmentViewCreateNewCondaEnvironmentAutomationName" xml:space="preserve">
+    <value>Create new conda environment</value>
+  </data>
+  <data name="EnvironmentPathsExtensionDeleteEnvironment" xml:space="preserve">
+    <value>Delete this environment from disk</value>
+  </data>
+  <data name="EnvironmentPathsExtensionDeleteConfirmation" xml:space="preserve">
+    <value>Are you sure you want to delete '{0}'?
+
+The folder will be deleted from disk. This operation cannot be undone.</value>
   </data>
   <data name="EnvironmentPathsExtensionMakeDefaultLabel" xml:space="preserve">
     <value>Make this the default environment for new projects</value>
@@ -358,9 +404,6 @@
   <data name="EnvironmentPathsExtensionEnableIPythonLabel" xml:space="preserve">
     <value>Use IPython interactive mode</value>
   </data>
-  <data name="EnvironmentPathsExtensionDisableIPythonLabel" xml:space="preserve">
-    <value>Use IPython interactive mode</value>
-  </data>
   <data name="EnvironmentPathsExtensionOpenInPowerShell" xml:space="preserve">
     <value>Open in PowerShell</value>
   </data>
@@ -373,11 +416,17 @@
   <data name="EnvironmentPathsExtensionSupportInformationLabel" xml:space="preserve">
     <value>Visit the distributor's website</value>
   </data>
+  <data name="EnvironmentPathsExtensionBrokenEnvironmentLabel" xml:space="preserve">
+    <value>Help me fix this broken environment</value>
+  </data>
   <data name="PipExtensionClearSearchToolTip" xml:space="preserve">
     <value>Clear search filter</value>
   </data>
-  <data name="PipExtensionSearchPyPILabel" xml:space="preserve">
-    <value>Search PyPI and installed packages</value>
+  <data name="PipExtensionSecurityWarning" xml:space="preserve">
+    <value>Due to new security restrictions, installing from the internet may not work on this version of Python.</value>
+  </data>
+  <data name="PipExtensionSecurityLearnMore" xml:space="preserve">
+    <value>Learn more</value>
   </data>
   <data name="PipExtensionInstallPipToolTip" xml:space="preserve">
     <value>Install the setuptools and pip packages from PyPI. These packages are required to use this panel.</value>
@@ -389,23 +438,11 @@
     <value>Install {0}</value>
     <comment>{0} is package display name</comment>
   </data>
-  <data name="PipExtensionPipInstall" xml:space="preserve">
-    <value>"pip install {0}"</value>
-    <comment>Do not translate.
-{0} is the search query</comment>
-  </data>
-  <data name="PipExtensionPipInstallFrom" xml:space="preserve">
-    <value> from {0}</value>
-    <comment>{0} is name of package index. This string is appended to the string resource PipExtensionPipInstall</comment>
-  </data>
   <data name="PipPackageUnknownPackageSpec" xml:space="preserve">
     <value>(unknown)</value>
   </data>
   <data name="StandardLibraryModuleListItem" xml:space="preserve">
     <value>(Standard Library)</value>
-  </data>
-  <data name="EnvironmentPathsExtensionDisableIPythonAutomationName" xml:space="preserve">
-    <value>Disable IPython interactive mode</value>
   </data>
   <data name="EnvironmentPathsExtensionEnableIPythonAutomationName" xml:space="preserve">
     <value>Enable IPython interactive mode</value>
@@ -430,5 +467,19 @@
   </data>
   <data name="ToolWindow_ListOfEnvironmentsName" xml:space="preserve">
     <value>Python environments</value>
+  </data>
+  <data name="NoDBExtensionDisplayName" xml:space="preserve">
+    <value>IntelliSense [database disabled]</value>
+  </data>
+  <data name="NoDBExtensionHelpContent" xml:space="preserve">
+    <value>IntelliSense databases will be removed in a future update and have been disabled to help with testing. See the link below to reactivate the database.</value>
+  </data>
+  <data name="NoDBExtensionMessage" xml:space="preserve">
+    <value>In a future update to Visual Studio, IntelliSense databases for Python code will be removed. We are currently testing our replacement, which does not use databases.
+
+If you are having trouble, you can click the link below and restart Visual Studio to restore the old functionality. It can be enabled again through Tools, Options, Python.</value>
+  </data>
+  <data name="NoDBExtensionReactivate" xml:space="preserve">
+    <value>Reactivate IntelliSense databases in my next session</value>
   </data>
 </root>

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,25 +17,23 @@
 using System;
 
 namespace Microsoft.PythonTools.Debugger {
+    enum OutputChannel {
+        Debug,
+        StdOut, 
+        StdErr,
+    }
+
     sealed class OutputEventArgs : EventArgs {
-        private readonly string _output;
-        private readonly PythonThread _thread;
-
-        public OutputEventArgs(PythonThread thread, string output) {
-            _thread = thread;
-            _output = output;
+        public OutputEventArgs(PythonThread thread, string output, OutputChannel channel) {
+            Thread = thread;
+            Output = output;
+            Channel = channel;
         }
 
-        public PythonThread Thread {
-            get {
-                return _thread;
-            }
-        }
+        public PythonThread Thread { get; }
 
-        public string Output {
-            get {
-                return _output;
-            }
-        }
+        public string Output { get; }
+
+        public OutputChannel Channel { get; }
     }
 }

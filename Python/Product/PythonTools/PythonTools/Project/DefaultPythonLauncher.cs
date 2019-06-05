@@ -9,13 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Diagnostics;
+using System.IO;
 using Microsoft.PythonTools.Debugger;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
@@ -46,6 +47,8 @@ namespace Microsoft.PythonTools.Project {
         }
 
         private int Launch(LaunchConfiguration config, bool debug) {
+            DebugLaunchHelper.RequireStartupFile(config);
+
             if (debug) {
                 StartWithDebugger(config);
             } else {
@@ -60,13 +63,14 @@ namespace Microsoft.PythonTools.Project {
         /// </summary>
         private Process StartWithoutDebugger(LaunchConfiguration config) {
             try {
-                _serviceProvider.GetPythonToolsService().Logger.LogEvent(Logging.PythonLogEvent.Launch, new Logging.LaunchInfo {
+                _serviceProvider.GetPythonToolsService().Logger?.LogEvent(Logging.PythonLogEvent.Launch, new Logging.LaunchInfo {
                     IsDebug = false,
                     Version = config.Interpreter?.Version.ToString() ?? ""
                 });
             } catch (Exception ex) {
                 Debug.Fail(ex.ToUnhandledExceptionMessage(GetType()));
             }
+
             return Process.Start(DebugLaunchHelper.CreateProcessStartInfo(_serviceProvider, config));
         }
 
@@ -75,7 +79,7 @@ namespace Microsoft.PythonTools.Project {
         /// </summary>
         private void StartWithDebugger(LaunchConfiguration config) {
             try {
-                _serviceProvider.GetPythonToolsService().Logger.LogEvent(Logging.PythonLogEvent.Launch, new Logging.LaunchInfo {
+                _serviceProvider.GetPythonToolsService().Logger?.LogEvent(Logging.PythonLogEvent.Launch, new Logging.LaunchInfo {
                     IsDebug = true,
                     Version = config.Interpreter?.Version.ToString() ?? ""
                 });

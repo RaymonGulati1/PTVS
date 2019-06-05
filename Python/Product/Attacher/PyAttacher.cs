@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -30,7 +30,7 @@ namespace Microsoft.PythonTools.Debugger {
     /// <summary>
     /// Handles attach logic for attaching to Python processes.  We spin up a new thread in the target process
     /// which loads our library and then the library handles the attach info. We use a shared memory block to
-    /// communicate with the target process - both sending over where to load visualstudio_py_debugger.py, what port number to
+    /// communicate with the target process - both sending over where to load ptvsd_loader.py, what port number to
     /// use, and sending back the Python language version and any error information.
     /// 
     /// Also supports detecting if a process has Python loaded or not - which is fairly simple but requires a helper

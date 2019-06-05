@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,12 +18,13 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Microsoft.PythonTools.Analysis;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace AnalysisTests {
     [TestClass]
     public class ModulePathTests {
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void ModuleName() {
             foreach (var test in new[] {
                 new { FullName = "abc", Name = "abc", ModuleName = "abc", IsSpecialName = false },
@@ -38,7 +39,7 @@ namespace AnalysisTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void ModuleIsCompiled() {
             foreach (var test in new[] {
                 new { SourceFile = "abc.py", IsCompiled = false, IsNative = false },
@@ -55,7 +56,7 @@ namespace AnalysisTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void IsPythonFile() {
             foreach (var test in new[] {
                 new { SourceFile = @"spam\abc.py", ExpectedStrict = true, ExpectedNoStrict = true, ExpectedWithoutCompiled = true, ExpectedWithoutCache = true },
@@ -70,8 +71,8 @@ namespace AnalysisTests {
                 new { SourceFile = @"spam\abc-123.pyo", ExpectedStrict = false, ExpectedNoStrict = true, ExpectedWithoutCompiled = true, ExpectedWithoutCache = false },
                 new { SourceFile = @"spam\abc-123.pyd", ExpectedStrict = false, ExpectedNoStrict = true, ExpectedWithoutCompiled = false, ExpectedWithoutCache = true },
                 new { SourceFile = @"spam\abc.123.py", ExpectedStrict = false, ExpectedNoStrict = true, ExpectedWithoutCompiled = true, ExpectedWithoutCache = true },
-                new { SourceFile = @"spam\abc.123.pyc", ExpectedStrict = false, ExpectedNoStrict = true, ExpectedWithoutCompiled = true, ExpectedWithoutCache = false },
-                new { SourceFile = @"spam\abc.123.pyo", ExpectedStrict = false, ExpectedNoStrict = true, ExpectedWithoutCompiled = true, ExpectedWithoutCache = false },
+                new { SourceFile = @"spam\abc.123.pyc", ExpectedStrict = true, ExpectedNoStrict = true, ExpectedWithoutCompiled = true, ExpectedWithoutCache = false },
+                new { SourceFile = @"spam\abc.123.pyo", ExpectedStrict = true, ExpectedNoStrict = true, ExpectedWithoutCompiled = true, ExpectedWithoutCache = false },
                 new { SourceFile = @"spam\abc.123.pyd", ExpectedStrict = true, ExpectedNoStrict = true, ExpectedWithoutCompiled = false, ExpectedWithoutCache = true },
             }) {
                 Assert.AreEqual(test.ExpectedStrict, ModulePath.IsPythonFile(test.SourceFile, true, true, true), test.SourceFile);
@@ -84,6 +85,27 @@ namespace AnalysisTests {
             }
         }
 
+        [TestMethod, Priority(0)]
+        public void IsDebug() {
+            foreach (var test in new[] {
+                new { SourceFile = @"spam\abc.py", Expected = false },
+                new { SourceFile = @"spam\abc.pyd", Expected = false },
+                new { SourceFile = @"spam\abc.cp35-win32.pyd", Expected = false },
+                new { SourceFile = @"spam\abc.cpython-35d.pyd", Expected = true },  // not a real filename, but should match the tag still
+                new { SourceFile = @"spam\abc_d.pyd", Expected = true },
+                new { SourceFile = @"spam\abc_d.cp3-win_amd64.pyd", Expected = true },
+                new { SourceFile = @"spam\abc.cpython-35.so", Expected = false },
+                new { SourceFile = @"spam\abc.cpython-35u.so", Expected = false },
+                new { SourceFile = @"spam\abc.pypy-35m.so", Expected = false },
+                new { SourceFile = @"spam\abc.cpython-35d.so", Expected = true },
+                new { SourceFile = @"spam\abc.cpython-35dmu.so", Expected = true },
+                new { SourceFile = @"spam\abc.jython-35udm.dylib", Expected = true },
+                new { SourceFile = @"spam\abc.cpython-35umd.dylib", Expected = true },
+            }) {
+                Assert.AreEqual(test.Expected, new ModulePath("abc", test.SourceFile, null).IsDebug, test.SourceFile);
+            }
+        }
+
         /// <summary>
         /// Verify that the analyzer has the proper algorithm for turning a filename into a package name
         /// </summary>
@@ -93,7 +115,7 @@ namespace AnalysisTests {
 
             // Replace the usual File.Exists(p + '__init__.py') check so we can
             // test without real files.
-            var packagePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
+            var packagePaths = new HashSet<string>(PathEqualityComparer.Instance) {
                 basePath + @"A\",
                 basePath + @"A\B\"
             };

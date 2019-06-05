@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -27,7 +27,6 @@ using Microsoft.CookiecutterTools.Telemetry;
 using Microsoft.CookiecutterTools.ViewModel;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using TestUtilities;
-using TestUtilities.Python;
 
 namespace CookiecutterTests {
     [TestClass]
@@ -74,7 +73,7 @@ namespace CookiecutterTests {
                 new ContextItemViewModel("pypi_username", Selectors.String, null, null, null, "{{ cookiecutter.github_username }}"),
                 new ContextItemViewModel("version", Selectors.String, null, null, null, "0.1.0"),
                 new ContextItemViewModel("use_azure", Selectors.String, null, null, null, "y"),
-                new ContextItemViewModel("open_source_license", Selectors.List, null, null, null, "BSD license", new string[] { "MIT license", "BSD license", "ISC license", "Apache Software License 2.0", "GNU General Public License v3", "Not open source" }),
+                new ContextItemViewModel("open_source_license", Selectors.List, null, null, null, "BSD license", items: new string[] { "MIT license", "BSD license", "ISC license", "Apache Software License 2.0", "GNU General Public License v3", "Not open source" }),
                 new ContextItemViewModel("port", Selectors.String, null, null, null, "5000"),
                 // Note that _copy_without_render item should not appear
         };
@@ -82,14 +81,13 @@ namespace CookiecutterTests {
         [ClassInitialize]
         public static void DoDeployment(TestContext context) {
             AssertListener.Initialize();
-            PythonTestData.Deploy();
         }
 
         [TestInitialize]
         public void SetupTest() {
             _redirector = new MockRedirector();
 
-            var output = TestData.GetTempPath("Cookiecutter", true);
+            var output = TestData.GetTempPath();
             var outputProjectFolder = Path.Combine(output, "integration");
             var feedUrl = new Uri(TestFeedPath);
             var installedPath = TestInstalledTemplateFolderPath;
@@ -99,6 +97,7 @@ namespace CookiecutterTests {
             _gitHubClient = new GitHubClient();
             _cutterClient = CookiecutterClientProvider.Create(null, _redirector);
             _telemetry = new CookiecutterTelemetry(new TelemetryTestService());
+            CookiecutterTelemetry.Initialize(_telemetry.TelemetryService);
             _installedTemplateSource = new LocalTemplateSource(installedPath, _gitClient);
             _gitHubTemplateSource = new GitHubTemplateSource(_gitHubClient);
             _feedTemplateSource = new FeedTemplateSource(feedUrl);
@@ -136,8 +135,9 @@ namespace CookiecutterTests {
             Assert.AreEqual(1, _vm.Installed.Templates.Count);
             Assert.AreEqual(6, _vm.Recommended.Templates.Count);
 
-            Assert.AreEqual(28, _vm.GitHub.Templates.Count);
-            Assert.AreEqual(27, _vm.GitHub.Templates.OfType<TemplateViewModel>().Count());
+            // For GitHub results, check for a range since the exact count is bit inconsistent.
+            Assert.IsTrue(_vm.GitHub.Templates.Count > 20 && _vm.GitHub.Templates.Count < 32);
+            Assert.AreEqual(_vm.GitHub.Templates.Count - 1, _vm.GitHub.Templates.OfType<TemplateViewModel>().Count());
             Assert.AreEqual(1, _vm.GitHub.Templates.OfType<ContinuationViewModel>().Count());
 
             var continuationVM = _vm.GitHub.Templates.Last() as ContinuationViewModel;
@@ -145,8 +145,8 @@ namespace CookiecutterTests {
             Assert.IsFalse(string.IsNullOrEmpty(continuationVM.ContinuationToken));
 
             await _vm.LoadMoreTemplatesAsync(continuationVM.ContinuationToken);
-            Assert.AreEqual(53, _vm.GitHub.Templates.Count);
-            Assert.AreEqual(52, _vm.GitHub.Templates.OfType<TemplateViewModel>().Count());
+            Assert.IsTrue(_vm.GitHub.Templates.Count > 40 && _vm.GitHub.Templates.Count < 64);
+            Assert.AreEqual(_vm.GitHub.Templates.Count - 1, _vm.GitHub.Templates.OfType<TemplateViewModel>().Count());
             Assert.AreEqual(1, _vm.GitHub.Templates.OfType<ContinuationViewModel>().Count());
 
             // The old "Load more" will be removed, but another one will be added after the new batch of results
@@ -184,7 +184,7 @@ namespace CookiecutterTests {
             await _vm.SearchAsync();
 
             Assert.AreEqual(0, _vm.Installed.Templates.Count);
-            Assert.AreEqual(0, _vm.GitHub.Templates.Count);
+            Assert.AreEqual(0, _vm.GitHub.Templates.Where(t => t.GetType() != typeof(ErrorViewModel)).Count());
             Assert.AreEqual(0, _vm.Recommended.Templates.Count);
             Assert.AreEqual(0, _vm.Custom.Templates.Count);
         }
@@ -273,7 +273,6 @@ namespace CookiecutterTests {
             var targetPath = _vm.OutputFolderPath;
             try {
                 await _vm.CreateFilesAsync();
-                _vm.OpenFolderInExplorer(_vm.OpenInExplorerFolderPath);
             } finally {
                 FileUtils.DeleteDirectory(targetPath);
             }
@@ -293,7 +292,6 @@ namespace CookiecutterTests {
             var targetPath = _vm.OutputFolderPath;
             try {
                 await _vm.CreateFilesAsync();
-                _vm.OpenFolderInExplorer(_vm.OpenInExplorerFolderPath);
             } finally {
                 FileUtils.DeleteDirectory(targetPath);
             }
@@ -315,7 +313,6 @@ namespace CookiecutterTests {
             var targetPath = _vm.OutputFolderPath;
             try {
                 await _vm.CreateFilesAsync();
-                _vm.OpenFolderInExplorer(_vm.OpenInExplorerFolderPath);
             } finally {
                 FileUtils.DeleteDirectory(targetPath);
             }
@@ -436,8 +433,7 @@ namespace CookiecutterTests {
 
             await _vm.CreateFilesAsync();
 
-            // Succeeded message doesn't appear for add to project
-            Assert.AreEqual(OperationStatus.NotStarted, _vm.CreatingStatus);
+            Assert.AreEqual(OperationStatus.Succeeded, _vm.CreatingStatus);
 
             // Check that we're calling the project system to add the files we generated
             Assert.AreEqual(1, _projectSystemClient.Added.Count);
@@ -476,7 +472,6 @@ namespace CookiecutterTests {
                 await _vm.CreateFilesAsync();
 
                 Assert.AreEqual(OperationStatus.Succeeded, _vm.CreatingStatus);
-                Assert.AreEqual(targetPath, _vm.OpenInExplorerFolderPath);
 
                 Assert.IsTrue(Directory.Exists(Path.Combine(targetPath, "static_files")));
                 Assert.IsTrue(Directory.Exists(Path.Combine(targetPath, "post-deployment")));
@@ -500,8 +495,6 @@ namespace CookiecutterTests {
                 Assert.IsTrue(log.Contains(PII(template.RepositoryName)));
                 Assert.IsTrue(log.Contains(PII(template.RepositoryOwner)));
 
-                Assert.AreEqual(null, _openedFolder);
-                _vm.OpenFolderInExplorer(_vm.OpenInExplorerFolderPath);
                 Assert.AreEqual(targetPath, _openedFolder);
             } finally {
                 FileUtils.DeleteDirectory(targetPath);
@@ -629,61 +622,6 @@ namespace CookiecutterTests {
                 }
 
                 return 0;
-            }
-        }
-
-        class ContextItemViewModelComparer : IComparer {
-            public int Compare(object x, object y) {
-                if (x == y) {
-                    return 0;
-                }
-
-                var a = x as ContextItemViewModel;
-                var b = y as ContextItemViewModel;
-
-                if (a == null) {
-                    return -1;
-                }
-
-                if (b == null) {
-                    return -1;
-                }
-
-                int res;
-                res = a.Name.CompareTo(b.Name);
-                if (res != 0) {
-                    return res;
-                }
-
-                res = a.Val.CompareTo(b.Val);
-                if (res != 0) {
-                    return res;
-                }
-
-                res = a.Default.CompareTo(b.Default);
-                if (res != 0) {
-                    return res;
-                }
-
-                res = a.Selector.CompareTo(b.Selector);
-                if (res != 0) {
-                    return res;
-                }
-
-                res = SafeCompare(a.Description, b.Description);
-                if (res != 0) {
-                    return res;
-                }
-
-                return 0;
-            }
-
-            private int SafeCompare(IComparable a, IComparable b) {
-                if (a == null) {
-                    return b == null ? 0 : -1;
-                }
-
-                return a.CompareTo(b);
             }
         }
     }

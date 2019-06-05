@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,6 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -28,7 +29,6 @@ using Microsoft.PythonTools.Parsing.Ast;
 using Microsoft.PythonTools.Projects;
 
 namespace Microsoft.PythonTools.Django.Analysis {
-    [Export(typeof(IAnalysisExtension))]
     [AnalysisExtensionName(Name)]
     partial class DjangoAnalyzer : IDisposable, IAnalysisExtension {
         internal const string Name = "django";
@@ -123,7 +123,7 @@ namespace Microsoft.PythonTools.Django.Analysis {
                                 }
                             }
 
-                            var dict = newTags.ToDictionary(x => x.Key, x => x.Value.ToString().ToLower());
+                            var dict = newTags.ToDictionary(x => x.Key, x => x.Value.ToString().ToLowerInvariant());
                             return serializer.Serialize(dict);
                         }
                     }
@@ -198,16 +198,21 @@ namespace Microsoft.PythonTools.Django.Analysis {
             analyzer.SpecializeFunction("django.contrib.gis.shortcuts", "render_to_kmz", RenderToStringProcessor, true);
             analyzer.SpecializeFunction("django.contrib.gis.shortcuts", "render_to_text", RenderToStringProcessor, true);
 
-            analyzer.SpecializeFunction("django.template.base.Library", "filter", FilterProcessor, true);
-            analyzer.SpecializeFunction("django.template.base.Library", "filter_function", FilterProcessor, true);
+            analyzer.SpecializeFunction("django.template.Library", "filter", FilterProcessor, true);
+            analyzer.SpecializeFunction("django.template.Library", "filter_function", FilterProcessor, true);
 
-            analyzer.SpecializeFunction("django.template.base.Library", "tag", TagProcessor, true);
-            analyzer.SpecializeFunction("django.template.base.Library", "tag_function", TagProcessor, true);
-            analyzer.SpecializeFunction("django.template.base.Library", "assignment_tag", TagProcessor, true);
-            analyzer.SpecializeFunction("django.template.base.Library", "simple_tag", TagProcessor, true);
+            analyzer.SpecializeFunction("django.template.Library", "tag", TagProcessor, true);
+            analyzer.SpecializeFunction("django.template.Library", "tag_function", TagProcessor, true);
+            analyzer.SpecializeFunction("django.template.Library", "assignment_tag", TagProcessor, true);
+            analyzer.SpecializeFunction("django.template.Library", "simple_tag", TagProcessor, true);
+
+            // Django >= 1.9
+            analyzer.SpecializeFunction("django.template.library", "import_library", "django.template.library.Library", true);
+
+            // Django < 1.9
+            analyzer.SpecializeFunction("django.template.base", "import_library", "django.template.base.Library", true);
 
             analyzer.SpecializeFunction("django.template.base.Parser", "parse", ParseProcessor, true);
-            analyzer.SpecializeFunction("django.template.base", "import_library", "django.template.base.Library", true);
 
             analyzer.SpecializeFunction("django.template.loader", "get_template", GetTemplateProcessor, true);
             analyzer.SpecializeFunction("django.template.context", "Context", ContextClassProcessor, true);
@@ -223,6 +228,8 @@ namespace Microsoft.PythonTools.Django.Analysis {
 
             // Urls specializers
             analyzer.SpecializeFunction("django.conf.urls", "url", UrlProcessor, true);
+            analyzer.SpecializeFunction("django.urls", "url", UrlProcessor, true);
+            analyzer.SpecializeFunction("django.urls", "path", UrlProcessor, true);
         }
 
         private IAnalysisSet ParseProcessor(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
@@ -235,7 +242,7 @@ namespace Microsoft.PythonTools.Django.Analysis {
                         foreach (var value in values) {
                             var str = value.GetConstantValueAsString();
                             if (str != null) {
-                                RegisterTag(unit.Project, _tags, str);
+                                RegisterTag(unit.Entry, _tags, str);
                             }
                         }
                     }
@@ -301,15 +308,15 @@ namespace Microsoft.PythonTools.Django.Analysis {
             } else if (model != null) {
                 // template name is [app]/[modelname]_[template_name_suffix]
                 string appName;
-                int firstDot = unit.Project.ModuleName.IndexOf('.');
+                int firstDot = unit.Entry.ModuleName.IndexOf('.');
                 if (firstDot != -1) {
-                    appName = unit.Project.ModuleName.Substring(0, firstDot);
+                    appName = unit.Entry.ModuleName.Substring(0, firstDot);
                 } else {
-                    appName = unit.Project.ModuleName;
+                    appName = unit.Entry.ModuleName;
                 }
 
                 foreach (var modelInst in model) {
-                    string baseName = appName + "/" + modelInst.Name.ToLower();
+                    string baseName = appName + "/" + modelInst.Name.ToLowerInvariant();
                     foreach (var suffix in templateNameSuffix.DefaultIfEmpty(defaultTemplateNameSuffix)) {
                         AddViewTemplate(unit, model, querySet, contextObjName, baseName + suffix);
                     }
@@ -337,7 +344,7 @@ namespace Microsoft.PythonTools.Django.Analysis {
                 }
             } else if (model != null) {
                 foreach (var modelInst in model) {
-                    foreach (var name in contextObjName.DefaultIfEmpty(modelInst.Name.ToLower())) {
+                    foreach (var name in contextObjName.DefaultIfEmpty(modelInst.Name.ToLowerInvariant())) {
                         tags.UpdateVariable(name, unit, modelInst.GetInstanceType());
                     }
                 }
@@ -357,7 +364,9 @@ namespace Microsoft.PythonTools.Django.Analysis {
 
             string urlName = urlNames.First().GetConstantValueAsString();
             string urlRegex = args.First().First().GetConstantValueAsString();
-            _urls.Add(new DjangoUrl(urlName, urlRegex));
+            if (urlName != null && urlRegex != null) {
+                _urls.Add(new DjangoUrl(urlName, urlRegex));
+            }
 
             return AnalysisSet.Empty;
         }
@@ -403,12 +412,12 @@ namespace Microsoft.PythonTools.Django.Analysis {
                     var constName = name.GetConstantValue();
                     if (constName == Type.Missing) {
                         if (name.Name != null) {
-                            RegisterTag(unit.Project, tags, name.Name, name.Documentation);
+                            RegisterTag(unit.Entry, tags, name.Name, name.Documentation);
                         }
                     } else {
                         var strName = name.GetConstantValueAsString();
                         if (strName != null) {
-                            RegisterTag(unit.Project, tags, strName);
+                            RegisterTag(unit.Entry, tags, strName);
                         }
                     }
                 }
@@ -424,7 +433,7 @@ namespace Microsoft.PythonTools.Django.Analysis {
                 foreach (var name in args[1]) {
                     string tagName = name.Name ?? name.GetConstantValueAsString();
                     if (tagName != null) {
-                        RegisterTag(unit.Project, tags, tagName, name.Documentation);
+                        RegisterTag(unit.Entry, tags, tagName, name.Documentation);
                     }
                     if (name.MemberType != PythonMemberType.Constant) {
                         var parser = unit.FindAnalysisValueByName(node, "django.template.base.Parser");
@@ -445,7 +454,7 @@ namespace Microsoft.PythonTools.Django.Analysis {
                         return dec;
                     } else if (name.Name != null) {
                         // library.filter
-                        RegisterTag(unit.Project, tags, name.Name, name.Documentation);
+                        RegisterTag(unit.Entry, tags, name.Name, name.Documentation);
                     }
                 }
             }

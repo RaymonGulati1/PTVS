@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,8 +18,9 @@ using System;
 using Microsoft.VisualStudio.Text;
 
 namespace TestUtilities.Mocks {
-    public class MockTextVersion : ITextVersion {
+    public class MockTextVersion : ITextVersion2 {
         private readonly int _version;
+        private readonly MockTextImageVersion _imageVersion;
         internal readonly MockTextSnapshot _snapshot;
         private MockTextVersion _nextVersion;
         private INormalizedTextChangeCollection _changes;
@@ -27,16 +28,13 @@ namespace TestUtilities.Mocks {
         public MockTextVersion(int version, MockTextSnapshot snapshot) {
             _version = version;
             _snapshot = snapshot;
+            _imageVersion = new MockTextImageVersion(this);
         }
 
         /// <summary>
         /// changes to get to the next version
         /// </summary>
-        public INormalizedTextChangeCollection Changes {
-            get {
-                return _changes;
-            }
-        }
+        public INormalizedTextChangeCollection Changes => _changes;
 
         public ITrackingSpan CreateCustomTrackingSpan(Span span, TrackingFidelityMode trackingFidelity, object customState, CustomTrackToVersion behavior) {
             throw new NotImplementedException();
@@ -66,25 +64,17 @@ namespace TestUtilities.Mocks {
             throw new NotImplementedException();
         }
 
-        public int Length {
-            get { return _snapshot.Length; }
-        }
+        public int Length => _snapshot.Length;
 
-        public ITextVersion Next {
-            get { return _nextVersion; }
-        }
+        public ITextVersion Next => _nextVersion;
 
-        public int ReiteratedVersionNumber {
-            get { throw new NotImplementedException(); }
-        }
+        public int ReiteratedVersionNumber => throw new NotImplementedException();
 
-        public ITextBuffer TextBuffer {
-            get { return _snapshot.TextBuffer; }
-        }
+        public ITextBuffer TextBuffer => _snapshot.TextBuffer;
 
-        public int VersionNumber {
-            get { return _version; }
-        }
+        public int VersionNumber => _version;
+
+        public ITextImageVersion ImageVersion => _imageVersion;
 
         internal void SetNext(MockTextVersion nextVersion, params ITextChange[] changes) {
             _nextVersion = nextVersion;

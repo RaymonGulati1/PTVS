@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,12 +17,17 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.Html.Editor.Document;
 using Microsoft.PythonTools.Django.TemplateParsing;
 using Microsoft.PythonTools.Intellisense;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Text;
+#if DEV16_OR_LATER
+using Microsoft.WebTools.Languages.Html.Editor.Document;
+using Microsoft.WebTools.Languages.Shared.Text;
+#else
+using Microsoft.Html.Editor.Document;
 using Microsoft.Web.Core.Text;
+#endif
 
 namespace Microsoft.PythonTools.Django.Intellisense {
     internal class DjangoCompletionSource : DjangoCompletionSourceBase {
@@ -62,23 +67,23 @@ namespace Microsoft.PythonTools.Django.Intellisense {
                 return;
             }
 
-            var artifactText = doc.HtmlEditorTree.ParseTree.Text.GetText(artifact.InnerRange);
+            var artifactText = doc.HtmlEditorTree.ParseTree.Text.GetText(artifact.InnerRange.Start, artifact.InnerRange.Length);
             artifact.Parse(artifactText);
 
-            ITrackingSpan applicableSpan;
-            var completionSet = GetCompletionSet(session.GetOptions(_serviceProvider), _analyzer, artifact.TokenKind, artifactText, artifact.InnerRange.Start, triggerPoint, out applicableSpan);
+            var completionSet = GetCompletionSet(session.GetOptions(_serviceProvider), _analyzer, artifact.TokenKind, artifactText, artifact.InnerRange.Start, triggerPoint, out _);
             completionSets.Add(completionSet);
         }
 
         protected override IEnumerable<DjangoBlock> GetBlocks(IEnumerable<CompletionInfo> results, SnapshotPoint triggerPoint) {
-            var doc = HtmlEditorDocument.FromTextBuffer(_buffer);
+            var buffers = _buffer.GetContributingBuffers().Where(b => b.ContentType.IsOfType(TemplateHtmlContentType.ContentTypeName));
+            var doc = HtmlEditorDocument.FromTextBuffer(buffers.FirstOrDefault() ?? _buffer);
             if (doc == null) {
                 yield break;
             }
 
             var artifacts = doc.HtmlEditorTree.ArtifactCollection.ItemsInRange(new TextRange(0, triggerPoint.Position));
             foreach (var artifact in artifacts.OfType<TemplateBlockArtifact>().Reverse()) {
-                var artifactText = doc.HtmlEditorTree.ParseTree.Text.GetText(artifact.InnerRange);
+                var artifactText = doc.HtmlEditorTree.ParseTree.Text.GetText(artifact.InnerRange.Start, artifact.InnerRange.Length);
                 artifact.Parse(artifactText);
                 if (artifact.Block != null) {
                     yield return artifact.Block;

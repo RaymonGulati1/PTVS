@@ -9,12 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 using System;
 using System.IO;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using MSBuild = Microsoft.Build.Evaluation;
 
 namespace TestUtilities.SharedProject {
@@ -41,8 +42,12 @@ namespace TestUtilities.SharedProject {
             if (!IsMissing) {
                 var absName = Path.IsPathRooted(Name) ? Name : Path.Combine(project.DirectoryPath, Name);
                 var absReferencePath = Path.IsPathRooted(ReferencePath) ? ReferencePath : Path.Combine(project.DirectoryPath, ReferencePath);
-                
-                NativeMethods.CreateSymbolicLink(absName, absReferencePath);
+
+                try {
+                    NativeMethods.CreateSymbolicLink(absName, absReferencePath);
+                } catch (UnauthorizedAccessException ex) {
+                    Assert.Inconclusive(ex.Message);
+                }
             }
 
             if (!IsExcluded) {

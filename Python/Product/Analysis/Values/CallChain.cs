@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,6 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.PythonTools.Analysis.Analyzer;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Parsing.Ast;
 
 namespace Microsoft.PythonTools.Analysis.Values {
@@ -46,7 +47,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
         }
 
         public CallChain(Node call, AnalysisUnit unit, int limit) {
-            var fau = unit as CalledFunctionAnalysisUnit;
+            var fau = unit as FunctionClosureAnalysisUnit;
             if (fau == null || limit == 1) {
                 _chain = call;
             } else {
@@ -127,6 +128,10 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
         public bool Equals(CallChain other) {
             return this.SequenceEqual(other);
+        }
+
+        public override string ToString() {
+            return "<CallChain {0:X8}>".FormatInvariant(GetHashCode());
         }
     }
 

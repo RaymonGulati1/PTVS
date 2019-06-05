@@ -9,18 +9,18 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
-using System.Reflection;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.PythonTools.Analysis;
-using Microsoft.PythonTools.Intellisense;
-using Microsoft.VisualStudio.Language.StandardClassification;
+using Microsoft.PythonTools.Editor.Core;
+using Microsoft.PythonTools.Parsing;
 using Microsoft.VisualStudio.Text;
-using Microsoft.VisualStudio.Text.Classification;
 using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Text.Editor.OptionsExtensionMethods;
 
@@ -48,161 +48,182 @@ namespace Microsoft.PythonTools.Editor {
             public bool ShouldDedentAfter;
         }
 
-        private static int CalculateIndentation(string baseline, ITextSnapshotLine line, IEditorOptions options, IClassifier classifier, ITextView textView) {
+        private static int CalculateIndentation(
+            string baseline,
+            ITextSnapshotLine line,
+            IEditorOptions options,
+            PythonTextBufferInfo buffer
+        ) {
+            var snapshot = line.Snapshot;
+            if (snapshot.TextBuffer != buffer.Buffer) {
+                throw new ArgumentException("buffer mismatch");
+            }
+
             int indentation = GetIndentation(baseline, options.GetTabSize());
             int tabSize = options.GetIndentSize();
-            var tokens = classifier.GetClassificationSpans(line.Extent);
-            if (tokens.Count > 0 && !IsUnterminatedStringToken(tokens[tokens.Count - 1])) {
-                int tokenIndex = tokens.Count - 1;
+            var tokens = buffer.GetTokens(line).ToList();
 
-                while (tokenIndex >= 0 &&
-                    (tokens[tokenIndex].ClassificationType.IsOfType(PredefinedClassificationTypeNames.Comment) ||
-                    tokens[tokenIndex].ClassificationType.IsOfType(PredefinedClassificationTypeNames.WhiteSpace))) {
-                    tokenIndex--;
-                }
+            while (tokens.Count > 0 && IsWhitespace(tokens[tokens.Count - 1].Category)) {
+                tokens.RemoveAt(tokens.Count - 1);
+            }
 
-                if (tokenIndex < 0) {
-                    return indentation;
-                }
+            if (tokens.Count == 0 || IsUnterminatedStringToken(tokens[tokens.Count - 1], snapshot)) {
+                return indentation;
+            }
 
-                if (ReverseExpressionParser.IsExplicitLineJoin(tokens[tokenIndex])) {
-                    // explicit line continuation, we indent 1 level for the continued line unless
-                    // we're already indented because of multiple line continuation characters.
-
-                    indentation = GetIndentation(line.GetText(), options.GetTabSize());
-                    var joinedLine = tokens[tokenIndex].Span.Start.GetContainingLine();
-                    if (joinedLine.LineNumber > 0) {
-                        var prevLineSpans = classifier.GetClassificationSpans(tokens[tokenIndex].Span.Snapshot.GetLineFromLineNumber(joinedLine.LineNumber - 1).Extent);
-                        if (prevLineSpans.Count == 0 || !ReverseExpressionParser.IsExplicitLineJoin(prevLineSpans[prevLineSpans.Count - 1])) {
-                            indentation += tabSize;
-                        }
-                    } else {
+            if (HasExplicitLineJoin(tokens, snapshot)) {
+                // explicit line continuation, we indent 1 level for the continued line unless
+                // we're already indented because of multiple line continuation characters.
+                indentation = GetIndentation(line.GetText(), options.GetTabSize());
+                var joinedLine = line.LineNumber - 1;
+                if (joinedLine >= 0) {
+                    var prevLineTokens = buffer.GetTokens(snapshot.GetLineFromLineNumber(joinedLine)).ToList();
+                    if (prevLineTokens.Count == 0 || !HasExplicitLineJoin(prevLineTokens, snapshot)) {
                         indentation += tabSize;
                     }
-
-                    return indentation;
+                } else {
+                    indentation += tabSize;
                 }
 
-                string sline = tokens[tokenIndex].Span.GetText();
-                var lastChar = sline.Length == 0 ? '\0' : sline[sline.Length - 1];
+                return indentation;
+            }
 
-                // use the expression parser to figure out if we're in a grouping...
-                var spans = textView.BufferGraph.MapDownToFirstMatch(
-                    tokens[tokenIndex].Span,
-                    SpanTrackingMode.EdgePositive,
-                    PythonContentTypePrediciate
-                );
-                if (spans.Count == 0) {
-                    return indentation;
+            var tokenStack = new Stack<TrackingTokenInfo?>();
+            tokenStack.Push(null);  // end with an implicit newline
+            int endAtLine = -1, currentLine = tokens.Last().LineNumber;
+
+            foreach (var t in buffer.GetTokensInReverseFromPoint(tokens.Last().ToSnapshotSpan(snapshot).Start)) {
+                if (t.LineNumber == currentLine) {
+                    tokenStack.Push(t);
+                } else {
+                    tokenStack.Push(null);
                 }
-                
-                var revParser = new ReverseExpressionParser(
-                        spans[0].Snapshot,
-                        spans[0].Snapshot.TextBuffer,
-                        spans[0].Snapshot.CreateTrackingSpan(
-                            spans[0].Span,
-                            SpanTrackingMode.EdgePositive
-                        )
-                    );
 
-                var tokenStack = new System.Collections.Generic.Stack<ClassificationSpan>();
-                tokenStack.Push(null);  // end with an implicit newline
-                bool endAtNextNull = false;
+                if (t.LineNumber == endAtLine) {
+                    break;
+                } else if (t.Category == TokenCategory.Keyword && PythonKeywords.IsOnlyStatementKeyword(t.GetText(snapshot), buffer.LanguageVersion)) {
+                    endAtLine = t.LineNumber - 1;
+                }
 
-                foreach (var token in revParser) {
-                    tokenStack.Push(token);
-                    if (token == null && endAtNextNull) {
-                        break;
-                    } else if (token != null &&
-                       token.ClassificationType == revParser.Classifier.Provider.Keyword &&
-                       PythonKeywords.IsOnlyStatementKeyword(token.Span.GetText())) {
-                        endAtNextNull = true;
+                if (t.LineNumber != currentLine) {
+                    currentLine = t.LineNumber;
+                    if (t.Category != TokenCategory.WhiteSpace && t.Category != TokenCategory.Comment && t.Category != TokenCategory.LineComment) {
+                        tokenStack.Push(t);
                     }
                 }
+            }
 
-                var indentStack = new System.Collections.Generic.Stack<LineInfo>();
-                var current = LineInfo.Empty;
+            var indentStack = new Stack<LineInfo>();
+            var current = LineInfo.Empty;
 
-                while (tokenStack.Count > 0) {
-                    var token = tokenStack.Pop();
-                    if (token == null) {
-                        current.NeedsUpdate = true;
-                    } else if (token.IsOpenGrouping()) {
-                        indentStack.Push(current);
-                        var start = token.Span.Start;
-                        var line2 = start.GetContainingLine();
-                        var next = tokenStack.Count > 0 ? tokenStack.Peek() : null;
-                        if (next != null && next.Span.End <= line2.End) {
-                            current = new LineInfo {
-                                Indentation = start.Position - line2.Start.Position + 1
-                            };
-                        } else {
-                            current = new LineInfo {
-                                Indentation = GetIndentation(line2.GetText(), tabSize) + tabSize
-                            };
-                        }
-                    } else if (token.IsCloseGrouping()) {
-                        if (indentStack.Count > 0) {
-                            current = indentStack.Pop();
-                        } else {
-                            current.NeedsUpdate = true;
-                        }
-                    } else if (ReverseExpressionParser.IsExplicitLineJoin(token)) {
-                        while (token != null && tokenStack.Count > 0) {
-                            token = tokenStack.Pop();
-                        }
-                    } else if (current.NeedsUpdate == true) {
-                        var line2 = token.Span.Start.GetContainingLine();
+            while (tokenStack.Count > 0) {
+                var t = tokenStack.Pop();
+                if (t == null) {
+                    current.NeedsUpdate = true;
+                    continue;
+                }
+
+                var tline = new Lazy<string>(() => snapshot.GetLineFromLineNumber(t.Value.LineNumber).GetText());
+
+                if (IsOpenGrouping(t.Value, snapshot)) {
+                    indentStack.Push(current);
+                    var next = tokenStack.Count > 0 ? tokenStack.Peek() : null;
+                    if (next != null && next.Value.LineNumber == t.Value.LineNumber) {
+                        // Put indent at same depth as grouping
                         current = new LineInfo {
-                            Indentation = GetIndentation(line2.GetText(), tabSize)
+                            Indentation = t.Value.ToSourceSpan().End.Column - 1
+                        };
+                    } else {
+                        // Put indent at one indent deeper than this line
+                        current = new LineInfo {
+                            Indentation = GetIndentation(tline.Value, tabSize) + tabSize
                         };
                     }
-
-                    if (token != null && ShouldDedentAfterKeyword(token)) {     // dedent after some statements
-                        current.ShouldDedentAfter = true;
+                } else if (IsCloseGrouping(t.Value, snapshot)) {
+                    if (indentStack.Count > 0) {
+                        current = indentStack.Pop();
+                    } else {
+                        current.NeedsUpdate = true;
                     }
-
-                    if (token != null && token.Span.GetText() == ":" &&         // indent after a colon
-                        indentStack.Count == 0) {                               // except in a grouping
-                        current.ShouldIndentAfter = true;
-                        // If the colon isn't at the end of the line, cancel it out.
-                        // If the following is a ShouldDedentAfterKeyword, only one dedent will occur.
-                        current.ShouldDedentAfter = (tokenStack.Count != 0 && tokenStack.Peek() != null);
+                } else if (IsExplicitLineJoin(t.Value, snapshot)) {
+                    while (t != null && tokenStack.Count > 0) {
+                        t = tokenStack.Pop();
                     }
+                    if (!t.HasValue) {
+                        continue;
+                    }
+                } else if (current.NeedsUpdate == true) {
+                    current = new LineInfo {
+                        Indentation = GetIndentation(tline.Value, tabSize)
+                    };
                 }
 
-                indentation = current.Indentation +
-                    (current.ShouldIndentAfter ? tabSize : 0) -
-                    (current.ShouldDedentAfter ? tabSize : 0);
+                if (ShouldDedentAfterKeyword(t.Value, snapshot)) {    // dedent after some statements
+                    current.ShouldDedentAfter = true;
+                }
+
+                if (IsColon(t.Value, snapshot) &&       // indent after a colon
+                    indentStack.Count == 0) {           // except in a grouping
+                    current.ShouldIndentAfter = true;
+                    // If the colon isn't at the end of the line, cancel it out.
+                    // If the following is a ShouldDedentAfterKeyword, only one dedent will occur.
+                    current.ShouldDedentAfter = (tokenStack.Count != 0 && tokenStack.Peek() != null);
+                }
             }
 
-            // Map indentation back to the view's text buffer.
-            int offset = 0;
-            var viewLineStart = textView.BufferGraph.MapUpToSnapshot(line.Start, PointTrackingMode.Positive, PositionAffinity.Successor, textView.TextSnapshot);
-            if (viewLineStart.HasValue) {
-                offset = viewLineStart.Value.Position - viewLineStart.Value.GetContainingLine().Start.Position;
-            }
+            indentation = current.Indentation +
+                (current.ShouldIndentAfter ? tabSize : 0) -
+                (current.ShouldDedentAfter ? tabSize : 0);
 
-            return offset + indentation;
+            return indentation;
         }
 
-        private static bool IsUnterminatedStringToken(ClassificationSpan lastToken) {
-            if (lastToken.ClassificationType.IsOfType(PredefinedClassificationTypeNames.String)) {
-                var text = lastToken.Span.GetText();
-                if (text.EndsWith("\"") || text.EndsWith("'")) {
-                    return false;
-                }
+        private static bool IsOpenGrouping(TrackingTokenInfo token, ITextSnapshot snapshot) {
+            if (token.Category != TokenCategory.Grouping) {
+                return false;
+            }
+            var span = token.ToSnapshotSpan(snapshot);
+            return span.Length == 1 && "([{".Contains(span.GetText());
+        }
+
+        private static bool IsCloseGrouping(TrackingTokenInfo token, ITextSnapshot snapshot) {
+            if (token.Category != TokenCategory.Grouping) {
+                return false;
+            }
+            var span = token.ToSnapshotSpan(snapshot);
+            return span.Length == 1 && ")]}".Contains(span.GetText());
+        }
+
+        private static bool IsUnterminatedStringToken(TrackingTokenInfo token, ITextSnapshot snapshot) {
+            if (token.Category == TokenCategory.IncompleteMultiLineStringLiteral) {
                 return true;
             }
-            return false;
+            if (token.Category != TokenCategory.StringLiteral) {
+                return false;
+            }
+
+            try {
+                var c = token.GetText(snapshot);
+                return c == "\"" || c == "'";
+            } catch (ArgumentException) {
+                return false;
+            }
         }
 
-        private static bool ShouldDedentAfterKeyword(ClassificationSpan span) {
-            return span.ClassificationType.Classification == PredefinedClassificationTypeNames.Keyword && ShouldDedentAfterKeyword(span.Span.GetText());
-        }
-
-        private static bool ShouldDedentAfterKeyword(string keyword) {
+        private static bool ShouldDedentAfterKeyword(TrackingTokenInfo token, ITextSnapshot snapshot) {
+            if (token.Category != TokenCategory.Keyword) {
+                return false;
+            }
+            var keyword = token.GetText(snapshot);
             return keyword == "pass" || keyword == "return" || keyword == "break" || keyword == "continue" || keyword == "raise";
+        }
+
+        private static bool IsColon(TrackingTokenInfo token, ITextSnapshot snapshot) {
+            if (token.Category != TokenCategory.Delimiter) {
+                return false;
+            }
+            var span = token.ToSnapshotSpan(snapshot);
+            return span.Length == 1 && span.GetText() == ":";
         }
 
         private static bool IsBlankLine(string lineText) {
@@ -212,6 +233,33 @@ namespace Microsoft.PythonTools.Editor {
                 }
             }
             return true;
+        }
+
+        private static bool IsWhitespace(TokenCategory category) {
+            return category == TokenCategory.Comment ||
+                category == TokenCategory.DocComment ||
+                category == TokenCategory.LineComment ||
+                category == TokenCategory.WhiteSpace;
+        }
+
+        private static bool IsExplicitLineJoin(TrackingTokenInfo token, ITextSnapshot snapshot) {
+            if (token.Category != TokenCategory.Operator) {
+                return false;
+            }
+            var t = token.GetText(snapshot);
+            return t == "\\" || t.TrimEnd('\r', '\n') == "\\";
+        }
+
+        private static bool HasExplicitLineJoin(IReadOnlyList<TrackingTokenInfo> tokens, ITextSnapshot snapshot) {
+            foreach (var t in tokens.Reverse()) {
+                if (IsExplicitLineJoin(t, snapshot)) {
+                    return true;
+                }
+                if (t.Category != TokenCategory.WhiteSpace) {
+                    return false;
+                }
+            }
+            return false;
         }
 
         private static void SkipPreceedingBlankLines(ITextSnapshotLine line, out string baselineText, out ITextSnapshotLine baseline) {
@@ -229,51 +277,46 @@ namespace Microsoft.PythonTools.Editor {
             baseline = line;
         }
 
-        private static bool PythonContentTypePrediciate(ITextSnapshot snapshot) {
-            return snapshot.ContentType.IsOfType(PythonCoreConstants.ContentType);
-        }
-
-        internal static int? GetLineIndentation(ITextSnapshotLine line, ITextView textView) {
+        internal static int? GetLineIndentation(PythonTextBufferInfo buffer, ITextSnapshotLine line, ITextView textView) {
+            if (buffer == null) {
+                return 0;
+            }
             var options = textView.Options;
 
             ITextSnapshotLine baseline;
             string baselineText;
             SkipPreceedingBlankLines(line, out baselineText, out baseline);
 
-            ITextBuffer targetBuffer = textView.TextBuffer;
-            if (!targetBuffer.ContentType.IsOfType(PythonCoreConstants.ContentType)) {
-                var match = textView.BufferGraph.MapDownToFirstMatch(line.Start, PointTrackingMode.Positive, PythonContentTypePrediciate, PositionAffinity.Successor);
+            var lineStart = line.Start;
+            if (!lineStart.Snapshot.TextBuffer.ContentType.IsOfType(PythonCoreConstants.ContentType)) {
+                var match = textView.MapDownToPythonBuffer(lineStart);
                 if (match == null) {
                     return 0;
                 }
-                targetBuffer = match.Value.Snapshot.TextBuffer;
+                lineStart = match.Value;
             }
 
-            var classifier = targetBuffer.GetPythonClassifier();
-            if (classifier == null) {
-                // workaround debugger canvas bug - they wire our auto-indent provider up to a C# buffer
-                // (they query MEF for extensions by hand and filter incorrectly) and we don't have a Python classifier.  
-                // So now the user's auto-indent is broken in C# but returning null is better than crashing.
-                return null;
+            var desiredIndentation = CalculateIndentation(baselineText, baseline, options, buffer);
+            if (desiredIndentation < 0) {
+                desiredIndentation = 0;
             }
-            
-            var desiredIndentation = CalculateIndentation(baselineText, baseline, options, classifier, textView);
 
-            var caretLine = textView.Caret.Position.BufferPosition.GetContainingLine();
+            var caretPos = textView.MapDownToBuffer(textView.Caret.Position.BufferPosition, lineStart.Snapshot.TextBuffer);
+            var caretLine = caretPos?.GetContainingLine();
             // VS will get the white space when the user is moving the cursor or when the user is doing an edit which
             // introduces a new line.  When the user is moving the cursor the caret line differs from the line
             // we're querying.  When editing the lines are the same and so we want to account for the white space of
             // non-blank lines.  An alternate strategy here would be to watch for the edit and fix things up after
             // the fact which is what would happen pre-Dev10 when the language would not get queried for non-blank lines
             // (and is therefore what C# and other languages are doing).
-            if (caretLine.LineNumber == line.LineNumber) {
+            if (caretLine != null && caretLine.LineNumber == line.LineNumber) {
                 var lineText = caretLine.GetText();
                 int indentationUpdate = 0;
-                for (int i = textView.Caret.Position.BufferPosition.Position - caretLine.Start; i < lineText.Length; i++) {
+                for (int i = caretPos.Value.Position - caretLine.Start; i < lineText.Length; i++) {
                     if (lineText[i] == ' ') {
                         indentationUpdate++;
                     } else if (lineText[i] == '\t') {
-                        indentationUpdate += textView.Options.GetIndentSize();
+                        indentationUpdate += textView.Options.GetTabSize();
                     } else {
                         if (indentationUpdate > desiredIndentation) {
                             // we would dedent this line (e.g. there's a return on the previous line) but the user is
@@ -285,6 +328,19 @@ namespace Microsoft.PythonTools.Editor {
                         }
                         break;
                     }
+                }
+            }
+
+            // Map indentation back to the view's text buffer.
+            if (textView.TextBuffer != lineStart.Snapshot.TextBuffer) {
+                var viewLineStart = textView.BufferGraph.MapUpToSnapshot(
+                    lineStart,
+                    PointTrackingMode.Positive,
+                    PositionAffinity.Successor,
+                    textView.TextSnapshot
+                );
+                if (viewLineStart.HasValue) {
+                    desiredIndentation += viewLineStart.Value - viewLineStart.Value.GetContainingLine().Start;
                 }
             }
 

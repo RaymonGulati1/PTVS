@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,7 +19,6 @@ using System.Diagnostics;
 using System.IO;
 using Microsoft.Build.Execution;
 using Microsoft.PythonTools.Infrastructure;
-using Microsoft.PythonTools.Intellisense;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudioTools.Project;
 
@@ -40,8 +39,8 @@ namespace Microsoft.PythonTools.Project {
             Debug.Fail("Unexpected DefaultPythonProject.SetProperty() call");
         }
 
-        public VsProjectAnalyzer GetProjectAnalyzer() {
-            return _serviceProvider.GetPythonToolsService().DefaultAnalyzer;
+        public Projects.ProjectAnalyzer GetProjectAnalyzer() {
+            return _serviceProvider.GetPythonToolsService().TryGetSharedAnalyzer(null, out _, addUser: false);
         }
 
         public IPythonInterpreterFactory GetInterpreterFactory() {
@@ -70,5 +69,6 @@ namespace Microsoft.PythonTools.Project {
         public LaunchConfiguration GetLaunchConfigurationOrThrow() => new LaunchConfiguration(GetInterpreterFactory().Configuration);
 
         public event EventHandler ProjectAnalyzerChanged { add { } remove { } }
+        public void SetOrAddPropertyAfter(string name, string value, string afterProperty) { }
     }
 }

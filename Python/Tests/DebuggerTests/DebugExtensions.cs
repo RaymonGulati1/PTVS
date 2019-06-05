@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,12 +17,13 @@
 using System;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.PythonTools.Debugger;
 using TestUtilities;
 
 namespace DebuggerTests {
     static class DebugExtensions {
-        internal static PythonProcess DebugProcess(this PythonDebugger debugger, PythonVersion version, string filename, Action<PythonProcess, PythonThread> onLoaded = null, bool resumeOnProcessLoaded = true, string interpreterOptions = null, PythonDebugOptions debugOptions = PythonDebugOptions.RedirectOutput, string cwd = null, string arguments = "") {
+        internal static PythonProcess DebugProcess(this PythonDebugger debugger, PythonVersion version, string filename, TextWriter debugLog, Func<PythonProcess, PythonThread, Task> onLoaded = null, bool resumeOnProcessLoaded = true, string interpreterOptions = null, PythonDebugOptions debugOptions = PythonDebugOptions.RedirectOutput, string cwd = null, string arguments = "") {
             string fullPath = Path.GetFullPath(filename);
             string dir = cwd ?? Path.GetFullPath(Path.GetDirectoryName(filename));
             if (!String.IsNullOrEmpty(arguments)) {
@@ -30,12 +31,14 @@ namespace DebuggerTests {
             } else {
                 arguments = "\"" + fullPath + "\"";
             }
-            var process = debugger.CreateProcess(version.Version, version.InterpreterPath, arguments, dir, "", interpreterOptions, debugOptions);
+            var process = debugger.CreateProcess(version.Version, version.InterpreterPath, arguments, dir, "", interpreterOptions, debugOptions, debugLog);
             process.DebuggerOutput += (sender, args) => {
-                Console.WriteLine("{0}: {1}", args.Thread.Id, args.Output);
+                Console.WriteLine("{0}: {1}", args.Thread?.Id, args.Output);
             };
             process.ProcessLoaded += async (sender, args) => {
-                onLoaded?.Invoke(process, args.Thread);
+                if (onLoaded != null) {
+                    await onLoaded(process, args.Thread);
+                }
                 if (resumeOnProcessLoaded) {
                     await process.ResumeAsync(default(CancellationToken));
                 }

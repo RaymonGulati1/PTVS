@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -23,14 +23,10 @@ using System.Windows;
 using Microsoft.PythonTools.Interpreter;
 
 namespace Microsoft.PythonTools.EnvironmentsList {
-    public sealed class PipExtensionProvider : IEnvironmentViewExtension, IPackageManagerUI, IDisposable {
+    sealed class PipExtensionProvider : IEnvironmentViewExtension, IPackageManagerUI, IDisposable {
         private readonly IPythonInterpreterFactory _factory;
         internal readonly IPackageManager _packageManager;
-        private readonly Uri _index;
-        private readonly string _indexName;
         private FrameworkElement _wpfObject;
-
-        private PipPackageCache _cache;
 
         private readonly CancellationTokenSource _cancelAll = new CancellationTokenSource();
 
@@ -38,33 +34,16 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             new KeyValuePair<string, string>("PYTHONUNBUFFERED", "1")
         };
 
-        private static readonly Version SupportsDashMPip = new Version(2, 7);
-
         /// <summary>
         /// Creates a provider for managing packages through pip.
         /// </summary>
-        /// <param name="factory">The associated interpreter.</param>
-        /// <param name="index">
-        /// The index URL. Defaults to https://pypi.python.org/pypi/
-        /// </param>
-        /// <param name="indexName">
-        /// Display name of the index. Defaults to PyPI.
-        /// </param>
         public PipExtensionProvider(
             IPythonInterpreterFactory factory,
-            string index = null,
-            string indexName = null
+            IPackageManager packageManager
         ) {
             _factory = factory;
-            _packageManager = _factory?.PackageManager;
-            if (_packageManager == null) {
-                throw new NotSupportedException();
-            }
-
-            if (!string.IsNullOrEmpty(index) && Uri.TryCreate(index, UriKind.Absolute, out _index)) {
-                _indexName = string.IsNullOrEmpty(indexName) ? _index.Host : indexName;
-            }
-            _cache = PipPackageCache.GetCache(_index, _indexName);
+            _packageManager = packageManager ?? throw new NotSupportedException();
+            _packageManager.EnableNotifications();
         }
 
         public void Dispose() {
@@ -77,11 +56,11 @@ namespace Microsoft.PythonTools.EnvironmentsList {
         }
 
         public string LocalizedDisplayName {
-            get { return _indexName ?? Resources.PipExtensionDisplayName; }
+            get { return _packageManager.ExtensionDisplayName; }
         }
 
         public string IndexName {
-            get { return _indexName ?? Resources.PipDefaultIndexName; }
+            get { return _packageManager.IndexDisplayName; }
         }
 
         public object HelpContent {
@@ -117,7 +96,7 @@ namespace Microsoft.PythonTools.EnvironmentsList {
                 return Array.Empty<PipPackageView>();
             }
 
-            return (await _cache.GetAllPackagesAsync(_cancelAll.Token))
+            return (await _packageManager.GetInstallablePackagesAsync(_cancelAll.Token))
                 .Where(p => p.IsValid)
                 .Select(p => new PipPackageView(_packageManager, p, false))
                 .ToArray();

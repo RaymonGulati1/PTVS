@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,52 +18,35 @@ using System.Text;
 
 namespace Microsoft.PythonTools.Parsing.Ast {    
     public class RaiseStatement : Statement {
-        private readonly Expression _type, _value, _traceback, _cause;
-
         public RaiseStatement(Expression exceptionType, Expression exceptionValue, Expression traceBack, Expression cause) {
-            _type = exceptionType;
-            _value = exceptionValue;
-            _traceback = traceBack;
-            _cause = cause;
+            ExceptType = exceptionType;
+            Value = exceptionValue;
+            Traceback = traceBack;
+            Cause = cause;
         }
 
-        public Expression ExceptType {
-            get {
-                return _type;
-            }
-        }
+        public Expression ExceptType { get; }
+        public Expression Value { get; }
+        public Expression Traceback { get; }
+        public Expression Cause { get; }
+        public int ValueFieldStartIndex { get; set; }
+        public int TracebackFieldStartIndex { get; set; }
+        public int CauseFieldStartIndex { get; set; }
 
-        public Expression Value {
-            get { return _value; }
-        }
-
-        public Expression Traceback {
-            get { return _traceback; }
-        }
-
-        public Expression Cause {
-            get {
-                return _cause;
-            }
-        }
+        public override int KeywordLength => 5;
 
         public override void Walk(PythonWalker walker) {
             if (walker.Walk(this)) {
-                if (_type != null) {
-                    _type.Walk(walker);
-                }
-                if (_value != null) {
-                    _value.Walk(walker);
-                }
-                if (_traceback != null) {
-                    _traceback.Walk(walker);
-                }
+                ExceptType?.Walk(walker);
+                Value?.Walk(walker);
+                Traceback?.Walk(walker);
+                Cause?.Walk(walker);
             }
             walker.PostWalk(this);
         }
 
         internal override void AppendCodeStringStmt(StringBuilder res, PythonAst ast, CodeFormattingOptions format) {
-            format.ReflowComment(res, this.GetProceedingWhiteSpace(ast));
+            format.ReflowComment(res, this.GetPreceedingWhiteSpace(ast));
             res.Append("raise");
             if (ExceptType != null) {
                 ExceptType.AppendCodeString(res, ast, format);
@@ -73,14 +56,14 @@ namespace Microsoft.PythonTools.Parsing.Ast {
                 res.Append("from");
                 Cause.AppendCodeString(res, ast, format);
             } else {
-                if (_value != null) {
+                if (Value != null) {
                     res.Append(this.GetSecondWhiteSpace(ast));
                     res.Append(',');
-                    _value.AppendCodeString(res, ast, format);
-                    if (_traceback != null) {
+                    Value.AppendCodeString(res, ast, format);
+                    if (Traceback != null) {
                         res.Append(this.GetThirdWhiteSpace(ast));
                         res.Append(',');
-                        _traceback.AppendCodeString(res, ast, format);
+                        Traceback.AppendCodeString(res, ast, format);
                     }
                 }
             }

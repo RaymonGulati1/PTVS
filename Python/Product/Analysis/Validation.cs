@@ -9,65 +9,32 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using System.Diagnostics;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 
 namespace Microsoft.PythonTools.Analysis {
 #if FULL_VALIDATION || DEBUG
-    [Serializable]
-    public class ValidationException : Exception {
-        public ValidationException() { }
-        public ValidationException(string message) : base(message) { }
-        public ValidationException(string message, Exception inner) : base(message, inner) { }
-        protected ValidationException(
-          System.Runtime.Serialization.SerializationInfo info,
-          System.Runtime.Serialization.StreamingContext context)
-            : base(info, context) { }
-    }
-
-    [Serializable]
-    public class ChangeCountExceededException : ValidationException {
-        public ChangeCountExceededException() { }
-        public ChangeCountExceededException(string message) : base(message) { }
-        public ChangeCountExceededException(string message, Exception inner) : base(message, inner) { }
-        protected ChangeCountExceededException(
-          System.Runtime.Serialization.SerializationInfo info,
-          System.Runtime.Serialization.StreamingContext context)
-            : base(info, context) { }
-    }
-
     static class Validation {
         public static void Assert(bool expression) {
             if (!expression) {
-                try {
-                    throw new ValidationException();
-                } catch (ValidationException ex) {
-                    Console.WriteLine(ex.ToString());
-                }
+                Console.Error.WriteLine("Validation failure");
+                Console.Error.WriteLine(new StackTrace(true));
+                Debugger.Break();
             }
         }
 
-        public static void Assert<T>(bool expression) where T : ValidationException, new() {
+        public static void Assert(bool expression, FormattableString message) {
             if (!expression) {
-                try {
-                    throw new T();
-                } catch (ValidationException ex) {
-                    Console.WriteLine(ex.ToString());
-                }
-            }
-        }
-
-        public static void Assert(bool expression, string message, params object[] args) {
-            if (!expression) {
-                try {
-                    throw new ValidationException(string.Format(message, args));
-                } catch (ValidationException ex) {
-                    Console.WriteLine(ex.ToString());
-                }
+                Console.Error.WriteLine("Validation failure");
+                Console.Error.WriteLine(FormattableString.Invariant(message));
+                Console.Error.WriteLine(new StackTrace(true));
+                Debugger.Break();
             }
         }
     }

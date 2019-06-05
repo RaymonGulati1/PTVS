@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,6 +20,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
 using System.Text;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 
 namespace Microsoft.PythonTools.Parsing {
     /// <summary>
@@ -67,7 +68,7 @@ namespace Microsoft.PythonTools.Parsing {
                                 buf.Append((char)val);
                                 i += len;
                             } else {
-                                throw new System.Text.DecoderFallbackException(String.Format(@"'unicodeescape' codec can't decode bytes in position {0}: truncated \uXXXX escape", i));
+                                throw new DecoderFallbackException(@"'unicodeescape' codec can't decode bytes in position {0}: truncated \uXXXX escape".FormatUI(i));
                             }
                         } else {
                             buf.Append('\\');
@@ -272,7 +273,7 @@ namespace Microsoft.PythonTools.Parsing {
         private static int CharValue(char ch, int b) {
             int val = HexValue(ch);
             if (val >= b) {
-                throw new ArgumentException(String.Format("bad char for the integer value: '{0}' (base {1})", ch, b));
+                throw new ArgumentException("bad char for the integer value: '{0}' (base {1})".FormatUI(ch, b));
             }
             return val;
         }
@@ -283,7 +284,12 @@ namespace Microsoft.PythonTools.Parsing {
             for (int i = text.Length - 1; i >= 0; i--) {
                 // avoid the exception here.  Not only is throwing it expensive,
                 // but loading the resources for it is also expensive 
-                long lret = (long)ret + m * CharValue(text[i], b);
+                char c = text[i];
+                if (c == '_') {
+                    continue;
+                }
+
+                long lret = (long)ret + m * CharValue(c, b);
                 if (Int32.MinValue <= lret && lret <= Int32.MaxValue) {
                     ret = (int)lret;
                 } else {
@@ -305,7 +311,10 @@ namespace Microsoft.PythonTools.Parsing {
             }
             for (int i = start, end = start + length; i < end; i++) {
                 int onechar;
-                if (HexValue(text[i], out onechar) && onechar < b) {
+                char c = text[i];
+                if (c == '_') {
+                    continue;
+                } else if (HexValue(c, out onechar) && onechar < b) {
                     value = value * b + onechar;
                 } else {
                     return false;
@@ -348,17 +357,20 @@ namespace Microsoft.PythonTools.Parsing {
                         }
                         break;
                     }
-                    if (!HexValue(text[start], out digit)) break;
-                    if (!(digit < b)) {
-                        if (text[start] == 'l' || text[start] == 'L') {
-                            break;
+                    char c = text[start];
+                    if (c != '_') {
+                        if (!HexValue(c, out digit)) break;
+                        if (!(digit < b)) {
+                            if (c == 'l' || c == 'L') {
+                                break;
+                            }
+                            throw new ArgumentException("Invalid integer literal");
                         }
-                        throw new ArgumentException("Invalid integer literal");
-                    }
 
-                    checked {
-                        // include sign here so that System.Int32.MinValue won't overflow
-                        ret = ret * b + sign * digit;
+                        checked {
+                            // include sign here so that System.Int32.MinValue won't overflow
+                            ret = ret * b + sign * digit;
+                        }
                     }
                     start++;
                 }
@@ -451,8 +463,11 @@ namespace Microsoft.PythonTools.Parsing {
                     uint uval = 0;
 
                     for (int j = 0; j < groupMax && i >= 0; j++) {
-                        uval = (uint)(CharValue(text[i--], b) * smallMultiplier + uval);
-                        smallMultiplier *= b;
+                        char c = text[i--];
+                        if (c != '_') {
+                            uval = (uint)(CharValue(c, b) * smallMultiplier + uval);
+                            smallMultiplier *= b;
+                        }
                     }
 
                     // this is more generous than needed
@@ -484,14 +499,17 @@ namespace Microsoft.PythonTools.Parsing {
                     }
                     break;
                 }
-                if (!HexValue(text[start], out digit)) break;
-                if (!(digit < b)) {
-                    if (text[start] == 'l' || text[start] == 'L') {
-                        break;
+                char c = text[start];
+                if (c != '_') {
+                    if (!HexValue(c, out digit)) break;
+                    if (!(digit < b)) {
+                        if (c == 'l' || c == 'L') {
+                            break;
+                        }
+                        throw new ArgumentException("Invalid integer literal");
                     }
-                    throw new ArgumentException("Invalid integer literal");
+                    ret = ret * b + digit;
                 }
-                ret = ret * b + digit;
                 start++;
             }
 
@@ -517,13 +535,13 @@ namespace Microsoft.PythonTools.Parsing {
                 }
                 return ParseFloatNoCatch(text);
             } catch (OverflowException) {
-                return text.TrimStart().StartsWith("-") ? Double.NegativeInfinity : Double.PositiveInfinity;
+                return text.TrimStart().StartsWithOrdinal("-") ? Double.NegativeInfinity : Double.PositiveInfinity;
             }
         }
 
         private static double ParseFloatNoCatch(string text) {
             string s = ReplaceUnicodeDigits(text);
-            switch (s.ToLower().TrimStart()) {
+            switch (s.ToLowerInvariant().TrimStart()) {
                 case "nan":
                 case "+nan":
                 case "-nan":
@@ -535,8 +553,8 @@ namespace Microsoft.PythonTools.Parsing {
                     return double.NegativeInfinity;
                 default:
                     // pass NumberStyles to disallow ,'s in float strings.
-                    double res = double.Parse(s, NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture);
-                    return (res == 0.0 && text.TrimStart().StartsWith("-")) ? NegativeZero : res;
+                    double res = double.Parse(s.Replace("_", ""), NumberStyles.Float, CultureInfo.InvariantCulture);
+                    return (res == 0.0 && text.TrimStart().StartsWithOrdinal("-")) ? NegativeZero : res;
             }
         }
 
@@ -565,9 +583,9 @@ namespace Microsoft.PythonTools.Parsing {
         public static Complex ParseImaginary(string text) {
             try {
                 return new Complex(0.0, double.Parse(
-                    text.Substring(0, text.Length - 1),
-                    System.Globalization.CultureInfo.InvariantCulture.NumberFormat
-                    ));
+                    text.Substring(0, text.Length - 1).Replace("_", ""),
+                    CultureInfo.InvariantCulture.NumberFormat
+                ));
             } catch (OverflowException) {
                 return new Complex(0, Double.PositiveInfinity);
             }

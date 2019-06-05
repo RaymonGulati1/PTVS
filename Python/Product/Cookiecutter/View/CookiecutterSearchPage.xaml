@@ -11,6 +11,7 @@
       xmlns:img="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Imaging"
       xmlns:imagecatalog="clr-namespace:Microsoft.VisualStudio.Imaging;assembly=Microsoft.VisualStudio.ImageCatalog"
       xmlns:cct="clr-namespace:Microsoft.CookiecutterTools"
+      xmlns:ccv="clr-namespace:Microsoft.CookiecutterTools.View"
       wpf:LambdaProperties.ImportedNamespaces="System.Windows Microsoft.CookiecutterTools Microsoft.CookiecutterTools.ViewModel"
       mc:Ignorable="d" 
       d:DataContext="{Binding Source={d:DesignData Source=CookiecutterControlDesignData.xaml}}"
@@ -31,9 +32,6 @@
         <CommandBinding Command="{x:Static vm:CookiecutterViewModel.OpenInBrowser}"
                     CanExecute="OpenInBrowser_CanExecute"
                     Executed="OpenInBrowser_Executed" />
-        <CommandBinding Command="{x:Static vm:CookiecutterViewModel.OpenInExplorer}"
-                    CanExecute="OpenInExplorer_CanExecute"
-                    Executed="OpenInExplorer_Executed" />
     </Page.CommandBindings>
     <Page.Resources>
         <ResourceDictionary>
@@ -58,8 +56,6 @@
                             <TextBlock Grid.Column="0" Text="{Binding Path=DisplayName}"/>
                         </Grid>
                     </DataTemplate>
-                    <wpf:Lambda x:Key="OperationStatusInProgressToVisibleOrCollapsed">(OperationStatus s) => s == OperationStatus.InProgress ? Visibility.Visible : Visibility.Collapsed</wpf:Lambda>
-                    <wpf:Lambda x:Key="OperationStatusFailedToVisibleOrCollapsed">(OperationStatus s) => s == OperationStatus.Failed ? Visibility.Visible : Visibility.Collapsed</wpf:Lambda>
                     <wpf:Lambda x:Key="OperationStatusSucceededToVisibleOrCollapsed">(OperationStatus s) => s == OperationStatus.Succeeded ? Visibility.Visible : Visibility.Collapsed</wpf:Lambda>
                     <wpf:Lambda x:Key="BoolToVisibleOrCollapsed">(bool b) => b ? Visibility.Visible : Visibility.Collapsed</wpf:Lambda>
                     <wpf:Lambda x:Key="BoolToVisible">(bool b) => b ? Visibility.Visible : Visibility.Hidden</wpf:Lambda>
@@ -86,33 +82,6 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Created successfully -->
-        <StackPanel Grid.Row="0" Orientation="Vertical" Visibility="{Binding Path=CreatingStatus, Converter={StaticResource OperationStatusSucceededToVisibleOrCollapsed}}">
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Horizontal"
-                        AutomationProperties.HelpText="{x:Static cct:Strings.SearchPage_FilesCreatedSuccessfully}">
-                <imaging:CrispImage Width="16" Height="16"
-                                    Moniker="{x:Static imagecatalog:KnownMonikers.StatusOK}" />
-                <TextBlock Margin="4 0 0 0"
-                           TextWrapping="Wrap"
-                           Text="{x:Static cct:Strings.SearchPage_FilesCreatedSuccessfully}"/>
-            </StackPanel>
-            <Button Style="{StaticResource NavigationButton}"
-                    Margin="24 0 0 0"
-                    Command="{x:Static vm:CookiecutterViewModel.OpenInExplorer}"
-                    CommandParameter="{Binding Path=OpenInExplorerFolderPath,Mode=OneWay}"
-                    HorizontalAlignment="Left">
-                <Button.Content>
-                    <StackPanel Orientation="Horizontal">
-                        <imaging:CrispImage Width="16" Height="16"
-                                            Moniker="{x:Static imagecatalog:KnownMonikers.OpenFolder}"
-                                            AutomationProperties.HelpText="{x:Static cct:Strings.SearchPage_OpenInSolutionExplorer}"/>
-                        <Label Content="{x:Static cct:Strings.SearchPage_OpenInSolutionExplorer}"/>
-                    </StackPanel>
-                </Button.Content>
-            </Button>
-        </StackPanel>
-
         <!-- Search -->
         <StackPanel Grid.Row="1" Orientation="Vertical">
             <Grid>
@@ -125,7 +94,7 @@
                     </Style>
                 </Grid.Resources>
                 
-                <wpf:ConfigurationTextBoxWithHelp Margin="0 0 0 0"
+                <wpf:ConfigurationTextBoxWithHelp Margin="0 0 -4 0"
                                                   Text="{Binding Path=SearchTerm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                   HelpText="{x:Static cct:Strings.SearchPage_SearchTooltip}"
                                                   AutomationProperties.HelpText="{x:Static cct:Strings.SearchPage_SearchAutomationName}"
@@ -136,12 +105,13 @@
         </StackPanel>
 
         <!-- Results -->
-        <TreeView Grid.Row="2"
-                  Margin="4 4 0 8"
+        <ccv:CookiecutterTreeView Grid.Row="2"
+                  Margin="4 4 0 4"
                   ItemsSource="{Binding Path=SearchResults}"
                   Focusable="True"
-                  SelectedItemChanged="TreeView_SelectedItemChanged">
-            <TreeView.Resources>
+                  IsTabStop="True"
+                  SelectedItemChanged="TreeView_SelectedItemChanged" InvokeItem="OnInvokeTemplate">
+            <ccv:CookiecutterTreeView.Resources>
                 <HierarchicalDataTemplate DataType="{x:Type vm:CategorizedViewModel}" ItemsSource="{Binding Path=Templates}">
                     <TextBlock Margin="0 4 0 4"
                                FontWeight="Bold"
@@ -202,20 +172,25 @@
                                 Margin="3 3"
                                 Command="{x:Static vm:CookiecutterViewModel.LoadMore}"
                                 CommandParameter="{Binding Path=ContinuationToken,Mode=OneWay}"
-                                HorizontalAlignment="Left">
+                                HorizontalAlignment="Left"
+                                IsTabStop="False">
                             <TextBlock Text="{x:Static cct:Strings.SearchPage_LoadMore}"/>
                         </Button>
                     </StackPanel>
                 </DataTemplate>
-            </TreeView.Resources>
-            <TreeView.ItemContainerStyle>
+            </ccv:CookiecutterTreeView.Resources>
+            <ccv:CookiecutterTreeView.ItemContainerStyle>
                 <Style TargetType="{x:Type TreeViewItem}" BasedOn="{StaticResource {x:Type TreeViewItem}}">
                     <Setter Property="IsExpanded" Value="True" />
+                    <Setter Property="IsSelected" Value="{Binding Path=IsSelected, Mode=TwoWay}"/>
+                    <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName, Mode=OneWay}" />
+                    <Setter Property="AutomationProperties.HelpText" Value="{Binding AutomationHelpText, Mode=OneWay}" />
                     <EventSetter Event="MouseDoubleClick" Handler="OnItemMouseDoubleClick" />
                     <EventSetter Event="TreeViewItem.PreviewMouseRightButtonDown" Handler="OnItemPreviewMouseRightButtonDown"/>
+                    <EventSetter Event="PreviewKeyDown" Handler="OnItemPreviewKeyDown"/>
                 </Style>
-            </TreeView.ItemContainerStyle>
-        </TreeView>
+            </ccv:CookiecutterTreeView.ItemContainerStyle>
+        </ccv:CookiecutterTreeView>
 
         <!-- Next + Status -->
         <StackPanel Grid.Row="3" Orientation="Vertical">
@@ -225,129 +200,60 @@
                 HorizontalAlignment="Left"
                 Content="{x:Static cct:Strings.SearchPage_NextButton}"/>
 
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Vertical"
-                        Visibility="{Binding Path=InstallingStatus, Converter={StaticResource OperationStatusInProgressToVisibleOrCollapsed}}">
-                <Separator/>
-                <TextBlock Text="{x:Static cct:Strings.SearchPage_PreparingFirstTime}"
-                           ToolTip="{x:Static cct:Strings.SearchPage_PreparingFirstTimeTooltip}"/>
-                <ProgressBar Margin="4" IsIndeterminate="True"/>
+            <StackPanel Orientation="Vertical"
+                        Margin="4"
+                        Visibility="{Binding StatusVisibility}">
+                <StackPanel Orientation="Horizontal">
+                    <Grid>
+                        <!-- We only show one image at a time -->
+                        <imaging:CrispImage Width="16" Height="16"
+                                            Margin="0 0 4 0"
+                                            Moniker="{Binding StatusImage}"
+                                            AutomationProperties.HelpText="{Binding StatusMessage}"
+                                            Visibility="{Binding StatusImageVisibility}" />
+                        <imaging:CrispImage Width="16" Height="16"
+                                            Margin="0 0 4 0"
+                                            Moniker="{Binding StatusImage}"
+                                            AutomationProperties.HelpText="{Binding StatusMessage}"
+                                            Visibility="{Binding SpinningStatusImageVisibility}"
+                                            RenderTransformOrigin="0.5, 0.5">
+                            <imaging:CrispImage.RenderTransform>
+                                <RotateTransform x:Name="Rotation" />
+                            </imaging:CrispImage.RenderTransform>
+                            <imaging:CrispImage.Triggers>
+                                <EventTrigger RoutedEvent="Image.Loaded">
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="Rotation"
+                                                         Storyboard.TargetProperty="Angle"
+                                                         By="360.0"
+                                                         Duration="0:0:2.0"
+                                                         RepeatBehavior="Forever" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </EventTrigger>
+                            </imaging:CrispImage.Triggers>
+                        </imaging:CrispImage>
+                    </Grid>
+                    <TextBlock MinHeight="16"
+                               VerticalAlignment="Center"
+                               Text="{Binding StatusMessage}"
+                               TextWrapping="Wrap"
+                               ToolTip="{Binding StatusHelp}" />
+                </StackPanel>
+                <Grid Margin="0 4">
+                    <!-- We only show one progress bar at a time, and we want them hidden, not collapsed -->
+                    <ProgressBar IsIndeterminate="True"
+                                 Visibility="{Binding StatusProgressVisibility}"/>
+                    <ProgressBar Value="{Binding Path=CheckingUpdatePercentComplete,Mode=OneWay}"
+                                 Maximum="100"
+                                 Visibility="{Binding StatusUpdateProgressVisibility}"/>
+                </Grid>
             </StackPanel>
-
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Horizontal"
-                        Visibility="{Binding Path=InstallingStatus, Converter={StaticResource OperationStatusFailedToVisibleOrCollapsed}}">
-                <imaging:CrispImage Width="16" Height="16"
-                                    Moniker="{x:Static imagecatalog:KnownMonikers.StatusError}"
-                                    AutomationProperties.HelpText="{x:Static cct:Strings.SearchPage_ErrorInstallingCookiecutter}"/>
-                <TextBlock Margin="4 0 0 0"
-                           TextWrapping="Wrap"
-                           Text="{x:Static cct:Strings.SearchPage_ErrorInstallingCookiecutter}"/>
-            </StackPanel>
-
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Vertical"
-                        Visibility="{Binding Path=CloningStatus, Converter={StaticResource OperationStatusInProgressToVisibleOrCollapsed}}">
-                <Separator/>
-                <TextBlock Text="{x:Static cct:Strings.SearchPage_CloningRepository}"/>
-                <ProgressBar Margin="4" IsIndeterminate="True"/>
-            </StackPanel>
-
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Horizontal"
-                        Visibility="{Binding Path=CloningStatus, Converter={StaticResource OperationStatusFailedToVisibleOrCollapsed}}">
-                <imaging:CrispImage Width="16" Height="16"
-                                    Moniker="{x:Static imagecatalog:KnownMonikers.StatusError}"
-                                    AutomationProperties.HelpText="{x:Static cct:Strings.SearchPage_ErrorCloningRepository}"/>
-                <TextBlock Margin="4 0 0 0"
-                           TextWrapping="Wrap"
-                           Text="{x:Static cct:Strings.SearchPage_ErrorCloningRepository}"/>
-            </StackPanel>
-
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Vertical"
-                        Visibility="{Binding Path=LoadingStatus, Converter={StaticResource OperationStatusInProgressToVisibleOrCollapsed}}">
-                <Separator/>
-                <TextBlock Text="{x:Static cct:Strings.SearchPage_LoadingTemplate}"/>
-                <ProgressBar Margin="4" IsIndeterminate="True"/>
-            </StackPanel>
-
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Horizontal"
-                        Visibility="{Binding Path=LoadingStatus, Converter={StaticResource OperationStatusFailedToVisibleOrCollapsed}}">
-                <imaging:CrispImage Width="16" Height="16"
-                                    Moniker="{x:Static imagecatalog:KnownMonikers.StatusError}"
-                                    AutomationProperties.HelpText="{x:Static cct:Strings.SearchPage_ErrorLoadingTemplate}"/>
-                <TextBlock Margin="4 0 0 0"
-                           TextWrapping="Wrap"
-                           Text="{x:Static cct:Strings.SearchPage_ErrorLoadingTemplate}"/>
-            </StackPanel>
-
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Vertical"
-                        Visibility="{Binding Path=CheckingUpdateStatus, Converter={StaticResource OperationStatusInProgressToVisibleOrCollapsed}}">
-                <Separator/>
-                <TextBlock Text="{x:Static cct:Strings.SearchPage_CheckingUpdates}"/>
-                <ProgressBar Margin="4" Value="{Binding Path=CheckingUpdatePercentComplete,Mode=OneWay}" Maximum="100"/>
-            </StackPanel>
-
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Horizontal"
-                        Visibility="{Binding Path=CheckingUpdateStatus, Converter={StaticResource OperationStatusSucceededToVisibleOrCollapsed}}">
-                <imaging:CrispImage Width="16" Height="16"
-                                    Moniker="{x:Static imagecatalog:KnownMonikers.StatusOK}"
-                                    AutomationProperties.HelpText="{x:Static cct:Strings.SearchPage_CheckingUpdatesCompleted}"/>
-                <TextBlock Margin="4 0 0 0"
-                           TextWrapping="Wrap"
-                           Text="{x:Static cct:Strings.SearchPage_CheckingUpdatesCompleted}"/>
-            </StackPanel>
-
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Horizontal"
-                        Visibility="{Binding Path=CheckingUpdateStatus, Converter={StaticResource OperationStatusFailedToVisibleOrCollapsed}}">
-                <imaging:CrispImage Width="16" Height="16"
-                                    Moniker="{x:Static imagecatalog:KnownMonikers.StatusError}"
-                                    AutomationProperties.HelpText="{x:Static cct:Strings.SearchPage_ErrorCheckingUpdates}"/>
-                <TextBlock Margin="4 0 0 0"
-                           TextWrapping="Wrap"
-                           Text="{x:Static cct:Strings.SearchPage_ErrorCheckingUpdates}"/>
-            </StackPanel>
-
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Vertical"
-                        Visibility="{Binding Path=UpdatingStatus, Converter={StaticResource OperationStatusInProgressToVisibleOrCollapsed}}">
-                <Separator/>
-                <TextBlock Text="{x:Static cct:Strings.SearchPage_UpdatingTemplate}"/>
-                <ProgressBar Margin="4" IsIndeterminate="True"/>
-            </StackPanel>
-
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Horizontal"
-                        Visibility="{Binding Path=UpdatingStatus, Converter={StaticResource OperationStatusSucceededToVisibleOrCollapsed}}">
-                <imaging:CrispImage Width="16" Height="16"
-                                    Moniker="{x:Static imagecatalog:KnownMonikers.StatusOK}"
-                                    AutomationProperties.HelpText="{x:Static cct:Strings.SearchPage_UpdatingTemplateCompleted}"/>
-                <TextBlock Margin="4 0 0 0"
-                           TextWrapping="Wrap"
-                           Text="{x:Static cct:Strings.SearchPage_UpdatingTemplateCompleted}"/>
-            </StackPanel>
-
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Horizontal"
-                        Visibility="{Binding Path=UpdatingStatus, Converter={StaticResource OperationStatusFailedToVisibleOrCollapsed}}">
-                <imaging:CrispImage Width="16" Height="16"
-                                    Moniker="{x:Static imagecatalog:KnownMonikers.StatusError}"
-                                    AutomationProperties.HelpText="{x:Static cct:Strings.SearchPage_UpdatingTemplateError}"/>
-                <TextBlock Margin="4 0 0 0"
-                           TextWrapping="Wrap"
-                           Text="{x:Static cct:Strings.SearchPage_UpdatingTemplateError}"/>
-            </StackPanel>
-
-            <Separator Margin="4"/>
         </StackPanel>
 
         <!-- Description -->
-        <Grid Grid.Row="4" Height="100">
+        <Grid Grid.Row="4" Height="100" Margin="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="100"/>
                 <ColumnDefinition Width="*"/>

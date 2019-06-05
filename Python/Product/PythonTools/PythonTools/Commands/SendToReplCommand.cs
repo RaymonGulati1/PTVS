@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,13 +17,16 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Windows;
+using Microsoft.PythonTools.Editor.Core;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Intellisense;
-using Microsoft.VisualStudio.InteractiveWindow;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Repl;
 using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.InteractiveWindow;
+using Microsoft.VisualStudio.InteractiveWindow.Shell;
 using Microsoft.VisualStudio.OLE.Interop;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Text;
@@ -61,7 +64,13 @@ namespace Microsoft.PythonTools.Commands {
             ITextSelection selection = activeView.Selection;
             ITextSnapshot snapshot = activeView.TextBuffer.CurrentSnapshot;
 
-            var repl = ExecuteInReplCommand.EnsureReplWindow(_serviceProvider, analyzer, project);
+            IVsInteractiveWindow repl;
+            try {
+                repl = ExecuteInReplCommand.EnsureReplWindow(_serviceProvider, analyzer, project);
+            } catch (MissingInterpreterException ex) {
+                MessageBox.Show(ex.Message, Strings.ProductTitle);
+                return;
+            }
 
             string input;
             bool focusRepl = false, alwaysSubmit = false;
@@ -69,7 +78,7 @@ namespace Microsoft.PythonTools.Commands {
             if (selection.StreamSelectionSpan.Length > 0) {
                 // Easy, just send the selection to the interactive window.
                 input = activeView.Selection.StreamSelectionSpan.GetText();
-                if (!input.EndsWith("\n") && !input.EndsWith("\r")) {
+                if (!input.EndsWithOrdinal("\n") && !input.EndsWithOrdinal("\r")) {
                     input += activeView.Options.GetNewLineCharacter();
                 }
                 focusRepl = true;
@@ -140,23 +149,14 @@ namespace Microsoft.PythonTools.Commands {
             e.TextView.Caret.PositionChanged -= Caret_PositionChanged;
         }
 
-        private bool IsRealInterpreter(IPythonInterpreterFactory factory) {
-            if (factory == null) {
-                return false;
-            }
-            var interpreterService = _serviceProvider.GetComponentModel().GetService<IInterpreterRegistryService>();
-            return interpreterService != null && interpreterService.NoInterpretersValue != factory;
-        }
-
         public override int? EditFilterQueryStatus(ref VisualStudio.OLE.Interop.OLECMD cmd, IntPtr pCmdText) {
             var activeView = CommonPackage.GetActiveTextView(_serviceProvider);
-            var empty = activeView.Selection.IsEmpty;
+            
             Intellisense.VsProjectAnalyzer analyzer;
             if (activeView != null && (analyzer = activeView.GetAnalyzerAtCaret(_serviceProvider)) != null) {
 
                 if (activeView.Selection.Mode == TextSelectionMode.Box ||
-                    analyzer == null ||
-                    !IsRealInterpreter(analyzer.InterpreterFactory)) {
+                    analyzer?.InterpreterFactory?.IsRunnable() != true) {
                     cmd.cmdf = (uint)(OLECMDF.OLECMDF_SUPPORTED);
                 } else {
                     cmd.cmdf = (uint)(OLECMDF.OLECMDF_ENABLED | OLECMDF.OLECMDF_SUPPORTED);
@@ -207,6 +207,10 @@ namespace Microsoft.PythonTools.Commands {
             /// if it forms a complete statement.
             /// </summary>
             private async Task ProcessQueuedInputAsync() {
+                if (_pendingInputs.First == null) {
+                    return;
+                }
+
                 var textView = _window.TextView;
                 var eval = _window.GetPythonEvaluator();
 
@@ -226,7 +230,7 @@ namespace Microsoft.PythonTools.Commands {
                         current,
                         _window.CurrentLanguageBuffer?.CurrentSnapshot.GetText(),
                         supportsMultipleStatements,
-                        textView.GetLanguageVersion(_serviceProvider),
+                        await textView.GetLanguageVersionAsync(_serviceProvider),
                         textView.Options.GetNewLineCharacter()
                     );
 
@@ -315,30 +319,41 @@ namespace Microsoft.PythonTools.Commands {
             private void MoveCaretToEndOfCurrentInput() {
                 var textView = _window.TextView;
                 var curLangBuffer = _window.CurrentLanguageBuffer;
+                SnapshotPoint? curLangPoint = null;
 
-                // Sending to the interactive window is like appending the input to the end, we don't
-                // respect the current caret position or selection.  We use InsertCode which uses the
-                // current caret position, so first we need to ensure the caret is in the input buffer, 
-                // otherwise inserting code does nothing.
-                SnapshotPoint? viewPoint = textView.BufferGraph.MapUpToBuffer(
-                    new SnapshotPoint(curLangBuffer.CurrentSnapshot, curLangBuffer.CurrentSnapshot.Length),
-                    PointTrackingMode.Positive,
-                    PositionAffinity.Successor,
-                    textView.TextBuffer
-                );
+                // If anything is selected we need to clear it before inserting new code
+                textView.Selection.Clear();
 
-                if (!viewPoint.HasValue) {
-                    // Unable to map language buffer to view.
-                    // Try moving caret to the end of the view then.
-                    viewPoint = new SnapshotPoint(
-                        textView.TextBuffer.CurrentSnapshot,
-                        textView.TextBuffer.CurrentSnapshot.Length
-                    );
+                // Find out if caret position is where code can be inserted.
+                // Caret must be in the area mappable to the language buffer.
+                if (!textView.Caret.InVirtualSpace) {
+                    curLangPoint = textView.MapDownToBuffer(textView.Caret.Position.BufferPosition, curLangBuffer);
                 }
 
-                textView.Caret.MoveTo(viewPoint.Value);
+                if (curLangPoint == null) {
+                    // Sending to the interactive window is like appending the input to the end, we don't
+                    // respect the current caret position or selection.  We use InsertCode which uses the
+                    // current caret position, so first we need to ensure the caret is in the input buffer, 
+                    // otherwise inserting code does nothing.
+                    SnapshotPoint? viewPoint = textView.BufferGraph.MapUpToBuffer(
+                        new SnapshotPoint(curLangBuffer.CurrentSnapshot, curLangBuffer.CurrentSnapshot.Length),
+                        PointTrackingMode.Positive,
+                        PositionAffinity.Successor,
+                        textView.TextBuffer
+                    );
+
+                    if (!viewPoint.HasValue) {
+                        // Unable to map language buffer to view.
+                        // Try moving caret to the end of the view then.
+                        viewPoint = new SnapshotPoint(
+                            textView.TextBuffer.CurrentSnapshot,
+                            textView.TextBuffer.CurrentSnapshot.Length
+                        );
+                    }
+
+                    textView.Caret.MoveTo(viewPoint.Value);
+                }
             }
         }
-
     }
 }

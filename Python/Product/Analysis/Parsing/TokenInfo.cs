@@ -9,12 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 
 namespace Microsoft.PythonTools.Parsing {
 
@@ -55,7 +56,7 @@ namespace Microsoft.PythonTools.Parsing {
         #endregion
 
         public override string ToString() {
-            return String.Format("TokenInfo: {0}, {1}, {2}", _span, _category, _trigger);
+            return "TokenInfo: {0}, {1}, {2}".FormatInvariant(_span, _category, _trigger);
         }
     }
 }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -904,7 +904,7 @@ namespace Microsoft.VisualStudioTools.Project {
 
                 // UNC Paths will start with \\?\.  Remove this if present as this isn't really expected on a path.
                 var pathString = path.ToString();
-                return pathString.StartsWith(@"\\?\") ? pathString.Substring(4) : pathString;
+                return pathString.StartsWith(@"\\?\", StringComparison.Ordinal) ? pathString.Substring(4) : pathString;
             }
         }
 

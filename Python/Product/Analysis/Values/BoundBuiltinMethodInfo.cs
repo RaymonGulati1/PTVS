@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -28,23 +28,17 @@ namespace Microsoft.PythonTools.Analysis.Values {
             _method = method;
         }
 
-        public override PythonMemberType MemberType {
-            get {
-                return _method.MemberType;
-            }
+        public BoundBuiltinMethodInfo(IPythonBoundFunction function, PythonAnalyzer projectState)
+            : this(new BuiltinMethodInfo(function.Function, PythonMemberType.Method, projectState)) {
         }
 
-        public BuiltinMethodInfo Method {
-            get {
-                return _method;
-            }
-        }
+        public override PythonMemberType MemberType => _method.MemberType;
 
-        public override string Documentation {
-            get {
-                return _method.Documentation;
-            }
-        }
+        public override IPythonType PythonType => base._type;
+
+        public BuiltinMethodInfo Method => _method;
+
+        public override string Documentation => _method.Documentation;
 
         public override string Description {
             get {
@@ -56,7 +50,12 @@ namespace Microsoft.PythonTools.Analysis.Values {
         }
 
         public override IAnalysisSet Call(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
-            return _method.ReturnTypes.GetInstanceType();
+            // Check if method returns self
+            var returnType = _method.ReturnTypes.GetInstanceType();
+            if (args.Length > 0 && returnType.Split(v => v is BuiltinInstanceInfo biif && biif.PythonType == _method.Function?.DeclaringType, out _, out _)) {
+                return args[0]; //  Return actual self (i.e. derived class)
+            }
+            return returnType;
         }
 
         public override IEnumerable<OverloadResult> Overloads {

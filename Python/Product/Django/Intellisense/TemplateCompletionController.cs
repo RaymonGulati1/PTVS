@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,7 +18,11 @@ using System.Collections.Generic;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
+#if DEV16_OR_LATER
+using Microsoft.WebTools.Languages.Shared.Editor.Completion;
+#else
 using Microsoft.Web.Editor.Completion;
+#endif
 
 namespace Microsoft.PythonTools.Django.Intellisense {
     internal class TemplateCompletionController : CompletionController {
@@ -29,7 +33,7 @@ namespace Microsoft.PythonTools.Django.Intellisense {
             ITextView textView,
             IList<ITextBuffer> subjectBuffers,
             ICompletionBroker completionBroker,
-            IQuickInfoBroker quickInfoBroker,
+            IAsyncQuickInfoBroker quickInfoBroker,
             ISignatureHelpBroker signatureBroker) :
             base(textView, subjectBuffers, completionBroker, quickInfoBroker, signatureBroker) {
             _pyService = pyService;

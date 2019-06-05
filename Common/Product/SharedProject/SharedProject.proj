@@ -3,10 +3,6 @@
       <_ProjectSystemFilesLocation Condition="$(_ProjectSystemFilesLocation) == ''">$(BuildRoot)\Common\Product\SharedProject</_ProjectSystemFilesLocation>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="$(_ProjectSystemFilesLocation)\Navigation\SourceLocation.cs">
-      <Link>SharedProject\Navigation\SourceLocation.cs</Link>
-      <Visible>true</Visible>
-    </Compile>
     <Compile Include="$(_ProjectSystemFilesLocation)\AllFilesProjectElement.cs">
       <Link>SharedProject\AllFilesProjectElement.cs</Link>
       <Visible>true</Visible>
@@ -38,10 +34,6 @@
       <Link>SharedProject\OverwriteFileDialog.xaml</Link>
       <Visible>true</Visible>
     </Page>
-    <Compile Include="$(_ProjectSystemFilesLocation)\Navigation\IScopeNode.cs">
-      <Link>SharedProject\Navigation\IScopeNode.cs</Link>
-      <Visible>true</Visible>
-    </Compile>
     <Compile Include="$(_ProjectSystemFilesLocation)\CommonConstants.cs">
       <Link>SharedProject\CommonConstants.cs</Link>
       <Visible>true</Visible>
@@ -559,10 +551,6 @@
       <Link>SharedProject\UIThreadBase.cs</Link>
       <Visible>true</Visible>
     </Compile>
-    <Compile Include="$(_ProjectSystemFilesLocation)\UIThreadSynchronizer.cs">
-      <Link>SharedProject\UIThreadSynchronizer.cs</Link>
-      <Visible>true</Visible>
-    </Compile>
     <Compile Include="$(_ProjectSystemFilesLocation)\UpdateSolutionEventsListener.cs">
       <Link>SharedProject\UpdateSolutionEventsListener.cs</Link>
       <Visible>true</Visible>
@@ -645,14 +633,6 @@
       <Link>SharedProject\ExceptionExtensions.cs</Link>
       <Visible>true</Visible>
     </Compile>
-    <Compile Include="$(_ProjectSystemFilesLocation)\TaskExtensions.cs">
-      <Link>SharedProject\TaskExtensions.cs</Link>
-      <Visible>true</Visible>
-    </Compile>
-    <Compile Include="$(_ProjectSystemFilesLocation)\VsTaskExtensions.cs">
-      <Link>SharedProject\VsTaskExtensions.cs</Link>
-      <Visible>true</Visible>
-    </Compile>
     <Compile Include="$(_ProjectSystemFilesLocation)\Wpf\Commands.cs">
       <Link>SharedProject\Wpf\Commands.cs</Link>
       <Visible>true</Visible>
@@ -687,6 +667,10 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+    <Compile Include="$(_ProjectSystemFilesLocation)\Wpf\LambdaConverter\Converters.cs">
+      <Link>SharedProject\Wpf\Converters.cs</Link>
+      <Visible>true</Visible>
+    </Compile>
     <Compile Include="$(_ProjectSystemFilesLocation)\Wpf\LambdaConverter\ILambdaConverterProvider.cs">
       <Link>SharedProject\Wpf\ILambdaConverterProvider.cs</Link>
       <Visible>true</Visible>

@@ -9,14 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 
 namespace Microsoft.PythonTools {
-    public static class PythonPredefinedClassificationTypeNames {
+    static class PythonPredefinedClassificationTypeNames {
         /// <summary>
         /// Open grouping classification.  Used for (, [, {, ), ], and }...  A subtype of the Python
         /// operator grouping.
@@ -62,5 +62,15 @@ namespace Microsoft.PythonTools {
         /// Classification used for builtins.
         /// </summary>
         public const string Builtin = "Python builtin";
+
+        /// <summary>
+        /// Classification used for docstrings
+        /// </summary>
+        public const string Documentation = "Python documentation";
+
+        /// <summary>
+        /// Classification used for regular expressions
+        /// </summary>
+        public const string RegularExpression = "Python regex";
     }
 }

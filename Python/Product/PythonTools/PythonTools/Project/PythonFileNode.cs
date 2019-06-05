@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -155,12 +155,15 @@ namespace Microsoft.PythonTools.Project {
         }
 
         public override bool Remove(bool removeFromStorage) {
-            var analysis = GetAnalysisEntry();
-            if (analysis != null) {
-                ((PythonProjectNode)ProjectMgr).GetAnalyzer().UnloadFileAsync(analysis).DoNotWait();
+            var analyzer = TryGetAnalyzer();
+            if (analyzer != null) {
+                var entry = analyzer.GetAnalysisEntryFromPath(Url);
+                if (entry != null) {
+                    analyzer.UnloadFileAsync(entry).DoNotWait();
+                }
             }
 
-            if (Url.EndsWith(PythonConstants.FileExtension, StringComparison.OrdinalIgnoreCase) && removeFromStorage) {
+            if (Url.EndsWithOrdinal(PythonConstants.FileExtension, ignoreCase: true) && removeFromStorage) {
                 TryDelete(Url + "c");
                 TryDelete(Url + "o");
             }
@@ -186,8 +189,12 @@ namespace Microsoft.PythonTools.Project {
             }
         }
 
-        public AnalysisEntry GetAnalysisEntry() {
-            return ((PythonProjectNode)ProjectMgr).GetAnalyzer().GetAnalysisEntryFromPath(Url);
+        private VsProjectAnalyzer TryGetAnalyzer() {
+            return ((PythonProjectNode)ProjectMgr).TryGetAnalyzer();
+        }
+
+        public AnalysisEntry TryGetAnalysisEntry() {
+            return TryGetAnalyzer()?.GetAnalysisEntryFromPath(Url);
         }
 
         private void TryRename(string oldFile, string newFile) {
@@ -211,41 +218,38 @@ namespace Microsoft.PythonTools.Project {
         internal override FileNode RenameFileNode(string oldFileName, string newFileName) {
             var res = base.RenameFileNode(oldFileName, newFileName);
 
-            if (newFileName.EndsWith(PythonConstants.FileExtension, StringComparison.OrdinalIgnoreCase)) {
+            if (newFileName.EndsWithOrdinal(PythonConstants.FileExtension, ignoreCase: true)) {
                 TryRename(oldFileName + "c", newFileName + "c");
                 TryRename(oldFileName + "o", newFileName + "o");
             }
 
             if (res != null) {
-                var analyzer = ((PythonProjectNode)this.ProjectMgr).GetAnalyzer();
-                var analysis = GetAnalysisEntry();
-                if (analysis != null) {
-                    analyzer.UnloadFileAsync(analysis).DoNotWait();
+                // Analyzer has not changed, but because the filename has we need to
+                // do a transfer.
+                var oldEntry = TryGetAnalyzer()?.GetAnalysisEntryFromPath(oldFileName);
+                if (oldEntry != null) {
+                    oldEntry.Analyzer.TransferFileFromOldAnalyzer(oldEntry, GetMkDocument())
+                        .HandleAllExceptions(ProjectMgr.Site, GetType())
+                        .DoNotWait();
                 }
-
-                var textBuffer = GetTextBuffer(false);
-
-                BufferParser parser = analysis?.TryGetBufferParser();
-                if (parser != null) {
-                    analyzer.ReAnalyzeTextBuffers(parser);
-                }
-
             }
             return res;
         }
 
         internal override int IncludeInProject(bool includeChildren) {
-            var analyzer = ((PythonProjectNode)this.ProjectMgr).GetAnalyzer();
-            analyzer.AnalyzeFileAsync(Url).DoNotWait();
+            var analyzer = TryGetAnalyzer();
+            analyzer?.AnalyzeFileAsync(Url).DoNotWait();
 
             return base.IncludeInProject(includeChildren);
         }
 
         internal override int ExcludeFromProject() {
-            var analyzer = ((PythonProjectNode)this.ProjectMgr).GetAnalyzer();
-            var analysis = GetAnalysisEntry();
-            if (analysis != null) {
-                analyzer.UnloadFileAsync(analysis).DoNotWait();
+            var analyzer = TryGetAnalyzer();
+            if (analyzer != null) {
+                var analysis = analyzer.GetAnalysisEntryFromPath(Url);
+                if (analysis != null) {
+                    analyzer.UnloadFileAsync(analysis).DoNotWait();
+                }
             }
 
             return base.ExcludeFromProject();

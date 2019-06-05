@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,6 +17,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Microsoft.Build.Construction;
 using Microsoft.PythonTools.Infrastructure;
@@ -68,8 +69,6 @@ namespace Microsoft.PythonTools.Project {
 
 #if DEV15
         internal const string ToolsVersion = "15.1";
-#elif DEV14
-        internal const string ToolsVersion = "14.0";
 #else
         internal const string ToolsVersion = "4.0";
 #endif
@@ -128,6 +127,23 @@ namespace Microsoft.PythonTools.Project {
             return false;
         }
 
+        private static bool IsAssemblyReference(ProjectItemElement e) {
+            try {
+                new AssemblyName(e.Include);
+            } catch (Exception) {
+                return false;
+            }
+            return true;
+        }
+
+        private static bool IsMscorlibReference(ProjectItemElement e) {
+            try {
+                return (new AssemblyName(e.Include)).Name == "mscorlib";
+            } catch (Exception) {
+                return false;
+            }
+        }
+
         protected override ProjectUpgradeState UpgradeProjectCheck(
             ProjectRootElement projectXml,
             ProjectRootElement userProjectXml,
@@ -180,6 +196,13 @@ namespace Microsoft.PythonTools.Project {
                 return ProjectUpgradeState.SafeRepair;
             }
 
+            // Referencing .NET assemblies but not mscorlib
+            var references = projectXml.ItemGroups.SelectMany(g => g.Items)
+                .Where(i => i.ItemType == ProjectFileConstants.Reference).ToArray();
+            if (references.Any(IsAssemblyReference) && !references.Any(IsMscorlibReference)) {
+                return ProjectUpgradeState.SafeRepair;
+            }
+
             return ProjectUpgradeState.NotNeeded;
         }
 
@@ -209,6 +232,9 @@ namespace Microsoft.PythonTools.Project {
 
             // Add missing WebBrowserUrl property
             ProcessMissingWebBrowserUrl(projectXml, log);
+
+            // Referencing .NET assemblies but not mscorlib
+            ProcessMissingMscorlibReference(projectXml, log);
         }
 
         private static bool IsPtvsTargetsFileProperty(ProjectPropertyElement p) {
@@ -358,6 +384,24 @@ namespace Microsoft.PythonTools.Project {
             } else if (interpreterChanged) {
                 log(__VSUL_ERRORLEVEL.VSUL_INFORMATIONAL, Strings.UpgradedInterpreterReference);
             }
+        }
+
+        private static void ProcessMissingMscorlibReference(ProjectRootElement projectXml, Action<__VSUL_ERRORLEVEL, string> log) {
+            var references = projectXml.ItemGroups.SelectMany(g => g.Items)
+                .Where(i => i.ItemType == ProjectFileConstants.Reference).ToArray();
+            if (!references.Any(IsAssemblyReference) || references.Any(IsMscorlibReference)) {
+                return;
+            }
+
+            var group = projectXml.ItemGroups.OrderByDescending(g => g.Items.Count(i => i.ItemType == ProjectFileConstants.Reference)).FirstOrDefault() ??
+                projectXml.AddItemGroup();
+
+            group.AddItem(ProjectFileConstants.Reference, "mscorlib", new Dictionary<string, string> {
+                ["Name"] = "mscorlib",
+                ["Private"] = "False"
+            });
+
+            log(__VSUL_ERRORLEVEL.VSUL_INFORMATIONAL, Strings.UpgradedMscorlibReference);
         }
 
         private static void AddOrSetProperty(ProjectPropertyGroupElement group, string name, string value) {

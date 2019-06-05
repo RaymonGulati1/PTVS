@@ -9,36 +9,31 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace Microsoft.PythonTools.Parsing.Ast {
 
     public class CallExpression : Expression {
-        private readonly Expression _target;
         private readonly Arg[] _args;
 
         public CallExpression(Expression target, Arg[] args) {
-            _target = target;
+            Target = target;
             _args = args;
         }
 
-        public Expression Target {
-            get { return _target; }
-        }
-
-        public IList<Arg> Args {
-            get { return _args; }
-        } 
+        public Expression Target { get; }
+        public IList<Arg> Args => _args;
 
         public bool NeedsLocalsDictionary() {
-            NameExpression nameExpr = _target as NameExpression;
+            NameExpression nameExpr = Target as NameExpression;
             if (nameExpr == null) return false;
 
             if (_args.Length == 0) {
@@ -73,8 +68,8 @@ namespace Microsoft.PythonTools.Parsing.Ast {
 
         public override void Walk(PythonWalker walker) {
             if (walker.Walk(this)) {
-                if (_target != null) {
-                    _target.Walk(walker);
+                if (Target != null) {
+                    Target.Walk(walker);
                 }
                 if (_args != null) {
                     foreach (Arg arg in _args) {
@@ -86,13 +81,13 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         }
 
         internal override void AppendCodeString(StringBuilder res, PythonAst ast, CodeFormattingOptions format) {
-            _target.AppendCodeString(res, ast, format);
+            Target.AppendCodeString(res, ast, format);
             format.Append(
                 res,
                 format.SpaceBeforeCallParen,
                 " ",
                 "",
-                this.GetProceedingWhiteSpaceDefaultNull(ast)
+                this.GetPreceedingWhiteSpaceDefaultNull(ast)
             ); 
 
             res.Append('(');
@@ -102,10 +97,13 @@ namespace Microsoft.PythonTools.Parsing.Ast {
                     res.Append(' ');
                 }
             } else {
-                var listWhiteSpace = this.GetListWhiteSpace(ast);
+                var listWhiteSpace = format.SpaceBeforeComma == null ? this.GetListWhiteSpace(ast) : null;
+                var spaceAfterComma = format.SpaceAfterComma.HasValue ? (format.SpaceAfterComma.Value ? " " : "") : (string)null;
                 for (int i = 0; i < _args.Length; i++) {
                     if (i > 0) {
-                        if (listWhiteSpace != null) {
+                        if (format.SpaceBeforeComma == true) {
+                            res.Append(' ');
+                        } else if (listWhiteSpace != null) {
                             res.Append(listWhiteSpace[i - 1]);
                         }
                         res.Append(',');
@@ -114,7 +112,7 @@ namespace Microsoft.PythonTools.Parsing.Ast {
                         continue;
                     }
 
-                    _args[i].AppendCodeString(res, ast, format);
+                    _args[i].AppendCodeString(res, ast, format, spaceAfterComma);
                 }
 
                 if (listWhiteSpace != null && listWhiteSpace.Length == _args.Length) {
@@ -140,12 +138,42 @@ namespace Microsoft.PythonTools.Parsing.Ast {
             }
         }
 
+        /// <summary>
+        /// Returns the index of the argument in Args at a given index.
+        /// </summary>
+        /// <returns>False if not within the call. -1 if it is in
+        /// an argument not in Args.</returns>
+        internal bool GetArgumentAtIndex(PythonAst ast, int index, out int argIndex) {
+            argIndex = -1;
+            if (index <= Target.EndIndex || index > EndIndex) {
+                return false;
+            }
+            if (Args == null) {
+                return true;
+            }
+
+            for (int i = 0; i < Args.Count; ++i) {
+                var a = Args[i];
+                if (index <= a.EndIndexIncludingWhitespace) {
+                    argIndex = i;
+                    return true;
+                }
+            }
+
+            if (index < EndIndex) {
+                argIndex = -1;
+                return true;
+            }
+
+            return false;
+        }
+
         public override string GetLeadingWhiteSpace(PythonAst ast) {
-            return _target.GetLeadingWhiteSpace(ast);
+            return Target.GetLeadingWhiteSpace(ast);
         }
 
         public override void SetLeadingWhiteSpace(PythonAst ast, string whiteSpace) {
-            _target.SetLeadingWhiteSpace(ast, whiteSpace);
+            Target.SetLeadingWhiteSpace(ast, whiteSpace);
         }
     }
 }

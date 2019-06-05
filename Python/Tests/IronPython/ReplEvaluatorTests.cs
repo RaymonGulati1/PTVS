@@ -9,25 +9,19 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System.Diagnostics;
-using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Microsoft.IronPythonTools.Interpreter;
-using Microsoft.PythonTools.Analysis;
 using Microsoft.PythonTools.Intellisense;
 using Microsoft.PythonTools.Interpreter;
-using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Repl;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.VisualStudio.Text.Classification;
 using TestUtilities;
-using TestUtilities.Mocks;
 using TestUtilities.Python;
 
 namespace IronPythonTests {
@@ -35,7 +29,6 @@ namespace IronPythonTests {
     public class IronPythonReplEvaluatorTests {
         static IronPythonReplEvaluatorTests() {
             AssertListener.Initialize();
-            PythonTestData.Deploy(includeTestData: false);
         }
 
         protected virtual PythonVersion PythonVersion {
@@ -46,13 +39,14 @@ namespace IronPythonTests {
 
         private PythonInteractiveEvaluator Evaluator {
             get {
+                PythonVersion.AssertInstalled();
                 return new PythonInteractiveEvaluator(PythonToolsTestUtilities.CreateMockServiceProvider()) {
                     Configuration = new LaunchConfiguration(PythonVersion.Configuration)
                 };
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void IronPythonModuleName() {
             using (var replEval = Evaluator) {
                 var replWindow = new MockReplWindow(replEval);
@@ -66,7 +60,7 @@ namespace IronPythonTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void IronPythonSignatures() {
             using (var replEval = Evaluator) {
                 var replWindow = new MockReplWindow(replEval);
@@ -80,12 +74,12 @@ namespace IronPythonTests {
                     sigs = replEval.GetSignatureDocumentation("Array[int]");
                 }
                 Assert.IsNotNull(sigs, "GetSignatureDocumentation timed out");
-                Assert.AreEqual(sigs.Length, 1);
+                Assert.AreEqual(1, sigs.Length);
                 Assert.AreEqual("Array[int](: int)\r\n", sigs[0].Documentation);
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void IronPythonCommentInput() {
             // http://pytools.codeplex.com/workitem/649
             using (var replEval = Evaluator) {
@@ -97,7 +91,7 @@ namespace IronPythonTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void ConsoleWriteLineTest() {
             // http://pytools.codeplex.com/workitem/649
             using (var replEval = Evaluator) {
@@ -124,7 +118,7 @@ namespace IronPythonTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void GenericMethodCompletions() {
             // http://pytools.codeplex.com/workitem/661
             using (var replEval = Evaluator) {
@@ -158,7 +152,7 @@ namespace IronPythonTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public async Task NoTraceFunction() {
             // http://pytools.codeplex.com/workitem/662
             using (var replEval = Evaluator) {
@@ -168,16 +162,13 @@ namespace IronPythonTests {
                 Assert.IsTrue(execute.IsSuccessful);
                 replWindow.ClearScreen();
 
-                await replEval.ExecuteText("print '[%s]' % sys.gettrace()");
-                AssertUtil.AreEqual(
-                    new Regex(@"\[\<bound method Thread.trace_func of \<Thread.+\>\>\]"),
-                    replWindow.Output
-                );
+                await replEval.ExecuteText("print '[%s]' % sys.gettrace(),");
+                Assert.AreEqual("[None]", replWindow.Output);
                 replWindow.ClearScreen();
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void CommentFollowedByBlankLine() {
             // http://pytools.codeplex.com/workitem/659
             using (var replEval = Evaluator) {
@@ -192,7 +183,7 @@ namespace IronPythonTests {
 
 
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void AttachSupportMultiThreaded() {
             // http://pytools.codeplex.com/workitem/663
             using (var replEval = Evaluator) {

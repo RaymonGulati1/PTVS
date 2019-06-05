@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,6 +19,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.PythonTools.Django.Analysis;
+using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudio.Language.Intellisense;
 
@@ -80,7 +81,7 @@ namespace Microsoft.PythonTools.Django.TemplateParsing {
         }
 
         public static DjangoVariable Parse(string filterText, int start = 0) {
-            if (filterText.StartsWith("{{")) {
+            if (filterText.StartsWithOrdinal("{{")) {
                 filterText = GetTrimmedFilterText(filterText, ref start);
                 if (filterText == null) {
                     return null;
@@ -144,7 +145,7 @@ namespace Microsoft.PythonTools.Django.TemplateParsing {
                 }
             }
             if (tmpStart != null) {
-                if (text.EndsWith("%}") || text.EndsWith("}}")) {
+                if (text.EndsWithOrdinal("%}") || text.EndsWithOrdinal("}}")) {
                     for (int i = text.Length - 3; i >= tmpStart.Value; i--) {
                         if (!Char.IsWhiteSpace(text[i])) {
                             filterText = text.Substring(tmpStart.Value, i + 1 - tmpStart.Value);

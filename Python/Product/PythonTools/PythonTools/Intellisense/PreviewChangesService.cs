@@ -9,13 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.ComponentModel.Composition;
+using Microsoft.PythonTools.Editor;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Differencing;
 using Microsoft.VisualStudio.Text.Editor;
@@ -40,26 +41,32 @@ namespace Microsoft.PythonTools.Intellisense {
             _previewRoleSet = textEditorFactoryService.CreateTextViewRoleSet(PredefinedTextViewRoles.Analyzable);
         }
 
-        public object CreateDiffView(AnalysisProtocol.ChangeInfo[] changes, LocationTracker tracker, ITextBuffer originalBuffer) {
+        public object CreateDiffView(AnalysisProtocol.ChangeInfo[] changes, PythonTextBufferInfo buffer, int atVersion) {
+            if (changes == null || buffer == null || !buffer.LocationTracker.CanTranslateFrom(atVersion)) {
+                return null;
+            }
+
+            var snapshot = buffer.CurrentSnapshot;
+
             // Create a copy of the left hand buffer (we're going to remove all of the
             // content we don't care about from it).
-            var leftBuffer = _bufferFactory.CreateTextBuffer(originalBuffer.ContentType);
+            var leftBuffer = _bufferFactory.CreateTextBuffer(buffer.Buffer.ContentType);
             using (var edit = leftBuffer.CreateEdit()) {
-                edit.Insert(0, originalBuffer.CurrentSnapshot.GetText());
+                edit.Insert(0, snapshot.GetText());
                 edit.Apply();
             }
 
             // create a buffer for the right hand side, copy the original buffer
             // into it, and then apply the changes.
-            var rightBuffer = _bufferFactory.CreateTextBuffer(originalBuffer.ContentType);
+            var rightBuffer = _bufferFactory.CreateTextBuffer(buffer.Buffer.ContentType);
             using (var edit = rightBuffer.CreateEdit()) {
-                edit.Insert(0, originalBuffer.CurrentSnapshot.GetText());
+                edit.Insert(0, snapshot.GetText());
                 edit.Apply();
             }
 
             var startingVersion = rightBuffer.CurrentSnapshot;
 
-            VsProjectAnalyzer.ApplyChanges(changes, rightBuffer, tracker);
+            VsProjectAnalyzer.ApplyChanges(changes, rightBuffer, new LocationTracker(startingVersion), startingVersion.Version.VersionNumber);
 
             var textChanges = startingVersion.Version.Changes;
             int minPos = startingVersion.Length, maxPos = 0;

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,7 +18,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -32,18 +31,8 @@ namespace Microsoft.PythonTools.EnvironmentsList {
         public static readonly RoutedCommand OpenInPowerShell = new RoutedCommand();
         public static readonly RoutedCommand OpenInCommandPrompt = new RoutedCommand();
         public static readonly RoutedCommand MakeGlobalDefault = new RoutedCommand();
+        public static readonly RoutedCommand Delete = new RoutedCommand();
         public static readonly RoutedCommand MakeActiveInCurrentProject = new RoutedCommand();
-
-        public static readonly RoutedCommand EnableIPythonInteractive = new RoutedCommand();
-        public static readonly RoutedCommand DisableIPythonInteractive = new RoutedCommand();
-
-        private const string AddNewEnvironmentViewId = "__AddNewEnvironmentView";
-        private const string OnlineHelpViewId = "__OnlineHelpView";
-
-        public static readonly IEnumerable<InterpreterConfiguration> ExtraItems = new[] {
-            new InterpreterConfiguration(OnlineHelpViewId, OnlineHelpViewId),
-            new InterpreterConfiguration(AddNewEnvironmentViewId, AddNewEnvironmentViewId)
-        };
 
         // Names of properties that will be requested from interpreter configurations
         internal const string CompanyKey = "Company";
@@ -57,15 +46,18 @@ namespace Microsoft.PythonTools.EnvironmentsList {
 
         private readonly IInterpreterOptionsService _service;
         private readonly IInterpreterRegistryService _registry;
-        private readonly IPythonInterpreterFactoryWithDatabase _withDb;
 
         public IPythonInterpreterFactory Factory { get; }
         public InterpreterConfiguration Configuration { get; }
         public string LocalizedDisplayName { get; }
+        public string LocalizedHelpText { get; }
+        public string BrokenEnvironmentHelpUrl { get; }
+        public bool ExtensionsCreated { get; set; }
 
-        private EnvironmentView(string id, string localizedName) {
+        private EnvironmentView(string id, string localizedName, string localizedHelpText) {
             Configuration = new InterpreterConfiguration(id, id);
             Description = LocalizedDisplayName = localizedName;
+            LocalizedHelpText = localizedHelpText ?? "";
             Extensions = new ObservableCollection<object>();
         }
 
@@ -93,14 +85,8 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             Factory = factory;
             Configuration = Factory.Configuration;
             LocalizedDisplayName = Configuration.Description;
-
-            _withDb = factory as IPythonInterpreterFactoryWithDatabase;
-            if (_withDb != null) {
-                _withDb.IsCurrentChanged += Factory_IsCurrentChanged;
-                IsCheckingDatabase = _withDb.IsCheckingDatabase;
-                IsCurrent = _withDb.IsCurrent;
-            }
-            
+            IsBroken = !Configuration.IsRunnable();
+            BrokenEnvironmentHelpUrl = "https://go.microsoft.com/fwlink/?linkid=863373";
 
             if (_service.IsConfigurable(Factory.Configuration.Id)) {
                 IsConfigurable = true;
@@ -120,71 +106,42 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             }
 
             CanBeDefault = Factory.CanBeDefault();
+            CanBeDeleted = Factory.CanBeDeleted();
 
             Company = _registry.GetProperty(Factory.Configuration.Id, CompanyKey) as string ?? "";
             SupportUrl = _registry.GetProperty(Factory.Configuration.Id, SupportUrlKey) as string ?? "";
-        }
 
-        public static EnvironmentView CreateAddNewEnvironmentView(IInterpreterOptionsService service) {
-            var ev = new EnvironmentView(AddNewEnvironmentViewId, Resources.EnvironmentViewCustomAutomationName);
-            ev.Extensions = new ObservableCollection<object>();
-            ev.Extensions.Add(new ConfigurationExtensionProvider(service, alwaysCreateNew: true));
-            return ev;
-        }
-
-        public static EnvironmentView CreateOnlineHelpEnvironmentView() {
-            return new EnvironmentView(OnlineHelpViewId, Resources.EnvironmentViewOnlineHelpLabel);
+            LocalizedHelpText = Company;
         }
 
         public static EnvironmentView CreateMissingEnvironmentView(string id, string description) {
-            return new EnvironmentView(id, description + Strings.MissingSuffix);
+            return new EnvironmentView(id, description + Strings.MissingSuffix, null);
         }
-
-        public static bool IsAddNewEnvironmentView(string id) => AddNewEnvironmentViewId.Equals(id);
-        public static bool IsOnlineHelpView(string id) => OnlineHelpViewId.Equals(id);
-
-        public static bool IsAddNewEnvironmentView(EnvironmentView view) => AddNewEnvironmentViewId.Equals(view?.Configuration.Id);
-        public static bool IsOnlineHelpView(EnvironmentView view) => OnlineHelpViewId.Equals(view?.Configuration.Id);
 
         public ObservableCollection<object> Extensions { get; private set; }
-
-        private void Factory_IsCurrentChanged(object sender, EventArgs e) {
-            Debug.Assert(_withDb != null);
-            if (_withDb == null) {
-                return;
-            }
-
-            Dispatcher.BeginInvoke((Action)(() => {
-                IsCheckingDatabase = _withDb.IsCheckingDatabase;
-                IsCurrent = _withDb.IsCurrent;
-            }));
-        }
 
         #region Read-only State Dependency Properties
 
         private static readonly DependencyPropertyKey IsConfigurablePropertyKey = DependencyProperty.RegisterReadOnly("IsConfigurable", typeof(bool), typeof(EnvironmentView), new PropertyMetadata(false));
+        private static readonly DependencyPropertyKey CanBeDeletedPropertyKey = DependencyProperty.RegisterReadOnly("CanBeDeleted", typeof(bool), typeof(EnvironmentView), new PropertyMetadata(false));
         private static readonly DependencyPropertyKey CanBeDefaultPropertyKey = DependencyProperty.RegisterReadOnly("CanBeDefault", typeof(bool), typeof(EnvironmentView), new PropertyMetadata(true));
         private static readonly DependencyPropertyKey IsDefaultPropertyKey = DependencyProperty.RegisterReadOnly("IsDefault", typeof(bool), typeof(EnvironmentView), new PropertyMetadata(false));
-        private static readonly DependencyPropertyKey IsCurrentPropertyKey = DependencyProperty.RegisterReadOnly("IsCurrent", typeof(bool), typeof(EnvironmentView), new PropertyMetadata(true));
-        private static readonly DependencyPropertyKey IsCheckingDatabasePropertyKey = DependencyProperty.RegisterReadOnly("IsCheckingDatabase", typeof(bool), typeof(EnvironmentView), new PropertyMetadata(false));
-        private static readonly DependencyPropertyKey RefreshDBProgressPropertyKey = DependencyProperty.RegisterReadOnly("RefreshDBProgress", typeof(int), typeof(EnvironmentView), new PropertyMetadata(0));
-        private static readonly DependencyPropertyKey RefreshDBMessagePropertyKey = DependencyProperty.RegisterReadOnly("RefreshDBMessage", typeof(string), typeof(EnvironmentView), new PropertyMetadata());
-        private static readonly DependencyPropertyKey IsRefreshingDBPropertyKey = DependencyProperty.RegisterReadOnly("IsRefreshingDB", typeof(bool), typeof(EnvironmentView), new PropertyMetadata(false));
-        private static readonly DependencyPropertyKey IsRefreshDBProgressIndeterminatePropertyKey = DependencyProperty.RegisterReadOnly("IsRefreshDBProgressIndeterminate", typeof(bool), typeof(EnvironmentView), new PropertyMetadata(false));
+        private static readonly DependencyPropertyKey IsBrokenPropertyKey = DependencyProperty.RegisterReadOnly("IsBroken", typeof(bool), typeof(EnvironmentView), new PropertyMetadata(false));
 
         public static readonly DependencyProperty IsConfigurableProperty = IsConfigurablePropertyKey.DependencyProperty;
+        public static readonly DependencyProperty CanBeDeletedProperty = CanBeDeletedPropertyKey.DependencyProperty;
         public static readonly DependencyProperty CanBeDefaultProperty = CanBeDefaultPropertyKey.DependencyProperty;
         public static readonly DependencyProperty IsDefaultProperty = IsDefaultPropertyKey.DependencyProperty;
-        public static readonly DependencyProperty IsCurrentProperty = IsCurrentPropertyKey.DependencyProperty;
-        public static readonly DependencyProperty IsCheckingDatabaseProperty = IsCheckingDatabasePropertyKey.DependencyProperty;
-        public static readonly DependencyProperty RefreshDBMessageProperty = RefreshDBMessagePropertyKey.DependencyProperty;
-        public static readonly DependencyProperty RefreshDBProgressProperty = RefreshDBProgressPropertyKey.DependencyProperty;
-        public static readonly DependencyProperty IsRefreshingDBProperty = IsRefreshingDBPropertyKey.DependencyProperty;
-        public static readonly DependencyProperty IsRefreshDBProgressIndeterminateProperty = IsRefreshDBProgressIndeterminatePropertyKey.DependencyProperty;
+        public static readonly DependencyProperty IsBrokenProperty = IsBrokenPropertyKey.DependencyProperty;
 
         public bool IsConfigurable {
             get { return Factory == null ? false : (bool)GetValue(IsConfigurableProperty); }
             set { if (Factory != null) { SetValue(IsConfigurablePropertyKey, value); } }
+        }
+
+        public bool CanBeDeleted {
+            get { return Factory == null ? false : (bool)GetValue(CanBeDeletedProperty); }
+            set { if (Factory != null) { SetValue(CanBeDeletedPropertyKey, value); } }
         }
 
         public bool CanBeDefault {
@@ -197,34 +154,9 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             internal set { if (Factory != null) { SetValue(IsDefaultPropertyKey, value); } }
         }
 
-        public bool IsCurrent {
-            get { return Factory == null ? true : (bool)GetValue(IsCurrentProperty); }
-            internal set { if (Factory != null) { SetValue(IsCurrentPropertyKey, value); } }
-        }
-
-        public bool IsCheckingDatabase {
-            get { return Factory == null ? false : (bool)GetValue(IsCheckingDatabaseProperty); }
-            internal set { if (Factory != null) { SetValue(IsCheckingDatabasePropertyKey, value); } }
-        }
-
-        public int RefreshDBProgress {
-            get { return Factory == null ? 0 : (int)GetValue(RefreshDBProgressProperty); }
-            internal set { if (Factory != null) { SetValue(RefreshDBProgressPropertyKey, value); } }
-        }
-
-        public string RefreshDBMessage {
-            get { return Factory == null ? string.Empty : (string)GetValue(RefreshDBMessageProperty); }
-            internal set { if (Factory != null) { SetValue(RefreshDBMessagePropertyKey, value); } }
-        }
-
-        public bool IsRefreshingDB {
-            get { return Factory == null ? false : (bool)GetValue(IsRefreshingDBProperty); }
-            internal set { if (Factory != null) { SetValue(IsRefreshingDBPropertyKey, value); } }
-        }
-
-        public bool IsRefreshDBProgressIndeterminate {
-            get { return Factory == null ? false : (bool)GetValue(IsRefreshDBProgressIndeterminateProperty); }
-            internal set { if (Factory != null) { SetValue(IsRefreshDBProgressIndeterminatePropertyKey, value); } }
+        public bool IsBroken {
+            get { return Factory == null ? false : (bool)GetValue(IsBrokenProperty); }
+            internal set { if (Factory != null) { SetValue(IsBrokenPropertyKey, value); } }
         }
 
         #endregion
@@ -289,34 +221,20 @@ namespace Microsoft.PythonTools.EnvironmentsList {
         }
 
         #endregion
-    }
 
-    public sealed class EnvironmentViewTemplateSelector : DataTemplateSelector {
-        public DataTemplate Environment { get; set; }
+        public static readonly DependencyProperty IsIPythonModeEnabledProperty = DependencyProperty.Register("IsIPythonModeEnabled", typeof(bool?), typeof(EnvironmentView), new FrameworkPropertyMetadata(null, OnIsIPythonModeEnabledChanged));
 
-        public DataTemplate AddNewEnvironment { get; set; }
+        public bool? IsIPythonModeEnabled {
+            get { return (bool?)GetValue(IsIPythonModeEnabledProperty); }
+            set { SetValue(IsIPythonModeEnabledProperty, value); }
+        }
 
-        public DataTemplate OnlineHelp { get; set; }
+        public Func<EnvironmentView, bool> IPythonModeEnabledGetter { get; set; }
+        public Action<EnvironmentView, bool> IPythonModeEnabledSetter { get; set; }
 
-        public override DataTemplate SelectTemplate(object item, DependencyObject container) {
-            var ev = item as EnvironmentView;
-            if (ev == null) {
-                return base.SelectTemplate(item, container);
-            }
-
-            if (EnvironmentView.IsAddNewEnvironmentView(ev) && AddNewEnvironment != null) {
-                return AddNewEnvironment;
-            }
-
-            if (EnvironmentView.IsOnlineHelpView(ev) && OnlineHelp != null) {
-                return OnlineHelp;
-            }
-
-            if (Environment != null) {
-                return Environment;
-            }
-
-            return base.SelectTemplate(item, container);
+        private static void OnIsIPythonModeEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
+            var view = (EnvironmentView)d;
+            view.IPythonModeEnabledSetter?.Invoke(view, (bool)e.NewValue);
         }
     }
 }

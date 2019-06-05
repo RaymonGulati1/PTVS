@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -22,6 +22,7 @@ using System.Linq;
 using System.Xml.Serialization;
 
 namespace Microsoft.PythonTools.Profiling {
+    // XmlSerializer requires these types to be public
     [Serializable]
     public sealed class ProfilingTarget {
         internal static XmlSerializer Serializer = new XmlSerializer(typeof(ProfilingTarget));
@@ -40,6 +41,12 @@ namespace Microsoft.PythonTools.Profiling {
 
         [XmlElement("Reports")]
         public Reports Reports {
+            get;
+            set;
+        }
+
+        [XmlElement()]
+        public bool UseVTune {
             get;
             set;
         }
@@ -85,6 +92,8 @@ namespace Microsoft.PythonTools.Profiling {
             if (Reports != null) {
                 res.Reports = Reports.Clone();
             }
+
+            res.UseVTune = UseVTune;
 
             return res;
         }

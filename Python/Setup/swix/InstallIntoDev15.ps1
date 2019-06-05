@@ -1,7 +1,11 @@
-param($vs, [switch] $uninstall, [switch] $nodeps)
+param($vs, $tests, [switch] $uninstall, [switch] $nodeps)
 
 if (-not $vs) {
     throw "Missing -vs [path] parameter"
+    exit 1
+}
+if (-not (Test-Path "$vs\Common7\IDE\devenv.exe")) {
+    throw "devenv.exe not found under -vs [path]"
     exit 1
 }
 
@@ -18,7 +22,16 @@ $install_dirs = @(
 $to_delete = $install_dirs | ?{ Test-Path "$vs\$_" } | %{ gi "$vs\$_" }
 if ($to_delete) {
     "Cleaning old install..."
-    $to_delete | rmdir -Recurse -Force
+    $to_delete | %{ 
+        foreach ($i in 1..5) {
+            try {
+                rmdir $_ -Recurse -Force
+                break
+            } catch {
+                sleep -Seconds 1
+            }
+        }
+    }
 }
 
 if (-not $uninstall) {
@@ -69,6 +82,7 @@ if (-not $uninstall) {
     pushd $tmp
 
     copy -Recurse -Force "$source\*.vsix" .
+    del *.PythonTools.BuildCore.Vsix.*
 
     gci "*.vsix" | %{
         $d = mkdir "Content_$($_.Name)" -Force
@@ -83,11 +97,32 @@ if (-not $uninstall) {
             popd
         }
 
-        rmdir $d -Recurse -Force
+        foreach ($i in 1..5) {
+            try {
+                rmdir $d -Recurse -Force
+                break
+            } catch {
+                sleep -Seconds 1
+            }
+        }
     }
     
     popd
-    rmdir $tmp -Recurse -Force
+    foreach ($i in 1..5) {
+        try {
+            rmdir $tmp -Recurse -Force
+            break
+        } catch {
+            sleep -Seconds 1
+        }
+    }
+
+    if ($tests) {
+        gci -Directory $tests | %{
+            "Copying from $($_.FullName)"
+            copy -Recurse -Force "$($_.FullName)\*" (mkdir "$vs\Common7\IDE\Extensions\Microsoft\Python\Tests\$($_.Name)" -Force)
+        }
+    }
 }
 
 "Running devenv.exe /setup..."

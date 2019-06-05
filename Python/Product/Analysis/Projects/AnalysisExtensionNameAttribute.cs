@@ -9,26 +9,21 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
-using System.ComponentModel.Composition;
 
-namespace Microsoft.PythonTools.Projects {
-    [MetadataAttribute]
+namespace Microsoft.PythonTools {
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Property | AttributeTargets.Method | AttributeTargets.Field, AllowMultiple = false)]
-
     public sealed class AnalysisExtensionNameAttribute : Attribute {
-        private readonly string _name;
-
         public AnalysisExtensionNameAttribute(string name) {
-            _name = name;
+            Name = name;
         }
 
-        public string Name => _name;
+        public string Name { get; }
     }
 
 }

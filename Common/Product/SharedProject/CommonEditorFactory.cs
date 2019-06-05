@@ -9,14 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Runtime.InteropServices;
 using Microsoft.VisualStudio.Designer.Interfaces;
 using Microsoft.VisualStudio.OLE.Interop;
@@ -226,7 +225,7 @@ namespace Microsoft.VisualStudioTools.Project {
             if (string.IsNullOrEmpty(physicalView)) {
                 // create code window as default physical view
                 return CreateCodeView(documentMoniker, textLines, ref editorCaption, ref cmdUI);
-            } else if (string.Compare(physicalView, "design", true, CultureInfo.InvariantCulture) == 0) {
+            } else if (string.Compare(physicalView, "design", StringComparison.OrdinalIgnoreCase) == 0) {
                 // Create Form view
                 return CreateFormView(hierarchy, itemid, textLines, ref editorCaption, ref cmdUI);
             }

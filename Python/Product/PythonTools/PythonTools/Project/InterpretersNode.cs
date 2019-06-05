@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -44,6 +44,7 @@ namespace Microsoft.PythonTools.Project {
     internal class InterpretersNode : HierarchyNode {
         private readonly IInterpreterRegistryService _interpreterService;
         internal readonly IPythonInterpreterFactory _factory;
+        internal readonly IPackageManager _packageManager;
         private readonly bool _isReference;
         private readonly bool _canDelete, _canRemove;
         private readonly string _captionSuffix;
@@ -73,8 +74,11 @@ namespace Microsoft.PythonTools.Project {
             _canRemove = canRemove.HasValue ? canRemove.Value : !isGlobalDefault;
             _captionSuffix = isGlobalDefault ? Strings.GlobalDefaultSuffix : "";
 
-            if (_factory.PackageManager != null) {
-                _factory.PackageManager.InstalledPackagesChanged += InstalledPackagesChanged;
+            var interpreterOpts = project.Site.GetComponentModel().GetService<IInterpreterOptionsService>();
+            _packageManager = interpreterOpts?.GetPackageManagers(factory).FirstOrDefault();
+            if (_packageManager != null) {
+                _packageManager.InstalledPackagesChanged += InstalledPackagesChanged;
+                _packageManager.EnableNotifications();
             }
         }
 
@@ -102,8 +106,10 @@ namespace Microsoft.PythonTools.Project {
 
         public override void Close() {
             if (!_disposed) {
-                if (_factory?.PackageManager != null) {
-                    _factory.PackageManager.InstalledPackagesChanged -= InstalledPackagesChanged;
+                if (_packageManager != null) {
+                    _packageManager.InstalledPackagesChanged -= InstalledPackagesChanged;
+                    _packageManager.DisableNotifications();
+                    (_packageManager as IDisposable)?.Dispose();
                 }
             }
             _disposed = true;
@@ -116,7 +122,7 @@ namespace Microsoft.PythonTools.Project {
         }
 
         private void RefreshPackages() {
-            RefreshPackagesAsync(_factory?.PackageManager)
+            RefreshPackagesAsync(_packageManager)
                 .SilenceException<OperationCanceledException>()
                 .HandleAllExceptions(ProjectMgr.Site, GetType())
                 .DoNotWait();
@@ -145,8 +151,11 @@ namespace Microsoft.PythonTools.Project {
 
                 try {
                     var logger = ProjectMgr.Site.GetPythonToolsService().Logger;
-                    foreach (var p in packages) {
-                        logger.LogEvent(PythonLogEvent.PythonPackage, new PackageInfo { Name = p.Value.Name.ToLowerInvariant() });
+                    if (logger != null) {
+                        foreach (var p in packages) {
+                            logger.LogEvent(PythonLogEvent.PythonPackage,
+                                new PackageInfo {Name = p.Value.Name.ToLowerInvariant()});
+                        }
                     }
                 } catch (Exception ex) {
                     Debug.Fail(ex.ToUnhandledExceptionMessage(GetType()));
@@ -179,13 +188,6 @@ namespace Microsoft.PythonTools.Project {
                         ExpandItem(EXPANDFLAGS.EXPF_CollapseFolder);
                     }
                 }
-
-                if (prevChecked && anyChanges) {
-                    var withDb = _factory as IPythonInterpreterFactoryWithDatabase;
-                    if (withDb != null) {
-                        withDb.GenerateDatabase(GenerateDatabaseOptions.SkipUnchanged);
-                    }
-                }
             });
         }
 
@@ -206,7 +208,7 @@ namespace Microsoft.PythonTools.Project {
         /// </summary>
         public void ResumeWatching() {
             _suppressPackageRefresh = false;
-            RefreshPackagesAsync(_factory?.PackageManager)
+            RefreshPackagesAsync(_packageManager)
                 .SilenceException<OperationCanceledException>()
                 .HandleAllExceptions(ProjectMgr.Site, GetType())
                 .DoNotWait();
@@ -257,11 +259,6 @@ namespace Microsoft.PythonTools.Project {
         }
 
         internal override bool CanDeleteItem(__VSDELETEITEMOPERATION deleteOperation) {
-            if (_factory != null && _interpreterService.IsInterpreterLocked(_factory, InstallPackageLockMoniker)) {
-                // Prevent the environment from being deleted while installing.
-                return false;
-            }
-
             if (deleteOperation == __VSDELETEITEMOPERATION.DELITEMOP_RemoveFromProject) {
                 // Interpreter and InterpreterReference can both be removed from
                 // the project, but the default environment cannot
@@ -283,13 +280,6 @@ namespace Microsoft.PythonTools.Project {
                 // Prevent the environment from being deleted or removed if not
                 // supported.
                 throw new NotSupportedException();
-            }
-
-            if (_factory != null && _interpreterService.IsInterpreterLocked(_factory, InstallPackageLockMoniker)) {
-                // Prevent the environment from being deleted while installing.
-                // This situation should not occur through the UI, but might be
-                // invocable through DTE.
-                return false;
             }
 
             if (showPrompt && !Utilities.IsInAutomationFunction(ProjectMgr.Site)) {
@@ -517,7 +507,7 @@ namespace Microsoft.PythonTools.Project {
 
         public override object GetProperty(int propId) {
             if (propId == (int)__VSHPROPID.VSHPROPID_Expandable) {
-                if (_factory?.PackageManager == null) {
+                if (_packageManager == null) {
                     // No package manager, so we are not expandable
                     return false;
                 }

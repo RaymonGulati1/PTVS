@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -31,10 +31,13 @@ namespace Microsoft.PythonTools.Logging {
     class InMemoryLogger : IPythonToolsLogger {
         private int _installedInterpreters, _installedV2, _installedV3;
         private int _debugLaunchCount, _normalLaunchCount;
+        private int _debugAdapterLaunchTimeoutCount;
+        private int _debugAdapterAttachTimeoutCount;
         private List<PackageInfo> _seenPackages = new List<PackageInfo>();
         private List<AnalysisInfo> _analysisInfo = new List<AnalysisInfo>();
         private List<string> _analysisAbnormalities = new List<string>();
         private Dictionary<string, Tuple<int, int, long, int>> _analysisTiming = new Dictionary<string, Tuple<int, int, long, int>>();
+        private Dictionary<string, long> _analysisCount = new Dictionary<string, long>();
 
         #region IPythonToolsLogger Members
 
@@ -83,7 +86,40 @@ namespace Microsoft.PythonTools.Logging {
                         }
                     }
                     break;
+                case PythonLogEvent.AnalysisRequestSummary:
+                    lock (_analysisCount) {
+                        var a = (Dictionary<string, object>)argument;
+                        foreach (var kv in a) {
+                            if (kv.Value is long l) {
+                                long existing;
+                                _analysisCount.TryGetValue(kv.Key, out existing);
+                                _analysisCount[kv.Key] = existing + l;
+                            }
+                        }
+                    }
+                    break;
+                case PythonLogEvent.GetExpressionAtPoint:
+                    lock (_analysisTiming) {
+                        var a = (GetExpressionAtPointInfo)argument;
+                        if (_analysisTiming.ContainsKey("GetExpressionAtPoint")) {
+                            var t = _analysisTiming["GetExpressionAtPoint"];
+                            _analysisTiming["GetExpressionAtPoint"] = Tuple.Create(t.Item1 + 1, Math.Max(t.Item2, a.Milliseconds), t.Item3 + a.Milliseconds, t.Item4 + (a.Success ? 0 : 1));
+                        } else {
+                            _analysisTiming["GetExpressionAtPoint"] = Tuple.Create(1, a.Milliseconds, (long)a.Milliseconds, a.Success ? 0 : 1);
+                        }
+                    }
+                    break;
+                case PythonLogEvent.DebugAdapterConnectionTimeout:
+                    if ((string)argument == "Launch") {
+                        _debugAdapterLaunchTimeoutCount++;
+                    } else {
+                        _debugAdapterAttachTimeoutCount++;
+                    }
+                    break;
             }
+        }
+
+        public void LogFault(Exception ex, string description, bool dumpProcess) {
         }
 
         #endregion
@@ -95,6 +131,8 @@ namespace Microsoft.PythonTools.Logging {
             res.AppendLine("    v3.x: " + _installedV3);
             res.AppendLine("Debug Launches: " + _debugLaunchCount);
             res.AppendLine("Normal Launches: " + _normalLaunchCount);
+            res.AppendLine("Debug Adapter Launch Timeouts: " + _debugAdapterLaunchTimeoutCount);
+            res.AppendLine("Debug Adapter Attach Timeouts: " + _debugAdapterAttachTimeoutCount);
             res.AppendLine();
 
             lock (_seenPackages) {
@@ -132,14 +170,21 @@ namespace Microsoft.PythonTools.Logging {
             }
 
             lock (_analysisTiming) {
-                if (_analysisTiming.Any()) {
-                    res.AppendLine("Analysis timing:");
-                    foreach (var kv in _analysisTiming.OrderBy(kv => kv.Key)) {
-                        res.AppendFormat("    {0} (count {1}, {2} timeouts, max {3:N0}ms, mean {4:N2}ms)",
-                            kv.Key, kv.Value.Item1, kv.Value.Item4, kv.Value.Item2, (double)kv.Value.Item3 / kv.Value.Item1);
+                lock (_analysisCount) {
+                    if (_analysisTiming.Any()) {
+                        res.AppendLine("Analysis timing:");
+                        foreach (var kv in _analysisTiming.OrderBy(kv => kv.Key)) {
+                            long count;
+                            if (!_analysisCount.TryGetValue(kv.Key, out count)) {
+                                count = kv.Value.Item1;
+                            }
+
+                            res.AppendFormat("    {0} (count {5}, slow count {1}, {2} timeouts, max {3:N0}ms, mean {4:N2}ms)",
+                                kv.Key, kv.Value.Item1, kv.Value.Item4, kv.Value.Item2, (double)kv.Value.Item3 / kv.Value.Item1, count);
+                            res.AppendLine();
+                        }
                         res.AppendLine();
                     }
-                    res.AppendLine();
                 }
             }
 

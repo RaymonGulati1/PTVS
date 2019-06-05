@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,9 +17,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Threading;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Analysis.Values;
 using Microsoft.PythonTools.Parsing.Ast;
 
@@ -73,6 +73,7 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
                     SetCurrentUnit(_unit);
                     AnalyzedEntries.Add(_unit.ProjectEntry);
                     _unit.Analyze(this, cancel);
+                    _unit.ProjectEntry.SetCompleteAnalysis();
                 }
 
                 if (reportQueueSize != null) {
@@ -107,7 +108,7 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
         }
 
         public PythonAnalyzer ProjectState {
-            get { return _unit.ProjectState; }
+            get { return _unit.State; }
         }
 
         public override bool Walk(PythonAst node) {
@@ -117,7 +118,7 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
             if (!ProjectState.Modules.TryImport(_unit.DeclaringModule.Name, out existingRef)) {
                 // publish our module ref now so that we don't collect dependencies as we'll be fully processed
                 if (existingRef == null) {
-                    ProjectState.Modules[_unit.DeclaringModule.Name] = new ModuleReference(_unit.DeclaringModule);
+                    ProjectState.Modules[_unit.DeclaringModule.Name] = new ModuleReference(_unit.DeclaringModule, _unit.DeclaringModule.Name);
                 } else {
                     existingRef.Module = _unit.DeclaringModule;
                 }
@@ -144,7 +145,7 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
 
         public override bool Walk(AssignmentStatement node) {
             var valueType = _eval.Evaluate(node.Right);
-            
+
             // For self assignments (e.g. "fob = fob"), include values from 
             // outer scopes, otherwise such assignments will always be unknown
             // because we use the unassigned variable for the RHS.
@@ -162,13 +163,14 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
                 }
             }
 
-            foreach (var left in node.Left.OfType<ExpressionWithAnnotation>()) {
-                if (left.Annotation != null) {
-                    _eval.Evaluate(left.Annotation);
-                }
-            }
-
             foreach (var left in node.Left) {
+                if (left is ExpressionWithAnnotation annoExpr && annoExpr.Annotation != null) {
+                    var annoType = _eval.EvaluateAnnotation(annoExpr.Annotation);
+                    if (annoType?.Any() == true) {
+                        _eval.AssignTo(node, annoExpr.Expression, annoType);
+                    }
+                }
+
                 _eval.AssignTo(node, left, valueType);
             }
             return false;
@@ -200,11 +202,34 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
         }
 
         public override bool Walk(ClassDefinition node) {
+            // Evaluate decorators for references
+            // TODO: Should apply decorators when assigning the class
+            foreach (var d in (node.Decorators?.DecoratorsInternal).MaybeEnumerate()) {
+                _eval.Evaluate(d);
+            }
+
             return false;
         }
 
         public override bool Walk(ExpressionStatement node) {
             _eval.Evaluate(node.Expression);
+
+            if (node.Expression is ExpressionWithAnnotation annoExpr && annoExpr.Annotation != null) {
+                // The variable is technically unassigned. However, other engines do show completion
+                // on annotated, but not assigned variables. See https://github.com/Microsoft/PTVS/issues/3608
+                // Pylint does not flag 'name' as unassigned in
+                //
+                //  class Employee(NamedTuple):
+                //      name: str
+                //      id: int = 3
+                //
+                //  employee = Employee('Guido')
+                //  print(employee.name)
+                var annoType = _eval.EvaluateAnnotation(annoExpr.Annotation);
+                if (annoType?.Any() == true) {
+                    _eval.AssignTo(node, annoExpr.Expression, annoType);
+                }
+            }
             return false;
         }
 
@@ -228,90 +253,213 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
             return false;
         }
 
-        private void WalkFromImportWorker(NameExpression node, IModule userMod, string impName, string newName) {
-            var saveName = (newName == null) ? impName : newName;
-
-            bool addRef = node.Name != "*";
-
-            var variable = Scope.CreateVariable(node, _unit, saveName, false);
-            bool added = false;
-            if (userMod != null) {
-                added = variable.AddTypes(_unit, userMod.GetModuleMember(node, _unit, impName, addRef, Scope, saveName));
+        /// <summary>
+        /// Resolves and returns an imported member.
+        /// </summary>
+        /// <param name="module">
+        /// The module to import or import from.
+        /// </param>
+        /// <param name="attribute">
+        /// An optional attribute (already split at the dots) to
+        /// </param>
+        /// <param name="node">
+        /// The import location. If <paramref name="addRef"/> is true,
+        /// this location will be marked as a reference of the imported
+        /// value.
+        /// </param>
+        /// <param name="addRef">
+        /// True to make <paramref name="node"/> a reference to the
+        /// imported member.
+        /// </param>
+        /// <param name="linkToName">
+        /// If not null, the name in the current scope to link to the
+        /// value in the module. This is only used when 
+        /// <paramref name="attribute"/> contains one element.
+        /// </param>
+        /// <returns>The imported member, or null.</returns>
+        private IAnalysisSet GetImportedModuleOrMember(ModuleReference module, IReadOnlyList<string> attribute, bool addRef, Node node, NameExpression nameReference, string linkToName) {
+            if (module?.Module == null) {
+                return null;
             }
 
-            if (added) {
-                // anyone who read from the module will now need to get the new values
+            if (attribute == null || attribute.Count == 0) {
+                return module.AnalysisModule;
+            }
+
+            var value = module.Module.GetModuleMember(node, _unit, attribute[0], addRef, Scope, linkToName);
+
+            if (attribute.Count == 1) {
+                if (nameReference != null) {
+                    module.Module.GetModuleMember(nameReference, _unit, attribute[0], addRef);
+                }
+            } else {
+                foreach (var n in attribute.Skip(1)) {
+                    if (value.IsNullOrEmpty()) {
+                        return null;
+                    }
+                    value = value.GetMember(node, _unit, n);
+                }
+            }
+
+            return value.IsNullOrEmpty() ? null : value;
+        }
+
+        /// <summary>
+        /// Creates the variable for containing an imported member.
+        /// </summary>
+        /// <param name="name">The name of the variable.</param>
+        /// <param name="node">
+        /// The imported location. If <paramref name="addRef"/> is 
+        /// true, this location will be marked as a reference of the
+        /// imported value.
+        /// </param>
+        /// <param name="addRef">
+        /// True to make <paramref name="node"/> a reference to the
+        /// imported member.
+        /// </param>
+        /// <returns>The variable for the imported member.</returns>
+        private bool AssignImportedModuleOrMember(string name, IAnalysisSet value, bool addRef, Node node, NameExpression nameReference) {
+            var v = Scope.CreateVariable(node, _unit, name, addRef);
+            if (addRef && nameReference != null) {
+                v.AddReference(nameReference, _unit);
+            }
+            v.IsAlwaysAssigned = true;
+
+            if (!value.IsNullOrEmpty() && v.AddTypes(_unit, value)) {
                 GlobalScope.ModuleDefinition.EnqueueDependents();
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Finishes importing a module or module member.
+        /// </summary>
+        /// <param name="module">
+        /// The imported module, as returned from TryImportModule.
+        /// </param>
+        /// <param name="attribute">
+        /// Attribute within the module to resolve, already split at
+        /// dots, as returned from TryImportModule.
+        /// </param>
+        /// <param name="importAs">
+        /// The name to save the imported module or member under.
+        /// </param>
+        /// <param name="node">
+        /// If <paramref name="addRef"/> is true, this node will be
+        /// added as a reference of the imported value.
+        /// </param>
+        /// <param name="addRef">
+        /// True to add <paramref name="node"/> as a reference of the
+        /// imported value.
+        /// </param>
+        private void FinishImportModuleOrMember(ModuleReference module, IReadOnlyList<string> attribute, string name, bool addRef, Node node, NameExpression nameReference) {
+            if (AssignImportedModuleOrMember(
+                name,
+                GetImportedModuleOrMember(module, attribute, addRef, node, nameReference, attribute?.Count == 1 ? name : null),
+                addRef,
+                node,
+                nameReference
+            )) {
+                // Imports into our global scope need to enqueue modules that have imported us
+                if (Scope == GlobalScope.Scope) {
+                    GlobalScope.ModuleDefinition.EnqueueDependents();
+                }
             }
         }
 
         public override bool Walk(FromImportStatement node) {
-            IModule userMod = null;
-            ModuleReference modRef;
             var modName = node.Root.MakeString();
 
-            if (TryImportModule(modName, node.ForceAbsolute, out modRef)) {
-                modRef.AddReference(_unit.DeclaringModule);
+            if (!TryImportModule(modName, node.ForceAbsolute, out var modRef, out var bits)) {
+                _unit.DeclaringModule.AddUnresolvedModule(modName, node.ForceAbsolute);
+                return false;
+            }
 
-                Debug.Assert(modRef.Module != null);
-                userMod = modRef.Module;
+            Debug.Assert(modRef.Module != null);
+            modRef.Module.Imported(_unit);
+
+            string[] fullImpName;
+            if (bits != null) {
+                fullImpName = new string[bits.Count + 1];
+                bits.ToArray().CopyTo(fullImpName, 0);
+            } else {
+                fullImpName = new string[1];
             }
 
             var asNames = node.AsNames ?? node.Names;
 
             int len = Math.Min(node.Names.Count, asNames.Count);
             for (int i = 0; i < len; i++) {
-                var nameNode = asNames[i] ?? node.Names[i];
                 var impName = node.Names[i].Name;
-                var newName = asNames[i] != null ? asNames[i].Name : null;
 
-                if (impName == null) {
+                if (string.IsNullOrEmpty(impName)) {
                     // incomplete import statement
                     continue;
                 } else if (impName == "*") {
                     // Handle "import *"
-                    if (userMod != null) {
-                        foreach (var varName in userMod.GetModuleMemberNames(GlobalScope.InterpreterContext)) {
-                            if (!varName.StartsWith("_")) {
-                                WalkFromImportWorker(nameNode, userMod, varName, null);
-                            }
-                        }
+                    foreach (var varName in modRef.Module.GetModuleMemberNames(GlobalScope.InterpreterContext)) {
+                        if (!varName.StartsWithOrdinal("_")) {
+                            fullImpName[fullImpName.Length - 1] = varName;
 
-                        userMod.Imported(_unit);
+                            // Don't add references to "*" node
+                            FinishImportModuleOrMember(modRef, fullImpName, varName, false, node.Names[i], null);
+                        }
                     }
                 } else {
-                    WalkFromImportWorker(nameNode, userMod, impName, newName);
+                    fullImpName[fullImpName.Length - 1] = impName;
+
+                    var varName = asNames[i]?.Name ?? impName;
+                    FinishImportModuleOrMember(modRef, fullImpName, varName, true, node.Names[i], asNames[i]);
                 }
             }
 
-            return true;
+            return false;
         }
 
-        private bool TryImportModule(string modName, bool forceAbsolute, out ModuleReference moduleRef) {
-            if (ProjectState.Limits.CrossModule != null &&
+        private bool TryImportModule(string modName, bool forceAbsolute, out ModuleReference moduleRef, out IReadOnlyList<string> remainingParts) {
+            moduleRef = null;
+            remainingParts = null;
+
+            if (ProjectState.Limits.CrossModule > 0 &&
                 ProjectState.ModulesByFilename.Count > ProjectState.Limits.CrossModule) {
                 // too many modules loaded, disable cross module analysis by blocking
                 // scripts from seeing other modules.
-                moduleRef = null;
                 return false;
             }
 
-            foreach (var name in PythonAnalyzer.ResolvePotentialModuleNames(_unit.ProjectEntry, modName, forceAbsolute)) {
+            var candidates = ModuleResolver.ResolvePotentialModuleNames(_unit.ProjectEntry, modName, forceAbsolute).ToArray();
+            foreach (var name in candidates) {
+                ModuleReference modRef;
+
+                bool gotAllParents = true;
+                AnalysisValue lastParent = null;
+                remainingParts = name.Split('.');
                 foreach (var part in ModulePath.GetParents(name, includeFullName: false)) {
-                    ModuleReference parentRef;
-                    if (ProjectState.Modules.TryImport(part, out parentRef)) {
-                        parentRef.Module?.Imported(_unit);
+                    if (!ProjectState.Modules.TryImport(part, out modRef)) {
+                        gotAllParents = false;
+                        break;
                     }
+                    moduleRef = modRef;
+                    (lastParent as BuiltinModule)?.AddChildModule(remainingParts[0], moduleRef.AnalysisModule);
+                    lastParent = moduleRef.AnalysisModule;
+                    remainingParts = remainingParts.Skip(1).ToArray();
                 }
-                
-                if (ProjectState.Modules.TryImport(name, out moduleRef)) {
+
+                if (gotAllParents && ProjectState.Modules.TryImport(name, out modRef)) {
+                    moduleRef = modRef;
+                    (lastParent as BuiltinModule)?.AddChildModule(remainingParts[0], moduleRef.AnalysisModule);
+                    _unit.DeclaringModule.AddModuleReference(moduleRef);
+                    remainingParts = null;
                     return true;
                 }
             }
 
-            _unit.DeclaringModule.AddUnresolvedModule(modName, forceAbsolute);
-
-            moduleRef = null;
+            if (moduleRef?.Module != null) {
+                _unit.DeclaringModule.AddModuleReference(moduleRef);
+                return true;
+            }
             return false;
         }
 
@@ -319,7 +467,7 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
             var result = new List<AnalysisValue>();
             foreach (var b in bases) {
                 foreach (var curType in b) {
-                    BuiltinClassInfo klass = curType as BuiltinClassInfo;
+                    var klass = curType as BuiltinClassInfo;
                     if (klass != null) {
                         var value = klass.GetMember(node, unit, name);
                         if (value != null) {
@@ -330,6 +478,7 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
             }
             return result;
         }
+
 
         public override bool Walk(FunctionDefinition node) {
             InterpreterScope funcScope;
@@ -370,7 +519,7 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
         }
 
         public override bool Walk(IfStatement node) {
-            foreach (var test in node.Tests) {
+            foreach (var test in node.TestsInternal) {
                 _eval.Evaluate(test.Test);
 
                 var prevScope = Scope;
@@ -388,55 +537,44 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
         }
 
         public override bool Walk(ImportStatement node) {
-            int len = Math.Min(node.Names.Count, node.AsNames.Count);
-            for (int i = 0; i < len; i++) {
+            var len = Math.Min(node.Names.Count, node.AsNames.Count);
+            for (var i = 0; i < len; i++) {
                 var curName = node.Names[i];
                 var asName = node.AsNames[i];
-
-                string importing, saveName;
-                Node nameNode;
-                if (curName.Names.Count == 0) {
+                var importing = curName?.MakeString();
+                if (string.IsNullOrEmpty(importing)) {
                     continue;
-                } else if (curName.Names.Count > 1) {
-                    // import fob.oar
-                    if (asName != null) {
-                        // import fob.oar as baz, baz becomes the value of the oar module
-                        importing = curName.MakeString();
-                        saveName = asName.Name;
-                        nameNode = asName;
-                    } else {
-                        // plain import fob.oar, we bring in fob into the scope
-                        saveName = importing = curName.Names[0].Name;
-                        nameNode = curName.Names[0];
-                    }
+                }
+
+                if (TryImportModule(importing, node.ForceAbsolute, out var modRef, out var bits)) {
+                    modRef.Module.Imported(_unit);
                 } else {
-                    // import fob
-                    importing = curName.Names[0].Name;
-                    if (asName != null) {
-                        saveName = asName.Name;
-                        nameNode = asName;
-                    } else {
-                        saveName = importing;
-                        nameNode = curName.Names[0];
-                    }
+                    _unit.DeclaringModule.AddUnresolvedModule(importing, node.ForceAbsolute);
                 }
 
-                ModuleReference modRef;
-
-                var def = Scope.CreateVariable(nameNode, _unit, saveName);
-                if (TryImportModule(importing, node.ForceAbsolute, out modRef)) {
-                    modRef.AddReference(_unit.DeclaringModule);
-
-                    Debug.Assert(modRef.Module != null);
-                    if (modRef.Module != null) {
-                        modRef.Module.Imported(_unit);
-
-                        if (modRef.AnalysisModule != null) {
-                            def.AddTypes(_unit, modRef.AnalysisModule);
-                        }
-                        def.AddAssignment(nameNode, _unit);
-                    }
+                // "import fob.oar as baz" is handled as
+                // baz = import_module('fob.oar')
+                if (asName != null) {
+                    FinishImportModuleOrMember(modRef, bits, asName.Name, true, node.Names.LastOrDefault(), asName);
+                    continue;
                 }
+
+                // "import fob.oar" is handled as
+                // import_module('fob.oar')
+                // fob = import_module('fob')
+                var name = curName.Names[0];
+
+                if (modRef?.Module != null) {
+                    // Should be able to just get the module, as we only just imported it
+                    if (ProjectState.Modules.TryGetImportedModule(name.Name, out modRef)) {
+                        FinishImportModuleOrMember(modRef, null, name.Name, true, name, null);
+                        continue;
+                    }
+
+                    Debug.Fail($"Failed to get module {name.Name} we just imported");
+                }
+
+                Scope.CreateEphemeralVariable(name, _unit, name.Name, true);
             }
             return true;
         }
@@ -455,8 +593,8 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
                 var ctxMgr = _eval.Evaluate(item.ContextManager);
                 var enter = ctxMgr.GetMember(node, _unit, node.IsAsync ? "__aenter__" : "__enter__");
                 var exit = ctxMgr.GetMember(node, _unit, node.IsAsync ? "__aexit__" : "__exit__");
-                var ctxt = enter.Call(node, _unit, ExpressionEvaluator.EmptySets, ExpressionEvaluator.EmptyNames);
-                var exitRes = exit.Call(node, _unit, ExpressionEvaluator.EmptySets, ExpressionEvaluator.EmptyNames);
+                var ctxt = enter.Call(node, _unit, new[] { ctxMgr }, ExpressionEvaluator.EmptyNames).Resolve(_unit);
+                var exitRes = exit.Call(node, _unit, ExpressionEvaluator.EmptySets, ExpressionEvaluator.EmptyNames).Resolve(_unit);
                 if (node.IsAsync) {
                     ctxt = ctxt.Await(node, _unit);
                     exitRes.Await(node, _unit);

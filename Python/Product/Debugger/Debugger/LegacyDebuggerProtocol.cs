@@ -9,19 +9,22 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using Microsoft.PythonTools.Ipc.Json;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 
 namespace Microsoft.PythonTools.Debugger {
     // IMPORTANT:
     // Names of all fields, commands and events must match the names in
-    // visualstudio_py_debugger.py and attach_server.py
+    // ptvsd/debugger.py and ptvsd/attach_server.py
     internal static class LegacyDebuggerProtocol {
         public static readonly Dictionary<string, Type> RegisteredTypes = CollectCommands();
 
@@ -187,6 +190,8 @@ namespace Microsoft.PythonTools.Debugger {
             public int frameId;
             public FrameKind frameKind;
             public ReprKind reprKind;
+            public string moduleName;
+            public bool printResult;
         }
 
         public sealed class DetachRequest : GenericRequest {
@@ -202,20 +207,6 @@ namespace Microsoft.PythonTools.Debugger {
 
             public int defaultBreakOnMode;
             public ExceptionInfo[] breakOn;
-        }
-
-        public sealed class ConnectReplRequest : GenericRequest {
-            public const string Command = "legacyConnectRepl";
-
-            public override string command => Command;
-
-            public int portNum;
-        }
-
-        public sealed class DisconnectReplRequest : GenericRequest {
-            public const string Command = "legacyDisconnectRepl";
-
-            public override string command => Command;
         }
 
         public sealed class LastAckRequest : GenericRequest {
@@ -314,14 +305,14 @@ namespace Microsoft.PythonTools.Debugger {
             public int pythonMicro;
         }
 
-        public sealed class RemoteReplAttachRequest : Request<RemoteReplAttachResponse> {
-            public const string Command = "legacyRemoteReplAttach";
+        public sealed class ListReplModulesRequest : Request<ListReplModulesResponse> {
+            public const string Command = "legacyListReplModules";
 
             public override string command => Command;
         }
 
-        public sealed class RemoteReplAttachResponse : Response {
-            public bool accepted;
+        public sealed class ListReplModulesResponse : Response {
+            public ModuleItem[] modules;
         }
 
         //////////////////////////////////////////////////////////////////////
@@ -415,6 +406,10 @@ namespace Microsoft.PythonTools.Debugger {
 
             public int moduleId;
             public string moduleFileName;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+            public string moduleName;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore, NullValueHandling = NullValueHandling.Ignore)]
+            public bool isStdLib;
         }
 
         public sealed class StepDoneEvent : Event {
@@ -456,6 +451,34 @@ namespace Microsoft.PythonTools.Debugger {
 
             public long threadId;
             public string output;
+            public OutputChannel channel;
+
+            // Legacy fallback in case channel is not specified. Should only be used for serialization.
+            [Obsolete]
+            public bool? isStdOut {
+                get {
+                    switch (channel) {
+                        case OutputChannel.stdout:
+                            return true;
+                        case OutputChannel.stderr:
+                            return false;
+                        default:
+                            return null;
+                    }
+                }
+                set {
+                    switch (value) {
+                        case true:
+                            channel = OutputChannel.stdout;
+                            break;
+                        case false:
+                            channel = OutputChannel.stderr;
+                            break;
+                        case null:
+                            throw new ArgumentNullException("value");
+                    }
+                }
+            }
         }
 
         public sealed class ExecutionResultEvent : Event {
@@ -493,6 +516,12 @@ namespace Microsoft.PythonTools.Debugger {
             public long threadId;
             public string threadName;
             public ThreadFrameItem[] threadFrames;
+        }
+
+        public sealed class ModulesChangedEvent : Event {
+            public const string Name = "legacyModulesChanged";
+
+            public override string name => Name;
         }
 
         //////////////////////////////////////////////////////////////////////
@@ -539,6 +568,13 @@ namespace Microsoft.PythonTools.Debugger {
             WhenEqualOrGreater = 3,
         }
 
+        [JsonConverter(typeof(StringEnumConverter))]
+        public enum OutputChannel {
+            debug,
+            stdout,
+            stderr,
+        }
+
         public sealed class PythonObject {
             public string objRepr;
             public string hexRepr;
@@ -576,6 +612,11 @@ namespace Microsoft.PythonTools.Debugger {
             public int lineStart;
             public int lineEnd;
             public string[] expressions;
+        }
+
+        public sealed class ModuleItem {
+            public string name;
+            public string fileName;
         }
     }
 }

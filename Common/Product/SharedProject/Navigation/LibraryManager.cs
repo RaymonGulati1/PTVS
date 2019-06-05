@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -97,13 +97,17 @@ namespace Microsoft.VisualStudioTools.Navigation {
 
         #region ILibraryManager Members
 
-        public void RegisterHierarchy(IVsHierarchy hierarchy) {
+        public virtual void RegisterHierarchy(IVsHierarchy hierarchy) {
             if ((null == hierarchy) || _hierarchies.ContainsKey(hierarchy)) {
                 return;
             }
 
+            var commonProject = hierarchy.GetProject()?.GetCommonProject();
+            if (commonProject == null) {
+                return;
+            }
+
             RegisterLibrary();
-            var commonProject = hierarchy.GetProject().GetCommonProject();
             HierarchyListener listener = new HierarchyListener(hierarchy, this);
             var node = _hierarchies[hierarchy] = new HierarchyInfo(
                 listener,
@@ -125,7 +129,7 @@ namespace Microsoft.VisualStudioTools.Navigation {
             }
         }
 
-        public void UnregisterHierarchy(IVsHierarchy hierarchy) {
+        public virtual void UnregisterHierarchy(IVsHierarchy hierarchy) {
             if ((null == hierarchy) || !_hierarchies.ContainsKey(hierarchy)) {
                 return;
             }
@@ -191,7 +195,10 @@ namespace Microsoft.VisualStudioTools.Navigation {
         /// </summary>
         protected void FileParsed(LibraryTask task) {
             try {
-                var project = task.ModuleID.Hierarchy.GetProject().GetCommonProject();
+                var project = task.ModuleID.Hierarchy.GetProject()?.GetCommonProject();
+                if (project == null) {
+                    return;
+                }
 
                 HierarchyNode fileNode = fileNode = project.NodeFromItemId(task.ModuleID.ItemID);
                 HierarchyInfo parent;

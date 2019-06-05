@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -879,6 +879,31 @@ namespace Microsoft.VisualStudioTools.Project {
         /// <returns>the node cation</returns>
         public virtual string GetEditLabel() {
             return this.Caption;
+        }
+
+        /// <summary>
+        /// Called when a parent node is modified and the children need to be updated. The new
+        /// parent may be the same object with an updated Url.
+        /// </summary>
+        /// <remarks>
+        /// Note that the full stack of parents has already been updated when this function is
+        /// called. This means you cannot infer the full path to the current node by tracing its
+        /// parents - you need to use other information.
+        /// </remarks>
+        public virtual void Reparent(HierarchyNode newParent) {
+            if (Parent != newParent) {
+                ProjectMgr.OnItemDeleted(this);
+                Parent.RemoveChild(this);
+                ID = ProjectMgr.ItemIdMap.Add(this);
+
+                Parent = newParent;
+
+                Parent.AddChild(this);
+            }
+
+            foreach (var child in AllChildren) {
+                child.Reparent(this);
+            }
         }
 
         /// <summary>

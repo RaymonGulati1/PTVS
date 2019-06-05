@@ -9,11 +9,12 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.PythonTools.Infrastructure;
@@ -28,14 +29,24 @@ namespace Microsoft.PythonTools.Project {
 
         public PythonAssemblyReferenceNode(PythonProjectNode root, ProjectElement element)
             : base(root, element) {
-            AnalyzeReferenceAsync(root.GetAnalyzer())
+            root.ProjectAnalyzerChanged += ProjectAnalyzerChanged;
+
+            AnalyzeReferenceAsync(root.TryGetAnalyzer())
                 .HandleAllExceptions(ProjectMgr.Site, GetType())
                 .DoNotWait();
         }
 
         public PythonAssemblyReferenceNode(PythonProjectNode root, string assemblyPath)
             : base(root, assemblyPath) {
-            AnalyzeReferenceAsync(root.GetAnalyzer())
+            root.ProjectAnalyzerChanged += ProjectAnalyzerChanged;
+
+            AnalyzeReferenceAsync(root.TryGetAnalyzer())
+                .HandleAllExceptions(ProjectMgr.Site, GetType())
+                .DoNotWait();
+        }
+
+        private void ProjectAnalyzerChanged(object sender, EventArgs e) {
+            AnalyzeReferenceAsync(((PythonProjectNode)ProjectMgr).TryGetAnalyzer())
                 .HandleAllExceptions(ProjectMgr.Site, GetType())
                 .DoNotWait();
         }
@@ -49,7 +60,7 @@ namespace Microsoft.PythonTools.Project {
         }
 
         private async Task ReferenceChangedOnDisk(FileChangedOnDiskEventArgs e) {
-            var analyzer = ((PythonProjectNode)ProjectMgr).GetAnalyzer();
+            var analyzer = ((PythonProjectNode)ProjectMgr).TryGetAnalyzer();
             if (analyzer != null && PathUtils.IsSamePath(e.FileName, Url)) {
                 if ((e.FileChangeFlag & (_VSFILECHANGEFLAGS.VSFILECHG_Attr | _VSFILECHANGEFLAGS.VSFILECHG_Size | _VSFILECHANGEFLAGS.VSFILECHG_Time | _VSFILECHANGEFLAGS.VSFILECHG_Add)) != 0) {
                     // file was modified, unload and reload the extension module from our database.
@@ -63,13 +74,16 @@ namespace Microsoft.PythonTools.Project {
         }
 
         private async Task AnalyzeReferenceAsync(VsProjectAnalyzer interp) {
-            if (interp != null) {
-                _failedToAnalyze = false;
+            if (interp == null) {
+                _failedToAnalyze = true;
+                return;
+            }
 
-                var resp = await interp.AddReferenceAsync(new ProjectAssemblyReference(AssemblyName, Url));
-                if (resp == null) {
-                    _failedToAnalyze = true;
-                }
+            _failedToAnalyze = false;
+
+            var resp = await interp.AddReferenceAsync(new ProjectAssemblyReference(AssemblyName, Url));
+            if (resp == null) {
+                _failedToAnalyze = true;
             }
         }
 
@@ -83,33 +97,13 @@ namespace Microsoft.PythonTools.Project {
 
         public override bool Remove(bool removeFromStorage) {
             if (base.Remove(removeFromStorage)) {
-                var interp = ((PythonProjectNode)ProjectMgr).GetAnalyzer();
+                var interp = ((PythonProjectNode)ProjectMgr).TryGetAnalyzer();
                 if (interp != null) {
                     interp.RemoveReferenceAsync(new ProjectAssemblyReference(AssemblyName, Url)).Wait();
                 }
                 return true;
             }
             return false;
-        }
-
-
-        class TaskFailureHandler {
-            private readonly TaskScheduler _uiScheduler;
-            private readonly PythonAssemblyReferenceNode _node;
-            public TaskFailureHandler(TaskScheduler uiScheduler, PythonAssemblyReferenceNode refNode) {
-                _uiScheduler = uiScheduler;
-                _node = refNode;
-            }
-
-            public void HandleAddRefFailure(Task task) {
-                if (task.Exception != null) {
-                    Task.Factory.StartNew(MarkFailed, default(CancellationToken), TaskCreationOptions.None, _uiScheduler);
-                }
-            }
-
-            public void MarkFailed() {
-                _node._failedToAnalyze = true;
-            }
         }
     }
 }

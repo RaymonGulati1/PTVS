@@ -18,9 +18,6 @@
         <CommandBinding Command="{x:Static l:EnvironmentView.MakeGlobalDefault}"
                         CanExecute="MakeGlobalDefault_CanExecute"
                         Executed="MakeGlobalDefault_Executed" />
-        <CommandBinding Command="{x:Static l:DBExtension.StartRefreshDB}"
-                        CanExecute="StartRefreshDB_CanExecute"
-                        Executed="StartRefreshDB_Executed" />
         <CommandBinding Command="{x:Static l:ConfigurationEnvironmentView.Added}"
                         CanExecute="ConfigurableViewAdded_CanExecute"
                         Executed="ConfigurableViewAdded_Executed" />
@@ -35,6 +32,18 @@
                 <ResourceDictionary Source="pack://application:,,,/Microsoft.PythonTools.EnvironmentsList;component/EnvironmentView.xaml" />
 
                 <ResourceDictionary>
+                    <Style TargetType="{x:Type l:DataListBox}" BasedOn="{StaticResource {x:Type ListBox}}" />
+
+                    <DataTemplate x:Key="ExtensionListItem">
+                        <TextBlock Text="{Binding LocalizedDisplayName}"
+                                   Margin="4" />
+                    </DataTemplate>
+
+                    <DataTemplate x:Key="ExtensionComboItem">
+                        <TextBlock Text="{Binding LocalizedDisplayName}"
+                                   Margin="4" />
+                    </DataTemplate>
+
                 </ResourceDictionary>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
@@ -55,6 +64,7 @@
                 </Style.Resources>
 
                 <Setter Property="Focusable" Value="False" />
+                <Setter Property="IsTabStop" Value="False" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="Template">
                     <Setter.Value>
@@ -65,7 +75,9 @@
                                             VerticalAlignment="{TemplateBinding VerticalAlignment}"
                                             VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
                                             Margin="{TemplateBinding Margin}"
-                                            Padding="{TemplateBinding Padding}">
+                                            Padding="{TemplateBinding Padding}"
+                                            Focusable="{TemplateBinding Focusable}"
+                                            IsTabStop="{TemplateBinding IsTabStop}">
                                 <ContentControl.LayoutTransform>
                                     <ScaleTransform x:Name="_HelpContentScale" ScaleX="1.0" ScaleY="0.0" />
                                 </ContentControl.LayoutTransform>
@@ -96,9 +108,15 @@
 
             <Style TargetType="{x:Type ListBoxItem}" BasedOn="{StaticResource {x:Type ListBoxItem}}" x:Key="WithLocalizedName">
                 <Setter Property="AutomationProperties.Name" Value="{Binding LocalizedDisplayName,Mode=OneWay}" />
+                <Setter Property="AutomationProperties.HelpText" Value="{Binding LocalizedHelpText,Mode=OneWay}" />
             </Style>
             <Style TargetType="{x:Type ComboBoxItem}" x:Key="Combo_WithLocalizedName">
                 <Setter Property="AutomationProperties.Name" Value="{Binding LocalizedDisplayName,Mode=OneWay}" />
+                <Setter Property="AutomationProperties.HelpText" Value="{Binding LocalizedHelpText,Mode=OneWay}" />
+            </Style>
+
+            <Style x:Key="OnlineHelpItemContainerStyle" TargetType="{x:Type ListBoxItem}" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                <Setter Property="IsTabStop" Value="False" />
             </Style>
         </Grid.Resources>
 
@@ -115,23 +133,19 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <ListBox x:Name="ListOfEnvironments_Horizontal"
-                     Grid.Column="0" Grid.Row="0" Grid.RowSpan="3"
-                     Grid.IsSharedSizeScope="True"
-                     ScrollViewer.CanContentScroll="False"
-                     MaxWidth="300"
-                     VerticalAlignment="Stretch"
-                     BorderThickness="0"
-                     SelectionChanged="EnvironmentsList_SelectionChanged"
-                     ItemsSource="{Binding Environments}"
-                     AutomationProperties.Name="{x:Static l:Resources.ToolWindow_ListOfEnvironmentsName}"
-                     ItemContainerStyle="{StaticResource WithLocalizedName}">
-                <ListBox.ItemTemplateSelector>
-                    <l:EnvironmentViewTemplateSelector AddNewEnvironment="{StaticResource AddNewEnvironmentListItem}"
-                                                       OnlineHelp="{StaticResource OnlineHelpListItem}"
-                                                       Environment="{StaticResource EnvironmentListItem}" />
-                </ListBox.ItemTemplateSelector>
-            </ListBox>
+            <l:DataListBox x:Name="ListOfEnvironments_Horizontal"
+                           Grid.Column="0" Grid.Row="0" Grid.RowSpan="3"
+                           Grid.IsSharedSizeScope="True"
+                           ScrollViewer.CanContentScroll="False"
+                           MaxWidth="300"
+                           VerticalAlignment="Stretch"
+                           BorderThickness="0"
+                           SelectionChanged="EnvironmentsList_SelectionChanged"
+                           ItemTemplate="{StaticResource EnvironmentListItem}"
+                           ItemContainerStyle="{StaticResource WithLocalizedName}"
+                           ItemsSource="{Binding Environments}"
+                           AutomationProperties.Name="{x:Static l:Resources.ToolWindow_ListOfEnvironmentsName}">
+            </l:DataListBox>
 
             <ListBox Grid.Column="1" Grid.Row="1" Grid.RowSpan="2"
                      MinWidth="120" MaxWidth="250"
@@ -141,43 +155,19 @@
                      ItemsSource="{Binding Extensions}"
                      ItemTemplate="{StaticResource ExtensionListItem}"
                      AutomationProperties.Name="{x:Static l:Resources.ToolWindow_ExtensionsName}"
-                     ItemContainerStyle="{StaticResource WithLocalizedName}" />
+                     ItemContainerStyle="{StaticResource WithLocalizedName}"/>
 
             <ContentControl Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
                             Content="{Binding Environments.CurrentItem}"
                             Focusable="False"
                             ContentTemplate="{StaticResource EnvironmentHeader}" />
 
-            <CheckBox x:Name="HelpVisibility_Horizontal"
-                      Grid.Row="0" Grid.Column="3"
-                      HorizontalAlignment="Center" VerticalAlignment="Top"
-                      Style="{StaticResource HelpCheckBox}"
-                      AutomationProperties.Name="{x:Static l:Resources.ToolWindow_HelpVisibilityName}"/>
-
-            <!-- These content controls are not laid out correctly when their
-                 ColumnSpan property is set, but they seem to work okay when put
-                 in their own grid. -->
-            <Grid x:Name="ContentGrid_Horizontal"
-                  Grid.Row="1" Grid.Column="2" Grid.RowSpan="2" Grid.ColumnSpan="2">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <ContentControl Grid.Row="0"
-                                Style="{StaticResource HelpContentStyle}"
-                                Content="{Binding Extensions.CurrentItem.HelpContent}"
-                                AutomationProperties.Name="{x:Static l:Resources.ToolWindow_HelpContentName}"
-                                AutomationProperties.HelpText="{Binding Extensions.CurrentItem.HelpText,Mode=OneWay}"
-                                IsEnabled="{Binding IsChecked,ElementName=HelpVisibility_Horizontal}"/>
-
-                <ContentControl x:Name="ContentView_Horizontal"
-                                Grid.Row="1"
-                                HorizontalAlignment="Stretch"
-                                VerticalAlignment="Stretch"
-                                Focusable="False"
-                                DataContext="{Binding Environments.CurrentItem}" />
-            </Grid>
+            <ContentControl x:Name="ContentView_Horizontal"
+                            Grid.Row="1" Grid.Column="2" Grid.RowSpan="2" Grid.ColumnSpan="2"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"
+                            Focusable="False"
+                            DataContext="{Binding Environments.CurrentItem}" />
         </Grid>
 
         <Grid x:Name="VerticalLayout" Visibility="Collapsed">
@@ -191,22 +181,18 @@
                 <ColumnDefinition Width="auto" />
             </Grid.ColumnDefinitions>
 
-            <ListBox Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
-                     ScrollViewer.CanContentScroll="False"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                     VerticalAlignment="Stretch"
-                     HorizontalAlignment="Stretch"
-                     BorderThickness="0"
-                     SelectionChanged="EnvironmentsList_SelectionChanged"
-                     ItemsSource="{Binding Environments}"
-                     AutomationProperties.Name="{x:Static l:Resources.ToolWindow_ListOfEnvironmentsName}"
-                     ItemContainerStyle="{StaticResource WithLocalizedName}">
-                <ListBox.ItemTemplateSelector>
-                    <l:EnvironmentViewTemplateSelector AddNewEnvironment="{StaticResource AddNewEnvironmentListItem}"
-                                                       OnlineHelp="{StaticResource OnlineHelpListItem}"
-                                                       Environment="{StaticResource EnvironmentListItem}" />
-                </ListBox.ItemTemplateSelector>
-            </ListBox>
+            <l:DataListBox Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
+                           ScrollViewer.CanContentScroll="False"
+                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                           VerticalAlignment="Stretch"
+                           HorizontalAlignment="Stretch"
+                           BorderThickness="0"
+                           SelectionChanged="EnvironmentsList_SelectionChanged"
+                           ItemTemplate="{StaticResource EnvironmentListItem}"
+                           ItemContainerStyle="{StaticResource WithLocalizedName}"
+                           ItemsSource="{Binding Environments}"
+                           AutomationProperties.Name="{x:Static l:Resources.ToolWindow_ListOfEnvironmentsName}">
+            </l:DataListBox>
 
             <ComboBox Grid.Row="1" Grid.Column="0"
                       Margin="3"
@@ -217,33 +203,12 @@
                       AutomationProperties.Name="{x:Static l:Resources.ToolWindow_ExtensionsName}"
                       ItemContainerStyle="{StaticResource Combo_WithLocalizedName}" />
 
-            <CheckBox x:Name="HelpVisibility_Vertical"
-                      Grid.Row="1" Grid.Column="1"
-                      HorizontalAlignment="Center" VerticalAlignment="Center"
-                      Style="{StaticResource HelpCheckBox}"
-                      AutomationProperties.Name="{x:Static l:Resources.ToolWindow_HelpVisibilityName}"/>
-
-            <Grid x:Name="ContentGrid_Vertical"
-                  Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <ContentControl Grid.Row="0"
-                                Style="{StaticResource HelpContentStyle}"
-                                Content="{Binding Extensions.CurrentItem.HelpContent}"
-                                IsEnabled="{Binding IsChecked,ElementName=HelpVisibility_Vertical}"
-                                AutomationProperties.Name="{x:Static l:Resources.ToolWindow_HelpContentName}"
-                                AutomationProperties.HelpText="{Binding Extensions.CurrentItem.HelpText}"/>
-
-                <ContentControl x:Name="ContentView_Vertical"
-                                Grid.Row="1"
-                                HorizontalAlignment="Stretch"
-                                VerticalAlignment="Stretch"
-                                Focusable="False"
-                                DataContext="{Binding Environments.CurrentItem}"/>
-            </Grid>
+            <ContentControl x:Name="ContentView_Vertical"
+                            Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"
+                            Focusable="False"
+                            DataContext="{Binding Environments.CurrentItem}"/>
         </Grid>
     </Grid>
 </UserControl>

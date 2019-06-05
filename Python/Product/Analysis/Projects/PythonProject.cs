@@ -9,21 +9,18 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Microsoft.PythonTools.Interpreter;
 
 namespace Microsoft.PythonTools.Projects {
     /// <summary>
-    /// Provides information about a Ptyhon project.  This is an abstract base class that
+    /// Provides information about a Python project.  This is an abstract base class that
     /// different project systems can implement.  Tools which want to plug in an extend the
     /// Python analysis system can work with the PythonProject to get information about
     /// the project.
@@ -55,10 +52,17 @@ namespace Microsoft.PythonTools.Projects {
 
         public abstract IPythonInterpreterFactory GetInterpreterFactory();
 
+        /// <summary>
+        /// Gets the current analyzer for the project, or null if no analyzer is available.
+        /// </summary>
+        [Obsolete("Use the async version if possible")]
+        public abstract ProjectAnalyzer Analyzer { get; }
 
-        public abstract ProjectAnalyzer Analyzer {
-            get;
-        }
+        /// <summary>
+        /// Gets the current analyzer for the project. May wait while creating an analyzer
+        /// if necessary, where the <see cref="Analyzer"/> property would return null.
+        /// </summary>
+        public abstract Task<ProjectAnalyzer> GetAnalyzerAsync();
 
         public abstract event EventHandler ProjectAnalyzerChanged;
 

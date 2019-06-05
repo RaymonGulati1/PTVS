@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,58 +19,49 @@ using System.Collections.Generic;
 
 namespace Microsoft.PythonTools.Analysis {
     public class LocationInfo : IEquatable<LocationInfo>, ILocationResolver {
-        private readonly int _line, _column;
-        private readonly int? _endLine, _endColumn;
-        private readonly string _path;
-        internal static LocationInfo[] Empty = new LocationInfo[0];
-
+        internal static readonly LocationInfo[] Empty = new LocationInfo[0];
         private static readonly IEqualityComparer<LocationInfo> _fullComparer = new FullLocationComparer();
-
-        internal LocationInfo(string path, int line, int column) {
-            _path = path;
-            _line = line;
-            _column = column;
+        public LocationInfo(string path, Uri documentUri, int line, int column) :
+             this(path, documentUri, line, column, null, null) {
         }
 
-        internal LocationInfo(string path, int line, int column, int? endLine, int? endColumn) {
-            _path = path;
-            _line = line;
-            _column = column;
-            _endLine = endLine;
-            _endColumn = endColumn;
+        public LocationInfo(string path, Uri documentUri, int line, int column, int? endLine, int? endColumn) {
+            FilePath = path;
+            DocumentUri = documentUri;
+            StartLine = line;
+            StartColumn = column;
+            EndLine = endLine;
+            EndColumn = endColumn;
         }
 
-        public string FilePath {
-            get { return _path; }
-        }
+        public string FilePath { get; }
 
-        public int StartLine {
-            get { return _line; }
-        }
+        public Uri DocumentUri { get; }
 
-        public int StartColumn {
-            get {
-                return _column;
-            }
-        }
+        public int StartLine { get; }
 
-        public int? EndLine => _endLine;
+        public int StartColumn { get; }
 
-        public int? EndColumn => _endColumn;
+        public int? EndLine { get; }
 
-        public override bool Equals(object obj) {
-            LocationInfo other = obj as LocationInfo;
-            if (other != null) {
-                return Equals(other);
-            }
-            return false;
-        }
+        public int? EndColumn { get; }
+
+        public SourceSpan Span => new SourceSpan(
+            new SourceLocation(StartLine, StartColumn),
+            new SourceLocation(EndLine ?? StartLine, EndColumn ?? StartColumn)
+        );
+
+        public override bool Equals(object obj) => Equals(obj as LocationInfo);
 
         public override int GetHashCode() {
-            return StartLine.GetHashCode() ^ FilePath.GetHashCode();
+            return StartLine.GetHashCode() ^ (FilePath?.GetHashCode() ?? 0);
         }
 
         public bool Equals(LocationInfo other) {
+            if (other == null) {
+                return false;
+            }
+
             // currently we filter only to line & file - so we'll only show 1 ref per each line
             // This works nicely for get and call which can both add refs and when they're broken
             // apart you still see both refs, but when they're together you only see 1.
@@ -82,11 +73,7 @@ namespace Microsoft.PythonTools.Analysis {
         /// Provides an IEqualityComparer that compares line, column and project entries.  By
         /// default locations are equaitable based upon only line/project entry.
         /// </summary>
-        public static IEqualityComparer<LocationInfo> FullComparer {
-            get{
-                return _fullComparer;
-            }
-        }
+        public static IEqualityComparer<LocationInfo> FullComparer => _fullComparer;
 
         sealed class FullLocationComparer : IEqualityComparer<LocationInfo> {
             public bool Equals(LocationInfo x, LocationInfo y) {
@@ -98,7 +85,7 @@ namespace Microsoft.PythonTools.Analysis {
             }
 
             public int GetHashCode(LocationInfo obj) {
-                return obj.StartLine.GetHashCode() ^ obj.StartColumn.GetHashCode() ^ obj.FilePath.GetHashCode();
+                return obj.StartLine.GetHashCode() ^ obj.StartColumn.GetHashCode() ^ (obj.FilePath?.GetHashCode() ?? 0);
             }
         }
 
@@ -107,6 +94,8 @@ namespace Microsoft.PythonTools.Analysis {
         LocationInfo ILocationResolver.ResolveLocation(object location) {
             return this;
         }
+
+        ILocationResolver ILocationResolver.GetAlternateResolver() => null;
 
         #endregion
     }

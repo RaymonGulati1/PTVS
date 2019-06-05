@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,34 +20,52 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.VisualStudioTools.Infrastructure;
+using System.Windows.Forms;
+using Microsoft.VisualStudio.ComponentModelHost;
+using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Threading;
 using Task = System.Threading.Tasks.Task;
 
 namespace Microsoft.VisualStudioTools {
-    class UIThread : UIThreadBase {
-        private readonly TaskScheduler _scheduler;
-        private readonly TaskFactory _factory;
-        private readonly Thread _uiThread;
+    class UIThread : UIThreadBase, IDisposable {
+        private readonly JoinableTaskContext _context;
+        private readonly JoinableTaskFactory _factory;
+        private readonly bool _needDispose;
 
-        private UIThread() {
-            _scheduler = TaskScheduler.FromCurrentSynchronizationContext();
-            _factory = new TaskFactory(_scheduler);
-            _uiThread = Thread.CurrentThread;
-            Trace.TraceInformation("Setting TID {0}:{1} as UI thread", _uiThread.ManagedThreadId, _uiThread.Name ?? "(null)");
+        public UIThread(JoinableTaskFactory joinableTaskFactory) {
+            if (joinableTaskFactory != null) {
+                _factory = joinableTaskFactory;
+                _context = joinableTaskFactory.Context;
+                Trace.TraceInformation("Using TID {0}:{1} as UI thread", _context.MainThread.ManagedThreadId, _context.MainThread.Name ?? "(null)");
+            } else {
+                _needDispose = true;
+                _context = new JoinableTaskContext();
+                Trace.TraceInformation("Setting TID {0}:{1} as UI thread", _context.MainThread.ManagedThreadId, _context.MainThread.Name ?? "(null)");
+            }
+
+            _factory = _context.Factory;
         }
 
-        public static void EnsureService(IServiceContainer container) {
-            if (container.GetService(typeof(UIThreadBase)) == null) {
-                container.AddService(typeof(UIThreadBase), new UIThread(), true);
+        public void Dispose() {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        ~UIThread() {
+            Dispose(false);
+        }
+
+        protected virtual void Dispose(bool disposing) {
+            if (disposing) {
+                if (_needDispose) {
+                    _context.Dispose();
+                }
             }
         }
 
         public override bool InvokeRequired {
             get {
-                // The UI thread may no longer be alive in test situations, as
-                // it is not the main thread. In actual installs this is very
-                // unlikely to ever occur.
-                return Thread.CurrentThread != _uiThread && _uiThread.IsAlive;
+                return !_context.IsOnMainThread;
             }
         }
 
@@ -66,11 +84,10 @@ namespace Microsoft.VisualStudioTools {
         /// If called from the UI thread, the action is executed synchronously.
         /// </remarks>
         public override void Invoke(Action action) {
-            if (InvokeRequired) {
-                _factory.StartNew(action).GetAwaiter().GetResult();
-            } else {
+            _factory.Run(async () => {
+                await _factory.SwitchToMainThreadAsync();
                 action();
-            }
+            });
         }
 
         /// <summary>
@@ -82,11 +99,10 @@ namespace Microsoft.VisualStudioTools {
         /// synchronously.
         /// </remarks>
         public override T Invoke<T>(Func<T> func) {
-            if (InvokeRequired) {
-                return _factory.StartNew(func).GetAwaiter().GetResult();
-            } else {
+            return _factory.Run(async () => {
+                await _factory.SwitchToMainThreadAsync();
                 return func();
-            }
+            });
         }
 
         /// <summary>
@@ -97,14 +113,10 @@ namespace Microsoft.VisualStudioTools {
         /// If called from the UI thread, the action is executed synchronously.
         /// </remarks>
         public override Task InvokeAsync(Action action) {
-            var tcs = new TaskCompletionSource<object>();
-            if (InvokeRequired) {
-                return _factory.StartNew(action);
-            } else {
-                // Action is run synchronously, but we still return the task.
-                InvokeAsyncHelper(action, tcs);
-            }
-            return tcs.Task;
+            return _factory.RunAsync(async () => {
+                await _factory.SwitchToMainThreadAsync();
+                action();
+            }).Task;
         }
 
         /// <summary>
@@ -116,14 +128,10 @@ namespace Microsoft.VisualStudioTools {
         /// synchronously.
         /// </remarks>
         public override Task<T> InvokeAsync<T>(Func<T> func) {
-            var tcs = new TaskCompletionSource<T>();
-            if (InvokeRequired) {
-                return _factory.StartNew(func);
-            } else {
-                // Function is run synchronously, but we still return the task.
-                InvokeAsyncHelper(func, tcs);
-            }
-            return tcs.Task;
+            return _factory.RunAsync(async () => {
+                await _factory.SwitchToMainThreadAsync();
+                return func();
+            }).Task;
         }
 
         /// <summary>
@@ -134,15 +142,10 @@ namespace Microsoft.VisualStudioTools {
         /// If called from the UI thread, the action is executed synchronously.
         /// </remarks>
         public override Task InvokeAsync(Action action, CancellationToken cancellationToken) {
-            var tcs = new TaskCompletionSource<object>();
-            if (InvokeRequired) {
-                return _factory.StartNew(action, cancellationToken);
-            } else {
-                // Action is run synchronously, but we still return the task.
-                cancellationToken.ThrowIfCancellationRequested();
-                InvokeAsyncHelper(action, tcs);
-            }
-            return tcs.Task;
+            return _factory.RunAsync(async () => {
+                await _factory.SwitchToMainThreadAsync();
+                action();
+            }).JoinAsync(cancellationToken);
         }
 
         /// <summary>
@@ -154,15 +157,10 @@ namespace Microsoft.VisualStudioTools {
         /// synchronously.
         /// </remarks>
         public override Task<T> InvokeAsync<T>(Func<T> func, CancellationToken cancellationToken) {
-            var tcs = new TaskCompletionSource<T>();
-            if (InvokeRequired) {
-                return _factory.StartNew(func, cancellationToken);
-            } else {
-                // Function is run synchronously, but we still return the task.
-                cancellationToken.ThrowIfCancellationRequested();
-                InvokeAsyncHelper(func, tcs);
-            }
-            return tcs.Task;
+            return _factory.RunAsync(async () => {
+                await _factory.SwitchToMainThreadAsync();
+                return func();
+            }).JoinAsync(cancellationToken);
         }
         
         /// <summary>
@@ -175,14 +173,10 @@ namespace Microsoft.VisualStudioTools {
         /// synchronously.
         /// </remarks>
         public override Task InvokeTask(Func<Task> func) {
-            var tcs = new TaskCompletionSource<object>();
-            if (InvokeRequired) {
-                InvokeAsync(() => InvokeTaskHelper(func, tcs));
-            } else {
-                // Function is run synchronously, but we still return the task.
-                InvokeTaskHelper(func, tcs);
-            }
-            return tcs.Task;
+            return _factory.RunAsync(async () => {
+                await _factory.SwitchToMainThreadAsync();
+                await func();
+            }).Task;
         }
 
         /// <summary>
@@ -195,73 +189,118 @@ namespace Microsoft.VisualStudioTools {
         /// synchronously.
         /// </remarks>
         public override Task<T> InvokeTask<T>(Func<Task<T>> func) {
-            var tcs = new TaskCompletionSource<T>();
-            if (InvokeRequired) {
-                InvokeAsync(() => InvokeTaskHelper(func, tcs));
-            } else {
-                // Function is run synchronously, but we still return the task.
-                InvokeTaskHelper(func, tcs);
-            }
-            return tcs.Task;
+            return _factory.RunAsync(async () => {
+                await _factory.SwitchToMainThreadAsync();
+                return await func();
+            }).Task;
         }
 
-        #region Helper Functions
-
-        internal static void InvokeAsyncHelper(Action action, TaskCompletionSource<object> tcs) {
-            try {
-                action();
-                tcs.TrySetResult(null);
-            } catch (OperationCanceledException) {
-                tcs.TrySetCanceled();
-            } catch (Exception ex) {
-                if (ex.IsCriticalException()) {
-                    throw;
+        /// <summary>
+        /// Awaits the provided task on the UI thread. The function will be
+        /// invoked on the UI thread to ensure the correct context is captured
+        /// for any await statements within the task.
+        /// </summary>
+        /// <remarks>
+        /// If called from the UI thread, the function is evaluated 
+        /// synchronously.
+        /// </remarks>
+        public override void InvokeTaskSync(Func<Task> func, CancellationToken cancellationToken) {
+            _factory.RunAsync(async () => {
+                // Convert assertions to exceptions while joining on a task
+                // or the message box will deadlock.
+                using (NoDeadlockAssertListener.Push()) {
+                    await _factory.SwitchToMainThreadAsync(cancellationToken);
+                    await func();
                 }
-                tcs.TrySetException(ex);
-            }
+            }).Join(cancellationToken);
         }
 
-        internal static void InvokeAsyncHelper<T>(Func<T> func, TaskCompletionSource<T> tcs) {
-            try {
-                tcs.TrySetResult(func());
-            } catch (OperationCanceledException) {
-                tcs.TrySetCanceled();
-            } catch (Exception ex) {
-                if (ex.IsCriticalException()) {
-                    throw;
+        /// <summary>
+        /// Awaits the provided task on the UI thread. The function will be
+        /// invoked on the UI thread to ensure the correct context is captured
+        /// for any await statements within the task.
+        /// </summary>
+        /// <remarks>
+        /// If called from the UI thread, the function is evaluated 
+        /// synchronously.
+        /// </remarks>
+        public override T InvokeTaskSync<T>(Func<Task<T>> func, CancellationToken cancellationToken) {
+            return _factory.RunAsync(async () => {
+                // Convert assertions to exceptions while joining on a task
+                // or the message box will deadlock.
+                using (NoDeadlockAssertListener.Push()) {
+                    await _factory.SwitchToMainThreadAsync(cancellationToken);
+                    return await func();
                 }
-                tcs.TrySetException(ex);
-            }
+            }).Join(cancellationToken);
         }
 
-        internal static async void InvokeTaskHelper(Func<Task> func, TaskCompletionSource<object> tcs) {
-            try {
-                await func();
-                tcs.TrySetResult(null);
-            } catch (OperationCanceledException) {
-                tcs.TrySetCanceled();
-            } catch (Exception ex) {
-                if (ex.IsCriticalException()) {
-                    throw;
-                }
-                tcs.TrySetException(ex);
-            }
-        }
+        #region ThrowOnAssertListener class
 
-        internal static async void InvokeTaskHelper<T>(Func<Task<T>> func, TaskCompletionSource<T> tcs) {
-            try {
-                tcs.TrySetResult(await func());
-            } catch (OperationCanceledException) {
-                tcs.TrySetCanceled();
-            } catch (Exception ex) {
-                if (ex.IsCriticalException()) {
-                    throw;
+#if DEBUG
+        class NoDeadlockAssertListener : TraceListener {
+            public static IDisposable Push() {
+                var inner = new TraceListener[Trace.Listeners.Count];
+                Trace.Listeners.CopyTo(inner, 0);
+                Trace.Listeners.Clear();
+                var res = new NoDeadlockAssertListener(inner);
+                Trace.Listeners.Add(res);
+                return res;
+            }
+
+            private readonly TraceListener[] _inner;
+
+            protected NoDeadlockAssertListener(TraceListener[] inner) : base(nameof(NoDeadlockAssertListener)) {
+                _inner = inner;
+            }
+
+            protected override void Dispose(bool disposing) {
+                if (disposing) {
+                    Trace.Listeners.Remove(this);
+                    Trace.Listeners.AddRange(_inner);
                 }
-                tcs.TrySetException(ex);
+                base.Dispose(disposing);
+            }
+
+            public override bool IsThreadSafe => true;
+
+            public override void Write(string message) {
+                foreach (var listener in _inner) {
+                    listener.Write(message);
+                }
+            }
+
+            public override void WriteLine(string message) {
+                foreach (var listener in _inner) {
+                    listener.WriteLine(message);
+                }
+            }
+
+            public override void Fail(string message) {
+                var trace = new StackTrace(true).ToString();
+                var fullMessage = string.IsNullOrEmpty(message) ? trace : (message + Environment.NewLine + trace);
+                switch (MessageBox.Show(fullMessage, "Failed Assertion", MessageBoxButtons.AbortRetryIgnore)) {
+                    case DialogResult.Abort:
+                        Environment.FailFast(string.IsNullOrEmpty(message) ? fullMessage : message);
+                        break;
+                    case DialogResult.Retry:
+                        Debugger.Launch();
+                        break;
+                    case DialogResult.Ignore:
+                        break;
+                }
+            }
+
+            public override void Fail(string message, string detailMessage) {
+                Fail(message + Environment.NewLine + detailMessage);
             }
         }
+#else
+        class NoDeadlockAssertListener {
+            public static IDisposable Push() => null;
+        }
+#endif
 
         #endregion
-
     }
 }

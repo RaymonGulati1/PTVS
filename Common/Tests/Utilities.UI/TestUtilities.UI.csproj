@@ -37,16 +37,14 @@
     <Reference Include="envdte90a, Version=9.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
       <EmbedInteropTypes>True</EmbedInteropTypes>
     </Reference>
-    <Reference Include="Microsoft.VisualStudioTools.VSTestHost.$(VSTarget)" />
-    <Reference Include="Microsoft.VisualStudio.ComponentModelHost, Version=$(VSTarget).0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
-    <Reference Include="Microsoft.VisualStudio.CoreUtility, Version=$(VSTarget).0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
-    <Reference Include="Microsoft.VisualStudio.Editor, Version=$(VSTarget).0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
-    <Reference Include="Microsoft.VisualStudio.Language.Intellisense, Version=$(VSTarget).0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
+    <Reference Include="Microsoft.VisualStudio.ComponentModelHost" />
+    <Reference Include="Microsoft.VisualStudio.CoreUtility" />
+    <Reference Include="Microsoft.VisualStudio.Editor" />
+    <Reference Include="Microsoft.VisualStudio.Language.Intellisense" />
     <Reference Include="Microsoft.VisualStudio.OLE.Interop, Version=7.1.40304.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
-    <Reference Include="Microsoft.VisualStudio.QualityTools.Common, Version=$(VSTarget).0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
-    <Reference Include="Microsoft.VisualStudio.QualityTools.ExecutionCommon, Version=$(VSTarget).0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
+    <Reference Include="Microsoft.VisualStudio.QualityTools.Common" />
+    <Reference Include="Microsoft.VisualStudio.QualityTools.ExecutionCommon" />
     <Reference Include="Microsoft.VisualStudio.QualityTools.UnitTestFramework, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
-    <Reference Include="Microsoft.VisualStudio.Shell.$(VSTarget), Version=$(VSTarget).0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
     <Reference Include="Microsoft.VisualStudio.Shell.Interop, Version=7.1.40304.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
     <Reference Include="Microsoft.VisualStudio.Shell.Interop.11.0, Version=11.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" Condition="'$(VSTarget)' != '10.0'">
       <EmbedInteropTypes>True</EmbedInteropTypes>
@@ -56,13 +54,16 @@
     </Reference>
     <Reference Include="Microsoft.VisualStudio.Shell.Interop.8.0, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
     <Reference Include="Microsoft.VisualStudio.Shell.Interop.9.0, Version=9.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
-    <Reference Include="Microsoft.VisualStudio.Text.Data, Version=$(VSTarget).0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
-    <Reference Include="Microsoft.VisualStudio.Text.Logic, Version=$(VSTarget).0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
-    <Reference Include="Microsoft.VisualStudio.Text.UI, Version=$(VSTarget).0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
-    <Reference Include="Microsoft.VisualStudio.Text.UI.Wpf, Version=$(VSTarget).0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
+    <Reference Include="Microsoft.VisualStudio.Text.Data" />
+    <Reference Include="Microsoft.VisualStudio.Text.Logic" />
+    <Reference Include="Microsoft.VisualStudio.Text.UI" />
+    <Reference Include="Microsoft.VisualStudio.Text.UI.Wpf" />
     <Reference Include="Microsoft.VisualStudio.TextManager.Interop, Version=7.1.40304.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
     <Reference Include="Microsoft.VisualStudio.TextManager.Interop.8.0, Version=8.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
     <Reference Include="Microsoft.VisualStudio.TextManager.Interop.9.0, Version=9.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
+    <Reference Include="Microsoft.VisualStudio.Threading">
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
     <Reference Include="System" />
@@ -75,6 +76,19 @@
     <Reference Include="UIAutomationTypes" />
     <Reference Include="WindowsBase" />
   </ItemGroup>
+  <Choose>
+    <When Condition="$(VSTarget) == '10.0' or '$(VSTarget)' == '11.0' or '$(VSTarget)' == '12.0' or '$(VSTarget)' == '14.0'">
+      <ItemGroup>
+        <Reference Include="Microsoft.VisualStudio.Shell.$(VSTarget)" />
+      </ItemGroup>
+    </When>
+    <Otherwise>
+      <ItemGroup>
+        <Reference Include="Microsoft.VisualStudio.Shell.15.0" />
+        <Reference Include="Microsoft.VisualStudio.Shell.Framework" />
+      </ItemGroup>
+    </Otherwise>
+  </Choose>
   <ItemGroup>
     <Compile Include="..\..\Product\SharedProject\ExceptionExtensions.cs">
       <Link>ExceptionExtensions.cs</Link>
@@ -82,15 +96,14 @@
     <Compile Include="..\..\Product\SharedProject\VSShellUtilities.cs">
       <Link>VSShellUtilities.cs</Link>
     </Compile>
+    <Compile Include="HostedPythonToolsTestRunner.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="UI\AddExistingItemDialog.cs" />
     <Compile Include="UI\AutomationDialog.cs" />
     <Compile Include="UI\AddReferenceDialog.cs" />
     <Compile Include="UI\AttachToProcessDialog.cs" />
     <Compile Include="UI\AutomationWrapper.cs" />
-    <Compile Include="UI\AzureCloudServiceActivityLog.cs" />
-    <Compile Include="UI\AzureCloudServiceCreateDialog.cs" />
-    <Compile Include="UI\AzureCloudServicePublishDialog.cs" />
+    <Compile Include="UI\RadioButton.cs" />
     <Compile Include="UI\ExceptionHelperDialog.cs" />
     <Compile Include="UI\ListBox.cs" />
     <Compile Include="UI\Button.cs" />
@@ -99,11 +112,6 @@
     <Compile Include="UI\ChooseLocationDialog.cs" />
     <Compile Include="UI\ComboBox.cs" />
     <Compile Include="UI\ListBoxItem.cs" />
-    <Compile Include="UI\AzureWebSiteImportPublishSettingsDialog.cs" />
-    <Compile Include="UI\AzureWebSiteCreateDialog.cs" />
-    <Compile Include="UI\AzureImportSubscriptionDialog.cs" />
-    <Compile Include="UI\AzureManageSubscriptionsDialog.cs" />
-    <Compile Include="UI\AzureWebSitePublishDialog.cs" />
     <Compile Include="UI\OpenProjectDialog.cs" />
     <Compile Include="UI\CredentialsDialog.cs" />
     <Compile Include="UI\DetailPane.cs" />
@@ -118,8 +126,8 @@
     <Compile Include="UI\MenuItem.cs" />
     <Compile Include="UI\Mouse.cs" />
     <Compile Include="UI\NavigateToDialog.cs" />
-    <Compile Include="UI\NewItemDialog.cs" />
     <Compile Include="UI\NewProjectDialog.cs" />
+    <Compile Include="UI\NewItemDialog.cs" />
     <Compile Include="UI\ObjectBrowser.cs" />
     <Compile Include="UI\OverwriteFileDialog.cs" />
     <Compile Include="UI\ProjectPropertiesWindow.cs" />
@@ -128,7 +136,7 @@
     <Compile Include="UI\SaveProjectDialog.cs" />
     <Compile Include="UI\SelectCodeTypeDialog.cs" />
     <Compile Include="UI\SelectFolderDialog.cs" />
-    <Compile Include="UI\SmartTagSessionWrapper.cs" />
+    <Compile Include="UI\LightBulbSessionWrapper.cs" />
     <Compile Include="UI\SolutionExplorerTree.cs" />
     <Compile Include="UI\Table.cs" />
     <Compile Include="UI\TestExtensions.cs" />
@@ -145,6 +153,11 @@
     <ProjectReference Include="$(BuildRoot)\Common\Tests\Utilities\TestUtilities.csproj">
       <Project>{D092D54E-FF29-4D32-9AEE-4EF704C92F67}</Project>
       <Name>TestUtilities</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\..\Python\Tests\TestRunnerInterop\TestRunnerInterop.csproj">
+      <Project>{3e8c485b-905a-4dbc-b059-161ccb1ad591}</Project>
+      <Name>TestRunnerInterop</Name>
+      <EmbedInteropTypes>True</EmbedInteropTypes>
     </ProjectReference>
     <ProjectReference Include="..\MockVsTests\MockVsTests.csproj">
       <Project>{a390e1c0-0d90-4a9e-8413-3e959bb07292}</Project>

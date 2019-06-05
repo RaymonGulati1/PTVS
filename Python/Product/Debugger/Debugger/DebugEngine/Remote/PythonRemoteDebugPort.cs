@@ -9,26 +9,34 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using Microsoft.PythonTools.Interpreter;
+using Microsoft.PythonTools.Ipc.Json;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Debugger.Interop;
 
 namespace Microsoft.PythonTools.Debugger.Remote {
+    [SuppressMessage("Microsoft.Design", "CA1001:TypesThatOwnDisposableFieldsShouldBeDisposable",
+        Justification = "DebugTextWriter does not need to be disposed")]
     internal class PythonRemoteDebugPort : IDebugPort2 {
         private readonly PythonRemoteDebugPortSupplier _supplier;
         private readonly IDebugPortRequest2 _request;
         private readonly Guid _guid = Guid.NewGuid();
         private readonly Uri _uri;
+        private readonly TextWriter _debugLog;
 
-        public PythonRemoteDebugPort(PythonRemoteDebugPortSupplier supplier, IDebugPortRequest2 request, Uri uri) {
+        public PythonRemoteDebugPort(PythonRemoteDebugPortSupplier supplier, IDebugPortRequest2 request, Uri uri, TextWriter debugLog) {
             _supplier = supplier;
             _request = request;
             _uri = uri;
+            _debugLog = debugLog ?? new DebugTextWriter();
         }
 
         public Uri Uri {
@@ -36,13 +44,19 @@ namespace Microsoft.PythonTools.Debugger.Remote {
         }
 
         public int EnumProcesses(out IEnumDebugProcesses2 ppEnum) {
-            var process = TaskHelpers.RunSynchronouslyOnUIThread(ct => PythonRemoteDebugProcess.ConnectAsync(this, ct));
-            if (process == null) {
-                ppEnum = null;
-                return VSConstants.E_FAIL;
-            } else {
+            if (!PythonDebugOptionsServiceHelper.Options.UseLegacyDebugger) {
+                var process = new PythonRemoteDebugProcess(this, 54321, "Python", "*", "*");
                 ppEnum = new PythonRemoteEnumDebugProcesses(process);
                 return VSConstants.S_OK;
+            } else {
+                var process = TaskHelpers.RunSynchronouslyOnUIThread(ct => PythonRemoteDebugProcess.ConnectAsync(this, _debugLog, ct));
+                if (process == null) {
+                    ppEnum = null;
+                    return VSConstants.E_FAIL;
+                } else {
+                    ppEnum = new PythonRemoteEnumDebugProcesses(process);
+                    return VSConstants.S_OK;
+                }
             }
         }
 

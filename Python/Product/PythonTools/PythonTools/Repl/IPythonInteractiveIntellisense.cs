@@ -9,12 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
+using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Microsoft.PythonTools.Intellisense;
 
 namespace Microsoft.PythonTools.Repl {
@@ -24,6 +26,9 @@ namespace Microsoft.PythonTools.Repl {
         CompletionResult[] GetMemberNames(string text);
         OverloadDoc[] GetSignatureDocumentation(string text);
         VsProjectAnalyzer Analyzer { get; }
-        string AnalysisFilename { get; }
+        Task<VsProjectAnalyzer> GetAnalyzerAsync();
+        Uri DocumentUri { get; }
+
+        Uri NextDocumentUri();
     }
 }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -29,9 +29,10 @@ using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudio.Debugger;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Newtonsoft.Json.Linq;
 
 namespace Microsoft.PythonTools.Debugger {
-    public static class DebugLaunchHelper {
+    static class DebugLaunchHelper {
         private static readonly Regex SubstitutionPattern = new Regex(@"\%([\w_]+)\%");
 
         private static IEnumerable<string> GetGlobalDebuggerOptions(
@@ -55,6 +56,9 @@ namespace Microsoft.PythonTools.Debugger {
             }
             if (options.DebugStdLib) {
                 yield return AD7Engine.DebugStdLib + "=True";
+            }
+            if (options.ShowFunctionReturnValue) {
+                yield return AD7Engine.ShowReturnValue + "=True";
             }
         }
 
@@ -83,11 +87,68 @@ namespace Microsoft.PythonTools.Debugger {
 
             return SubstitutionPattern.Replace(
                 str,
-                m => {
-                    string value;
-                    return environment.TryGetValue(m.Groups[1].Value, out value) ? value : "";
-                }
+                m => environment.TryGetValue(m.Groups[1].Value, out string value) ? value : ""
             );
+        }
+
+        private static string GetArgs(LaunchConfiguration config) {
+            var args = string.Join(" ", new[] {
+                    config.InterpreterArguments,
+                    config.ScriptName == null ? "" : ProcessOutput.QuoteSingleArgument(config.ScriptName),
+                    config.ScriptArguments
+                }.Where(s => !string.IsNullOrEmpty(s)));
+
+            if (config.Environment != null) {
+                args = DoSubstitutions(config.Environment, args);
+            }
+            return args;
+        }
+
+        private static string GetOptions(IServiceProvider provider, LaunchConfiguration config) {
+            var pyService = provider.GetPythonToolsService();
+            return string.Join(";", GetGlobalDebuggerOptions(pyService)
+                .Concat(GetLaunchConfigurationOptions(config))
+                .Where(s => !string.IsNullOrEmpty(s))
+                .Select(s => s.Replace(";", ";;"))
+            );
+        }
+
+        private static string GetLaunchJsonForVsCodeDebugAdapter(IServiceProvider provider, LaunchConfiguration config) {
+            JArray envArray = new JArray();
+            foreach (var kv in provider.GetPythonToolsService().GetFullEnvironment(config)) {
+                JObject pair = new JObject {
+                    ["name"] = kv.Key,
+                    ["value"] = kv.Value
+                };
+                envArray.Add(pair);
+            }
+
+            JObject jsonObj = new JObject {
+                ["exe"] = config.GetInterpreterPath(),
+                ["cwd"] = string.IsNullOrEmpty(config.WorkingDirectory) ? PathUtils.GetParent(config.ScriptName) : config.WorkingDirectory,
+                ["remoteMachine"] = "",
+                ["args"] = GetArgs(config),
+                ["options"] = GetOptions(provider, config),
+                ["env"] = envArray
+            };
+            
+            // Note: these are optional, but special. These override the pkgdef version of the adapter settings
+            // for other settings see the documentation for VSCodeDebugAdapterHost Launch Configuration
+            // jsonObj["$adapter"] = "{path - to - adapter executable}";
+            // jsonObj["$adapterArgs"] = "";
+            // jsonObj["$adapterRuntime"] = "";
+            
+            return jsonObj.ToString();
+        }
+
+        public static void RequireStartupFile(LaunchConfiguration config) {
+            if (string.IsNullOrEmpty(config.ScriptName)) {
+                throw new NoStartupFileException(Strings.DebugLaunchScriptNameMissing);
+            }
+
+            if (!File.Exists(config.ScriptName)) {
+                throw new NoStartupFileException(Strings.DebugLaunchScriptNameDoesntExist.FormatUI(config.ScriptName));
+            }
         }
 
         public static unsafe DebugTargetInfo CreateDebugTargetInfo(IServiceProvider provider, LaunchConfiguration config) {
@@ -96,28 +157,19 @@ namespace Microsoft.PythonTools.Debugger {
                 throw new NotSupportedException(Strings.DebuggerPythonVersionNotSupported);
             }
 
-            var pyService = provider.GetPythonToolsService();
             var dti = new DebugTargetInfo(provider);
 
             try {
                 dti.Info.dlo = DEBUG_LAUNCH_OPERATION.DLO_CreateProcess;
                 dti.Info.bstrExe = config.GetInterpreterPath();
-                dti.Info.bstrCurDir = config.WorkingDirectory;
-                if (string.IsNullOrEmpty(dti.Info.bstrCurDir)) {
-                    dti.Info.bstrCurDir = PathUtils.GetParent(config.ScriptName);
-                }
+                dti.Info.bstrCurDir = string.IsNullOrEmpty(config.WorkingDirectory) ? PathUtils.GetParent(config.ScriptName) : config.WorkingDirectory;
 
                 dti.Info.bstrRemoteMachine = null;
                 dti.Info.fSendStdoutToOutputWindow = 0;
 
                 bool nativeDebug = config.GetLaunchOption(PythonConstants.EnableNativeCodeDebugging).IsTrue();
                 if (!nativeDebug) {
-                    dti.Info.bstrOptions = string.Join(";",
-                        GetGlobalDebuggerOptions(pyService)
-                            .Concat(GetLaunchConfigurationOptions(config))
-                            .Where(s => !string.IsNullOrEmpty(s))
-                            .Select(s => s.Replace(";", ";;"))
-                    );
+                    dti.Info.bstrOptions = GetOptions(provider, config);
                 }
 
                 // Environment variables should be passed as a 
@@ -132,16 +184,7 @@ namespace Microsoft.PythonTools.Debugger {
                     dti.Info.bstrEnv = buf.ToString();
                 }
 
-                var args = string.Join(" ", new[] {
-                    config.InterpreterArguments,
-                    config.ScriptName == null ? "" : ProcessOutput.QuoteSingleArgument(config.ScriptName),
-                    config.ScriptArguments
-                }.Where(s => !string.IsNullOrEmpty(s)));
-
-                if (config.Environment != null) {
-                    args = DoSubstitutions(config.Environment, args);
-                }
-                dti.Info.bstrArg = args;
+                dti.Info.bstrArg = GetArgs(config);
 
                 if (nativeDebug) {
                     dti.Info.dwClsidCount = 2;
@@ -150,11 +193,16 @@ namespace Microsoft.PythonTools.Debugger {
                     engineGuids[0] = dti.Info.clsidCustom = DkmEngineId.NativeEng;
                     engineGuids[1] = AD7Engine.DebugEngineGuid;
                 } else {
+                    var pyService = provider.GetPythonToolsService();
                     // Set the Python debugger
-                    dti.Info.clsidCustom = new Guid(AD7Engine.DebugEngineId);
+                    dti.Info.clsidCustom = pyService.DebuggerOptions.UseLegacyDebugger ? AD7Engine.DebugEngineGuid : DebugAdapterLauncher.VSCodeDebugEngine;
                     dti.Info.grfLaunch = (uint)__VSDBGLAUNCHFLAGS.DBGLAUNCH_StopDebuggingOnEnd;
-                }
 
+                    if (!pyService.DebuggerOptions.UseLegacyDebugger) {
+                        dti.Info.bstrOptions = GetLaunchJsonForVsCodeDebugAdapter(provider, config);
+                    }
+                }
+                
                 // Null out dti so that it is not disposed before we return.
                 var result = dti;
                 dti = null;
@@ -191,7 +239,7 @@ namespace Microsoft.PythonTools.Debugger {
                 throw new DirectoryNotFoundException(Strings.DebugLaunchWorkingDirectoryMissing);
             }
             if (!Directory.Exists(psi.WorkingDirectory)) {
-                throw new DirectoryNotFoundException(Strings.DebugLaunchWorkingDirectoryMissing_Path.FormatUI(psi.FileName));
+                throw new DirectoryNotFoundException(Strings.DebugLaunchWorkingDirectoryMissing_Path.FormatUI(psi.WorkingDirectory));
             }
 
             foreach (var kv in provider.GetPythonToolsService().GetFullEnvironment(config)) {
@@ -224,7 +272,7 @@ namespace Microsoft.PythonTools.Debugger {
         }
     }
 
-    public sealed class DebugTargetInfo : IDisposable {
+    sealed class DebugTargetInfo : IDisposable {
         private readonly IServiceProvider _provider;
         public VsDebugTargetInfo Info;
 
@@ -235,7 +283,7 @@ namespace Microsoft.PythonTools.Debugger {
         }
 
         private static string UnquotePath(string p) {
-            if (string.IsNullOrEmpty(p) || !p.StartsWith("\"") || !p.EndsWith("\"")) {
+            if (string.IsNullOrEmpty(p) || !p.StartsWithOrdinal("\"") || !p.EndsWithOrdinal("\"")) {
                 return p;
             }
             return p.Substring(1, p.Length - 2);

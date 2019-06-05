@@ -9,11 +9,12 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
+using System.IO;
 using Microsoft.PythonTools.Parsing;
 
 namespace Microsoft.PythonTools.Debugger {
@@ -22,8 +23,8 @@ namespace Microsoft.PythonTools.Debugger {
         /// Creates a new PythonProcess object for debugging.  The process does not start until Start is called 
         /// on the returned PythonProcess object.
         /// </summary>
-        public PythonProcess CreateProcess(PythonLanguageVersion langVersion, string exe, string args, string dir, string env, string interpreterOptions = null, PythonDebugOptions debugOptions = PythonDebugOptions.None) {
-            return new PythonProcess(langVersion, exe, args, dir, env, interpreterOptions, debugOptions);
+        public PythonProcess CreateProcess(PythonLanguageVersion langVersion, string exe, string args, string dir, string env, string interpreterOptions = null, PythonDebugOptions debugOptions = PythonDebugOptions.None, TextWriter debugLog = null) {
+            return new PythonProcess(langVersion, exe, args, dir, env, interpreterOptions, debugOptions, debugLog);
         }
     }
 }

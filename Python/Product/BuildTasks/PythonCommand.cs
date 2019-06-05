@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -65,7 +65,7 @@ namespace Microsoft.PythonTools.BuildTasks {
                 return _targetType;
             }
             set {
-                if (!_targetTypes.Contains(value, StringComparer.InvariantCultureIgnoreCase)) {
+                if (!_targetTypes.Contains(value, StringComparer.OrdinalIgnoreCase)) {
                     throw new ArgumentException("TargetType must be one of: " + string.Join(", ", _targetTypes.Select(s => '"' + s + '"')));
                 }
                 _targetType = value;
@@ -76,7 +76,7 @@ namespace Microsoft.PythonTools.BuildTasks {
 
         protected virtual bool IsValidExecuteInValue(string value, out string message) {
             message = "ExecuteIn must be one of: " + string.Join(", ", _executeIns.Select(s => '"' + s + '"'));;
-            return _executeIns.Any(s => s.Equals(value, StringComparison.InvariantCultureIgnoreCase));
+            return _executeIns.Any(s => s.Equals(value, StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>
@@ -155,6 +155,15 @@ namespace Microsoft.PythonTools.BuildTasks {
         public string WarningRegex { get; set; }
 
         /// <summary>
+        /// A regular expression used to detect message messages in the output. If not set, message detection is disabled.
+        /// </summary>
+        /// <remarks>
+        /// Only valid when <see cref="ExecuteIn"/> is set to <c>"output"</c>.
+        /// See documentation for <see cref="ErrorRegex"/> for a detailed description of the regular expression format.
+        /// </remarks>
+        public string MessageRegex { get; set; }
+
+        /// <summary>
         /// A list of package requirements for this command, in setuptools format. If any package from this list is not installed,
         /// pip will be used to install it before running the command.
         /// </summary>
@@ -169,6 +178,7 @@ namespace Microsoft.PythonTools.BuildTasks {
         public const string ExecuteInKey = "ExecuteIn";
         public const string ErrorRegexKey = "ErrorRegex";
         public const string WarningRegexKey = "WarningRegex";
+        public const string MessageRegexKey = "MessageRegex";
         public const string RequiredPackagesKey = "RequiredPackages";
 
         public const string ExecuteInRepl = "repl";
@@ -181,8 +191,8 @@ namespace Microsoft.PythonTools.BuildTasks {
 
         protected override bool IsValidExecuteInValue(string value, out string message) {
             message = "ExecuteIn must be one of: " + string.Join(", ", _executeIns.Select(s => '"' + s + '"')); ;
-            return _executeIns.Any(s => s.Equals(value, StringComparison.InvariantCultureIgnoreCase)) ||
-                value.StartsWith(ExecuteInRepl, StringComparison.InvariantCultureIgnoreCase);
+            return _executeIns.Any(s => s.Equals(value, StringComparison.OrdinalIgnoreCase)) ||
+                value.StartsWithOrdinal(ExecuteInRepl, ignoreCase: true);
         }
 
         /// <summary>
@@ -192,8 +202,8 @@ namespace Microsoft.PythonTools.BuildTasks {
         public ITaskItem[] Command { get; private set; }
 
         public override bool Execute() {
-            if (!ExecuteInOutput.Equals(ExecuteIn, StringComparison.InvariantCultureIgnoreCase) &&
-                !(string.IsNullOrEmpty(ErrorRegex) && string.IsNullOrEmpty(WarningRegex))) {
+            if (!ExecuteInOutput.Equals(ExecuteIn, StringComparison.OrdinalIgnoreCase) &&
+                !(string.IsNullOrEmpty(ErrorRegex) && string.IsNullOrEmpty(WarningRegex) && string.IsNullOrEmpty(MessageRegex))) {
                 Log.LogError("ErrorRegex and WarningRegex are only valid for ExecuteIn='output'");
                 return false;
             }
@@ -206,6 +216,7 @@ namespace Microsoft.PythonTools.BuildTasks {
                 { ExecuteInKey, ExecuteIn ?? "" },
                 { ErrorRegexKey, ErrorRegex ?? "" },
                 { WarningRegexKey, WarningRegex ?? "" },
+                { MessageRegexKey, MessageRegex ?? "" },
                 { RequiredPackagesKey, RequiredPackages != null ? string.Join(";", RequiredPackages) : "" }
             });
 
@@ -262,7 +273,7 @@ namespace Microsoft.PythonTools.BuildTasks {
             var psi = new ProcessStartInfo();
             psi.UseShellExecute = false;
 
-            if (TargetTypeExecutable.Equals(TargetType, StringComparison.InvariantCultureIgnoreCase)) {
+            if (TargetTypeExecutable.Equals(TargetType, StringComparison.OrdinalIgnoreCase)) {
                 psi.FileName = Target;
                 psi.Arguments = Arguments;
             } else {
@@ -273,11 +284,11 @@ namespace Microsoft.PythonTools.BuildTasks {
                 }
                 psi.FileName = resolver.InterpreterPath;
 
-                if (TargetTypeModule.Equals(TargetType, StringComparison.InvariantCultureIgnoreCase)) {
+                if (TargetTypeModule.Equals(TargetType, StringComparison.OrdinalIgnoreCase)) {
                     psi.Arguments = string.Format("-m {0} {1}", Target, Arguments);
-                } else if (TargetTypeScript.Equals(TargetType, StringComparison.InvariantCultureIgnoreCase)) {
+                } else if (TargetTypeScript.Equals(TargetType, StringComparison.OrdinalIgnoreCase)) {
                     psi.Arguments = string.Format("\"{0}\" {1}", Target, Arguments);
-                } else if (TargetTypeCode.Equals(TargetType, StringComparison.InvariantCultureIgnoreCase)) {
+                } else if (TargetTypeCode.Equals(TargetType, StringComparison.OrdinalIgnoreCase)) {
                     psi.Arguments = string.Format("-c \"{0}\"", Target);
                 }
 
@@ -297,10 +308,10 @@ namespace Microsoft.PythonTools.BuildTasks {
                 }
             }
 
-            if (ExecuteInNone.Equals(ExecuteIn, StringComparison.InvariantCultureIgnoreCase)) {
+            if (ExecuteInNone.Equals(ExecuteIn, StringComparison.OrdinalIgnoreCase)) {
                 psi.CreateNoWindow = true;
                 psi.WindowStyle = ProcessWindowStyle.Hidden;
-            } else if (ExecuteInConsolePause.Equals(ExecuteIn, StringComparison.InvariantCultureIgnoreCase)) {
+            } else if (ExecuteInConsolePause.Equals(ExecuteIn, StringComparison.OrdinalIgnoreCase)) {
                 psi.Arguments = string.Format(
                     "/C \"\"{0}\" {1}\" & pause",
                     psi.FileName,

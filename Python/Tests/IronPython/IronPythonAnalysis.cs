@@ -9,15 +9,15 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System.Runtime.Remoting;
-using Microsoft.PythonTools.Parsing;
 using Microsoft.IronPythonTools.Interpreter;
 using Microsoft.PythonTools.Interpreter;
+using Microsoft.PythonTools.Parsing;
 using TestUtilities.Python;
 
 namespace IronPythonTests {
@@ -28,9 +28,8 @@ namespace IronPythonTests {
 
         public IronPythonAnalysis(
             IPythonInterpreterFactory factory,
-            IPythonInterpreter interpreter = null,
-            string builtinName = null
-        ) : base(factory, interpreter, builtinName) {
+            IPythonInterpreter interpreter = null
+        ) : base(factory, interpreter) {
             ((IronPythonInterpreter)Analyzer.Interpreter).Remote.AddAssembly(new ObjectHandle(typeof(IronPythonAnalysisTest).Assembly));
         }
 

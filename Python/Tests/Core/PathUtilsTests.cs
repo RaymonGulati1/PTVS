@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,11 +21,17 @@ using System.Linq;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using TestUtilities;
+using TestUtilities.Python;
 
 namespace PythonToolsTests {
     [TestClass]
     public class PathUtilsTests {
-        [TestMethod, Priority(1)]
+        [ClassInitialize]
+        public static void DoDeployment(TestContext context) {
+            AssertListener.Initialize();
+        }
+
+        [TestMethod, Priority(0)]
         public void TestMakeUri() {
             Assert.AreEqual(@"C:\a\b\c\", PathUtils.MakeUri(@"C:\a\b\c", true, UriKind.Absolute).LocalPath);
             Assert.AreEqual(@"C:\a\b\c", PathUtils.MakeUri(@"C:\a\b\c", false, UriKind.Absolute).LocalPath);
@@ -97,7 +103,7 @@ namespace PythonToolsTests {
             Assert.IsTrue(PathUtils.IsSamePath(first, second), string.Format("First: {0} Second: {1}", first, second));
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestIsSamePath() {
             // These paths should all look like files. Separators are added to the end
             // to test the directory cases. Paths ending in "." or ".." are always directories,
@@ -170,7 +176,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestCreateFriendlyDirectoryPath() {
             foreach (var testCase in Triples(
                 @"C:\a\b", @"C:\", @"..\..",
@@ -199,7 +205,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestCreateFriendlyFilePath() {
             foreach (var testCase in Triples(
                 @"C:\a\b", @"C:\file.exe", @"..\..\file.exe",
@@ -227,7 +233,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestGetRelativeDirectoryPath() {
             foreach (var testCase in Triples(
                 @"C:\a\b", @"C:\", @"..\..\",
@@ -267,7 +273,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestGetRelativeFilePath() {
             foreach (var testCase in Triples(
                 @"C:\a\b", @"C:\file.exe", @"..\..\file.exe",
@@ -315,7 +321,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestGetAbsoluteDirectoryPath() {
             foreach (var testCase in Triples(
                 @"C:\a\b", @"\", @"C:\",
@@ -342,7 +348,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestGetAbsoluteFilePath() {
             foreach (var testCase in Triples(
                 @"C:\a\b", @"\file.exe", @"C:\file.exe",
@@ -370,7 +376,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestNormalizeDirectoryPath() {
             foreach (var testCase in Pairs(
                 @"a\b\c", @"a\b\c\",
@@ -408,7 +414,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestNormalizePath() {
             foreach (var testCase in Pairs(
                 @"a\b\c", @"a\b\c",
@@ -455,7 +461,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestTrimEndSeparator() {
             // TrimEndSeparator uses System.IO.Path.(Alt)DirectorySeparatorChar
             // Here we assume these are '\\' and '/'
@@ -484,7 +490,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestIsSubpathOf() {
             // Positive tests
             foreach (var testCase in Pairs(
@@ -512,7 +518,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestGetLastDirectoryName() {
             foreach (var testCase in Pairs(
                 @"a\b\c", "b",
@@ -548,7 +554,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestGetParentOfDirectory() {
             foreach (var testCase in Pairs(
                 @"a\b\c", @"a\b\",
@@ -583,7 +589,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void TestGetFileOrDirectoryName() {
             foreach (var testCase in Pairs(
                 @"a\b\c", @"c",
@@ -676,6 +682,31 @@ namespace PythonToolsTests {
             AssertUtil.ContainsExactly(files.Where(f => !File.Exists(Path.Combine(windows, f))));
             // Expect only one extension
             AssertUtil.ContainsExactly(files.Select(f => Path.GetExtension(f).ToLowerInvariant()).ToSet(), ".exe");
+        }
+
+        [TestMethod, Priority(0)]
+        public void TestFindFile() {
+            var root = TestData.GetPath("TestData");
+            // File is too deep - should not find
+            Assert.IsNull(PathUtils.FindFile(root, "9E90EF25FCE648B397D0CCEC67305A68.txt", depthLimit: 0));
+
+            // Find file with BFS
+            Assert.IsNotNull(PathUtils.FindFile(root, "9E90EF25FCE648B397D0CCEC67305A68.txt", depthLimit: 1));
+
+            // Find file with correct firstCheck
+            Assert.IsNotNull(PathUtils.FindFile(root, "9E90EF25FCE648B397D0CCEC67305A68.txt", depthLimit: 1, firstCheck: new[] { "FindFile" }));
+
+            // Find file with incorrect firstCheck
+            Assert.IsNotNull(PathUtils.FindFile(root, "9E90EF25FCE648B397D0CCEC67305A68.txt", depthLimit: 1, firstCheck: new[] { "FindFileX" }));
+
+            // File is too deep
+            Assert.IsNull(PathUtils.FindFile(root, "D75BD8CE1BBA41A7A2547CF3652AD3AF.txt", depthLimit: 0));
+            Assert.IsNull(PathUtils.FindFile(root, "D75BD8CE1BBA41A7A2547CF3652AD3AF.txt", depthLimit: 1));
+            Assert.IsNull(PathUtils.FindFile(root, "D75BD8CE1BBA41A7A2547CF3652AD3AF.txt", depthLimit: 2));
+            Assert.IsNull(PathUtils.FindFile(root, "D75BD8CE1BBA41A7A2547CF3652AD3AF.txt", depthLimit: 3));
+
+            // File is found
+            Assert.IsNotNull(PathUtils.FindFile(root, "D75BD8CE1BBA41A7A2547CF3652AD3AF.txt", depthLimit: 4));
         }
 
         private IEnumerable<Tuple<string, string>> Pairs(params string[] items) {

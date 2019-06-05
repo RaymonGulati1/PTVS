@@ -9,12 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -34,8 +35,8 @@ namespace Microsoft.PythonTools.Debugger {
     /// </summary>
     class PythonProcess : IDisposable {
         private readonly Process _process;
-        private readonly Dictionary<long, PythonThread> _threads = new Dictionary<long, PythonThread>();
-        private readonly Dictionary<int, PythonBreakpoint> _breakpoints = new Dictionary<int, PythonBreakpoint>();
+        private readonly ConcurrentDictionary<long, PythonThread> _threads = new ConcurrentDictionary<long, PythonThread>();
+        private readonly ConcurrentDictionary<int, PythonBreakpoint> _breakpoints = new ConcurrentDictionary<int, PythonBreakpoint>();
         private readonly IdDispenser _ids = new IdDispenser();
         private readonly Dictionary<int, CompletionInfo> _pendingExecutes = new Dictionary<int, CompletionInfo>();
         private readonly Dictionary<int, ChildrenInfo> _pendingChildEnums = new Dictionary<int, ChildrenInfo>();
@@ -52,6 +53,7 @@ namespace Microsoft.PythonTools.Debugger {
         private int _pid;
         private bool _sentExited, _startedProcess;
         private DebugConnection _connection;
+        private TextWriter _debugLog;
         private int _breakpointCounter;
         private bool _createdFirstThread;
         private bool _stoppedForException;
@@ -61,7 +63,7 @@ namespace Microsoft.PythonTools.Debugger {
         private bool _handleEntryPointBreakpoint = true;
         private bool _isDisposed;
 
-        protected PythonProcess(int pid, PythonLanguageVersion languageVersion) {
+        protected PythonProcess(int pid, PythonLanguageVersion languageVersion, TextWriter debugLog) {
             if (languageVersion < PythonLanguageVersion.V26 && !languageVersion.IsNone()) {
                 throw new NotSupportedException(Strings.DebuggerPythonVersionNotSupported);
             }
@@ -69,9 +71,11 @@ namespace Microsoft.PythonTools.Debugger {
             _pid = pid;
             _langVersion = languageVersion;
             _dirMapping = new List<string[]>();
+            _debugLog = debugLog ?? new DebugTextWriter();
         }
 
-        private PythonProcess(int pid, PythonDebugOptions debugOptions) {
+        private PythonProcess(int pid, PythonDebugOptions debugOptions, TextWriter debugLog) {
+            _debugLog = debugLog ?? new DebugTextWriter();
             _pid = pid;
             _process = Process.GetProcessById(pid);
             _process.EnableRaisingEvents = true;
@@ -91,12 +95,12 @@ namespace Microsoft.PythonTools.Debugger {
             }
         }
 
-        public PythonProcess(PythonLanguageVersion languageVersion, string exe, string args, string dir, string env, string interpreterOptions, PythonDebugOptions options = PythonDebugOptions.None, List<string[]> dirMapping = null)
-            : this(0, languageVersion) {
+        public PythonProcess(PythonLanguageVersion languageVersion, string exe, string args, string dir, string env, string interpreterOptions, PythonDebugOptions options = PythonDebugOptions.None, TextWriter debugLog = null, List<string[]> dirMapping = null)
+            : this(0, languageVersion, debugLog) {
 
             ListenForConnection();
 
-            if (dir.EndsWith("\\")) {
+            if (dir.EndsWithOrdinal("\\")) {
                 dir = dir.Substring(0, dir.Length - 1);
             }
             _dirMapping = dirMapping;
@@ -106,10 +110,11 @@ namespace Microsoft.PythonTools.Debugger {
             processInfo.UseShellExecute = false;
             processInfo.RedirectStandardOutput = false;
             processInfo.RedirectStandardInput = (options & PythonDebugOptions.RedirectInput) != 0;
+            processInfo.WorkingDirectory = dir;
 
             processInfo.Arguments = 
                 (String.IsNullOrWhiteSpace(interpreterOptions) ? "" : (interpreterOptions + " ")) +
-                "\"" + PythonToolsInstallPath.GetFile("visualstudio_py_launcher.py") + "\" " +
+                "\"" + PythonToolsInstallPath.GetFile("ptvsd_launcher.py") + "\" " +
                 "\"" + dir + "\" " +
                 " " + DebugConnectionListener.ListenerPort + " " +
                 " " + _processGuid + " " +
@@ -126,15 +131,15 @@ namespace Microsoft.PythonTools.Debugger {
                 }
             }
 
-            Debug.WriteLine(String.Format("Launching: {0} {1}", processInfo.FileName, processInfo.Arguments));
+            _debugLog.WriteLine(String.Format("Launching: {0} {1}", processInfo.FileName, processInfo.Arguments));
             _process = new Process();
             _process.StartInfo = processInfo;
             _process.EnableRaisingEvents = true;
             _process.Exited += new EventHandler(_process_Exited);
         }
 
-        public static PythonProcess Attach(int pid, PythonDebugOptions debugOptions = PythonDebugOptions.None) {
-            return new PythonProcess(pid, debugOptions);
+        public static PythonProcess Attach(int pid, PythonDebugOptions debugOptions = PythonDebugOptions.None, TextWriter debugLog = null) {
+            return new PythonProcess(pid, debugOptions, debugLog);
         }
 
         #region Public Process API
@@ -182,7 +187,13 @@ namespace Microsoft.PythonTools.Debugger {
             DebugConnectionListener.UnregisterProcess(_processGuid);
 
             if (disposing) {
+                DebugConnection connection;
+                Process process;
+
                 lock (_connectionLock) {
+                    connection = _connection;
+                    process = _process;
+
                     if (_connection != null) {
                         _connection.ProcessingMessagesEnded -= OnProcessingMessagesEnded;
                         _connection.LegacyAsyncBreak -= OnLegacyAsyncBreak;
@@ -203,13 +214,17 @@ namespace Microsoft.PythonTools.Debugger {
                         _connection.LegacyThreadCreate -= OnLegacyThreadCreate;
                         _connection.LegacyThreadExit -= OnLegacyThreadExit;
                         _connection.LegacyThreadFrameList -= OnLegacyThreadFrameList;
-                        _connection.Dispose();
+                        _connection.LegacyModulesChanged -= OnLegacyModulesChanged;
                         _connection = null;
                     }
-                    // Avoiding ?. syntax because FxCop doesn't understand it
-                    if (_process != null) {
-                        _process.Dispose();
-                    }
+                }
+
+                if (connection != null) {
+                    connection.Dispose();
+                }
+
+                if (process != null) {
+                    process.Dispose();
                 }
 
                 _connectedEvent.Dispose();
@@ -366,7 +381,7 @@ namespace Microsoft.PythonTools.Debugger {
         #region Debuggee Communication
 
         internal void Connect(DebugConnection connection) {
-            Debug.WriteLine("Process Connected: " + _processGuid);
+            _debugLog.WriteLine("Process Connected: " + _processGuid);
 
             EventHandler connected;
             lock (_connectionLock) {
@@ -391,6 +406,7 @@ namespace Microsoft.PythonTools.Debugger {
                 _connection.LegacyThreadCreate += OnLegacyThreadCreate;
                 _connection.LegacyThreadExit += OnLegacyThreadExit;
                 _connection.LegacyThreadFrameList += OnLegacyThreadFrameList;
+                _connection.LegacyModulesChanged += OnLegacyModulesChanged;
 
                 // This must be done under the lock so that any handlers that are added after we assigned _connection
                 // above won't get called twice, once from Connected add handler, and the second time below. 
@@ -437,7 +453,7 @@ namespace Microsoft.PythonTools.Debugger {
                     member = (MemberExpression)member.Target;
                 }
                 if (member.Target is NameExpression) {
-                    return expr.ToCodeString(ast);
+                    return expr.ToCodeString(ast).Trim();
                 }
             } else if ((paren = expr as ParenthesisExpression) != null) {
                 return ToDottedNameString(paren.Expression, ast);
@@ -446,11 +462,7 @@ namespace Microsoft.PythonTools.Debugger {
         }
 
         internal IList<PythonThread> GetThreads() {
-            List<PythonThread> threads = new List<PythonThread>();
-            foreach (var thread in _threads.Values) {
-                threads.Add(thread);
-            }
-            return threads;
+            return _threads.Values.ToList();
         }
 
         internal PythonAst GetAst(string filename) {
@@ -479,6 +491,18 @@ namespace Microsoft.PythonTools.Debugger {
             return ast;
         }
 
+        internal SourceSpan GetStatementSpan(string filename, int line, int column = 0) {
+            var ast = GetAst(filename);
+            int len = 0;
+            if (ast != null) {
+                int start = ast.LocationToIndex(new SourceLocation(line, 1));
+                int end = ast.LocationToIndex(new SourceLocation(line, int.MaxValue));
+                len = end - start;
+            }
+
+            return new SourceSpan(new SourceLocation(line, 1), new SourceLocation(line, Math.Max(0, len) + 1));
+        }
+
         internal IList<Tuple<int, int, IList<string>>> GetHandledExceptionRanges(string filename) {
             PythonAst ast;
             TryHandlerWalker walker = new TryHandlerWalker();
@@ -491,9 +515,9 @@ namespace Microsoft.PythonTools.Debugger {
                 }
                 ast.Walk(walker);
             } catch (Exception ex) {
-                Debug.WriteLine("Exception in GetHandledExceptionRanges:");
-                Debug.WriteLine(string.Format("Filename: {0}", filename));
-                Debug.WriteLine(ex);
+                _debugLog.WriteLine("Exception in GetHandledExceptionRanges:");
+                _debugLog.WriteLine(string.Format("Filename: {0}", filename));
+                _debugLog.WriteLine(ex);
                 return statements;
             }
 
@@ -559,7 +583,7 @@ namespace Microsoft.PythonTools.Debugger {
         }
 
         private void OnLegacyRequestHandlers(object sender, LDP.RequestHandlersEvent e) {
-            Debug.WriteLine("Exception handlers requested for: " + e.fileName);
+            _debugLog.WriteLine("Exception handlers requested for: " + e.fileName);
             var statements = GetHandledExceptionRanges(e.fileName);
 
             SendDebugRequestAsync(new LDP.SetExceptionHandlerInfoRequest() {
@@ -574,14 +598,36 @@ namespace Microsoft.PythonTools.Debugger {
 
         private void OnLegacyDebuggerOutput(object sender, LDP.DebuggerOutputEvent e) {
             PythonThread thread;
-            if (_threads.TryGetValue(e.threadId, out thread)) {
-                DebuggerOutput?.Invoke(this, new OutputEventArgs(thread, e.output));
+            if (!_threads.TryGetValue(e.threadId, out thread)) {
+                // Not finding the thread is okay in the case where output
+                // comes in as result of code executing in debug REPL at
+                // module scope rather than at thread/frame scope.
+                // This is because code executed at module scope is done
+                // on the debugger event handling thread.
+                thread = null;
             }
+
+            OutputChannel channel;
+            switch (e.channel) {
+                case LDP.OutputChannel.debug:
+                    channel = OutputChannel.Debug;
+                    break;
+                case LDP.OutputChannel.stdout:
+                    channel = OutputChannel.StdOut;
+                    break;
+                case LDP.OutputChannel.stderr:
+                    channel = OutputChannel.StdErr;
+                    break;
+                default:
+                    throw new ArgumentException("Invalid channel", "e");
+            }
+
+            DebuggerOutput?.Invoke(this, new OutputEventArgs(thread, e.output, channel));
         }
 
         private void OnLegacyAsyncBreak(object sender, LDP.AsyncBreakEvent e) {
             var thread = _threads[e.threadId];
-            Debug.WriteLine("Received async break command from thread {0}", e.threadId);
+            _debugLog.WriteLine("Received async break command from thread {0}", e.threadId);
             AsyncBreakComplete?.Invoke(this, new ThreadEventArgs(thread));
         }
 
@@ -610,7 +656,7 @@ namespace Microsoft.PythonTools.Debugger {
                 }
             }
 
-            Debug.WriteLine("Received execution request {0}", e.executionId);
+            _debugLog.WriteLine("Received execution request {0}", e.executionId);
             if (completion != null) {
                 var evalResult = ReadPythonObject(e.obj, completion.Text, null, completion.Frame);
                 completion.Completion(evalResult);
@@ -638,7 +684,7 @@ namespace Microsoft.PythonTools.Debugger {
         }
 
         private void OnLegacyProcessLoad(object sender, LDP.ProcessLoadEvent e) {
-            Debug.WriteLine("Process loaded " + _processGuid);
+            _debugLog.WriteLine("Process loaded " + _processGuid);
 
             // process is loaded, no user code has run
             var thread = _threads[e.threadId];
@@ -670,8 +716,8 @@ namespace Microsoft.PythonTools.Debugger {
         private void OnLegacyModuleLoad(object sender, LDP.ModuleLoadEvent e) {
             // module load
             if (e.moduleFileName != null) {
-                Debug.WriteLine(String.Format("Module Loaded ({0}): {1}", e.moduleId, e.moduleFileName));
-                var module = new PythonModule(e.moduleId, e.moduleFileName);
+                _debugLog.WriteLine(String.Format("Module Loaded ({0}): {2} : {1}", e.moduleId, e.moduleFileName, e.moduleName));
+                var module = new PythonModule(e.moduleId, e.moduleFileName, e.moduleName, !e.isStdLib);
 
                 ModuleLoaded?.Invoke(this, new ModuleLoadedEventArgs(module));
             }
@@ -679,11 +725,9 @@ namespace Microsoft.PythonTools.Debugger {
 
         private void OnLegacyThreadExit(object sender, LDP.ThreadExitEvent e) {
             PythonThread thread;
-            if (_threads.TryGetValue(e.threadId, out thread)) {
+            if (_threads.TryRemove(e.threadId, out thread)) {
                 ThreadExited?.Invoke(this, new ThreadEventArgs(thread));
-
-                _threads.Remove(e.threadId);
-                Debug.WriteLine("Thread exited, {0} active threads", _threads.Count);
+                _debugLog.WriteLine("Thread exited, {0} active threads", _threads.Count);
             }
         }
 
@@ -711,7 +755,7 @@ namespace Microsoft.PythonTools.Debugger {
             }
 
             if (e.threadId != 0) {
-                Debug.WriteLine("Exception: " + (exc.FormattedDescription ?? exc.ExceptionMessage ?? exc.TypeName));
+                _debugLog.WriteLine("Exception: " + (exc.FormattedDescription ?? exc.ExceptionMessage ?? exc.TypeName));
                 ExceptionRaised?.Invoke(this, new ExceptionRaisedEventArgs(_threads[e.threadId], exc));
                 _stoppedForException = true;
             }
@@ -828,7 +872,7 @@ namespace Microsoft.PythonTools.Debugger {
                 frames.Add(frame);
             }
 
-            Debug.WriteLine("Received frames for thread {0}", e.threadId);
+            _debugLog.WriteLine("Received frames for thread {0}", e.threadId);
             if (thread != null) {
                 thread.Frames = frames;
                 if (e.threadName != null) {
@@ -897,14 +941,14 @@ namespace Microsoft.PythonTools.Debugger {
                     string mapFrom = mappingInfo[toDebuggee ? 0 : 1];
                     string mapTo = mappingInfo[toDebuggee ? 1 : 0];
 
-                    if (file.StartsWith(mapFrom, StringComparison.OrdinalIgnoreCase)) {
+                    if (file.StartsWithOrdinal(mapFrom, ignoreCase: true)) {
                         int len = mapFrom.Length;
-                        if (!mappingInfo[0].EndsWith("\\")) {
+                        if (!mappingInfo[0].EndsWithOrdinal("\\")) {
                             len++;
                         }
 
                         string newFile = Path.Combine(mapTo, file.Substring(len));
-                        Debug.WriteLine("Filename mapped from {0} to {1}", file, newFile);
+                        _debugLog.WriteLine("Filename mapped from {0} to {1}", file, newFile);
                         return newFile;
                     }
                 }
@@ -944,7 +988,7 @@ namespace Microsoft.PythonTools.Debugger {
             return response.hitCount;
         }
 
-        internal async Task ExecuteTextAsync(string text, PythonEvaluationResultReprKind reprKind, PythonStackFrame pythonStackFrame, Action<PythonEvaluationResult> completion, CancellationToken ct) {
+        internal async Task ExecuteTextAsync(string text, PythonEvaluationResultReprKind reprKind, PythonStackFrame pythonStackFrame, bool printResult, Action<PythonEvaluationResult> completion, CancellationToken ct) {
             int executeId = _ids.Allocate();
             lock (_pendingExecutes) {
                 _pendingExecutes[executeId] = new CompletionInfo(completion, text, pythonStackFrame);
@@ -957,7 +1001,32 @@ namespace Microsoft.PythonTools.Debugger {
                 frameId = pythonStackFrame.FrameId,
                 frameKind = ToLDPFrameKind(pythonStackFrame.Kind),
                 reprKind = ToLDPReprKind(reprKind),
+                printResult = printResult
             }, ct);
+        }
+
+        internal async Task ExecuteTextAsync(string text, PythonEvaluationResultReprKind reprKind, string moduleName, bool printResult, Action<PythonEvaluationResult> completion, CancellationToken ct) {
+            int executeId = _ids.Allocate();
+            lock (_pendingExecutes) {
+                _pendingExecutes[executeId] = new CompletionInfo(completion, text, null);
+            }
+
+            await SendDebugRequestAsync(new LDP.ExecuteTextRequest() {
+                text = text,
+                executionId = executeId,
+                moduleName = moduleName,
+                reprKind = ToLDPReprKind(reprKind),
+                printResult = printResult
+            }, ct);
+        }
+
+        private void OnLegacyModulesChanged(object sender, LDP.ModulesChangedEvent e) {
+            ModulesChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        internal async Task<KeyValuePair<string, string>[]> GetModuleNamesAndPaths() {
+            var response = await SendDebugRequestAsync(new LDP.ListReplModulesRequest(), new CancellationToken());
+            return response.modules.Select(m => new KeyValuePair<string, string>(m.name, m.fileName)).ToArray();
         }
 
         internal async Task<PythonEvaluationResult[]> GetChildrenAsync(string text, PythonStackFrame pythonStackFrame, CancellationToken ct) {
@@ -1016,7 +1085,8 @@ namespace Microsoft.PythonTools.Debugger {
         }
 
         internal async Task RemoveBreakpointAsync(PythonBreakpoint unboundBreakpoint, CancellationToken ct) {
-            _breakpoints.Remove(unboundBreakpoint.Id);
+            PythonBreakpoint bp;
+            _breakpoints.TryRemove(unboundBreakpoint.Id, out bp);
             await DisableBreakpointAsync(unboundBreakpoint, ct);
         }
 
@@ -1031,21 +1101,6 @@ namespace Microsoft.PythonTools.Debugger {
                 breakpointFileName = unboundBreakpoint.Filename,
                 breakpointLineNo = unboundBreakpoint.LineNo,
             }, ct);
-        }
-
-        internal async Task ConnectReplAsync(int portNum, CancellationToken ct = default(CancellationToken)) {
-            await SendDebugRequestAsync(new LDP.ConnectReplRequest() {
-                portNum = portNum,
-            }, ct);
-        }
-
-        internal async Task DisconnectReplAsync(CancellationToken ct = default(CancellationToken)) {
-            try {
-                await SendDebugRequestAsync(new LDP.DisconnectReplRequest() {
-                }, ct);
-            } catch (OperationCanceledException) {
-                // If the process has terminated, we expect an exception
-            }
         }
 
         internal async Task<bool> SetLineNumberAsync(PythonStackFrame pythonStackFrame, int lineNo, CancellationToken ct) {
@@ -1088,7 +1143,7 @@ namespace Microsoft.PythonTools.Debugger {
 
         private async Task<T> SendDebugRequestAsync<T>(Request<T> request, CancellationToken cancellationToken = default(CancellationToken))
             where T : Response, new() {
-            Debug.WriteLine("PythonDebugger " + _processGuid + " Sending Command " + request.command);
+            _debugLog.WriteLine("PythonDebugger " + _processGuid + " Sending Command " + request.command);
 
             DebugConnection connection = null;
             lock (_connectionLock) {
@@ -1152,6 +1207,7 @@ namespace Microsoft.PythonTools.Debugger {
         public event EventHandler<BreakpointEventArgs> BreakpointBindSucceeded;
         public event EventHandler<BreakpointEventArgs> BreakpointBindFailed;
         public event EventHandler<OutputEventArgs> DebuggerOutput;
+        public event EventHandler<EventArgs> ModulesChanged;
 
         #endregion
 

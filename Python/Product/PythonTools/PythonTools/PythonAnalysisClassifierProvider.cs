@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,11 +18,10 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Windows.Media;
+using Microsoft.PythonTools.Editor;
 using Microsoft.PythonTools.Options;
-using Microsoft.PythonTools.Project;
-using Microsoft.VisualStudio.InteractiveWindow;
 using Microsoft.VisualStudio.Language.StandardClassification;
-using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.LanguageServer.Client;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
 using Microsoft.VisualStudio.Utilities;
@@ -30,16 +29,16 @@ using Microsoft.VisualStudio.Utilities;
 namespace Microsoft.PythonTools {
     [Export(typeof(IClassifierProvider)), ContentType(PythonCoreConstants.ContentType)]
     internal class PythonAnalysisClassifierProvider : IClassifierProvider {
+        private readonly PythonEditorServices _services;
         private Dictionary<string, IClassificationType> _categoryMap;
         private readonly IContentType _type;
-        internal readonly IServiceProvider _serviceProvider;
         internal bool _colorNames, _colorNamesWithAnalysis;
 
         [ImportingConstructor]
-        public PythonAnalysisClassifierProvider(IContentTypeRegistryService contentTypeRegistryService, [Import(typeof(SVsServiceProvider))]IServiceProvider serviceProvider) {
-            _type = contentTypeRegistryService.GetContentType(PythonCoreConstants.ContentType);
-            _serviceProvider = serviceProvider;
-            var options = serviceProvider.GetPythonToolsService()?.AdvancedOptions;
+        public PythonAnalysisClassifierProvider(PythonEditorServices services) {
+            _services = services;
+            _type = _services.ContentTypeRegistryService.GetContentType(PythonCoreConstants.ContentType);
+            var options = _services.Python?.AdvancedOptions;
             if (options != null) {
                 options.Changed += AdvancedOptions_Changed;
                 _colorNames = options.ColorNames;
@@ -84,27 +83,31 @@ namespace Microsoft.PythonTools {
         [BaseDefinition(PredefinedClassificationTypeNames.Identifier)]
         internal static ClassificationTypeDefinition ModuleClassificationDefinition = null; // Set via MEF
 
+        [Export]
+        [Name(PythonPredefinedClassificationTypeNames.Documentation)]
+        [BaseDefinition(PredefinedClassificationTypeNames.String)]
+        internal static ClassificationTypeDefinition DocumentationClassificationDefinition = null; // Set via MEF
+
+        [Export]
+        [Name(PythonPredefinedClassificationTypeNames.RegularExpression)]
+        [BaseDefinition(PredefinedClassificationTypeNames.String)]
+        internal static ClassificationTypeDefinition RegularExpressionClassificationDefinition = null; // Set via MEF
+
         #endregion
 
         #region IDlrClassifierProvider
 
         public IClassifier GetClassifier(ITextBuffer buffer) {
-            if (buffer.Properties.ContainsProperty(typeof(IInteractiveEvaluator))) {
-                return null;
-            }
-            
             if (_categoryMap == null) {
                 _categoryMap = FillCategoryMap(_classificationRegistry);
             }
 
-            PythonAnalysisClassifier res;
-            if (!buffer.Properties.TryGetProperty<PythonAnalysisClassifier>(typeof(PythonAnalysisClassifier), out res) &&
-                buffer.ContentType.IsOfType(ContentType.TypeName)) {
-                res = new PythonAnalysisClassifier(this, buffer);
-                buffer.Properties.AddProperty(typeof(PythonAnalysisClassifier), res);
+            if (buffer.ContentType.IsOfType(CodeRemoteContentDefinition.CodeRemoteContentTypeName)) {
+                return null;
             }
 
-            return res;
+            return _services.GetBufferInfo(buffer)
+                .GetOrCreateSink(typeof(PythonAnalysisClassifier), _ => new PythonAnalysisClassifier(this));
         }
 
         public virtual IContentType ContentType {
@@ -124,6 +127,8 @@ namespace Microsoft.PythonTools {
             categoryMap[PythonPredefinedClassificationTypeNames.Parameter] = registry.GetClassificationType(PythonPredefinedClassificationTypeNames.Parameter);
             categoryMap[PythonPredefinedClassificationTypeNames.Module] = registry.GetClassificationType(PythonPredefinedClassificationTypeNames.Module);
             categoryMap[PythonPredefinedClassificationTypeNames.Function] = registry.GetClassificationType(PythonPredefinedClassificationTypeNames.Function);
+            categoryMap[PythonPredefinedClassificationTypeNames.Documentation] = registry.GetClassificationType(PythonPredefinedClassificationTypeNames.Documentation);
+            categoryMap[PythonPredefinedClassificationTypeNames.RegularExpression] = registry.GetClassificationType(PythonPredefinedClassificationTypeNames.RegularExpression);
             // Include keyword for context-sensitive keywords
             categoryMap[PredefinedClassificationTypeNames.Keyword] = registry.GetClassificationType(PredefinedClassificationTypeNames.Keyword);
 
@@ -137,7 +142,7 @@ namespace Microsoft.PythonTools {
     [ClassificationType(ClassificationTypeNames = PythonPredefinedClassificationTypeNames.Class)]
     [Name(PythonPredefinedClassificationTypeNames.Class)]
     [UserVisible(true)]
-    [Order(After = LanguagePriority.NaturalLanguage, Before = LanguagePriority.FormalLanguage)]
+    [Order(After = PredefinedClassificationTypeNames.Identifier)]
     internal sealed class ClassFormat : ClassificationFormatDefinition {
         public ClassFormat() {
             DisplayName = Strings.ClassClassificationType;
@@ -150,7 +155,7 @@ namespace Microsoft.PythonTools {
     [ClassificationType(ClassificationTypeNames = PythonPredefinedClassificationTypeNames.Module)]
     [Name(PythonPredefinedClassificationTypeNames.Module)]
     [UserVisible(true)]
-    [Order(After = LanguagePriority.NaturalLanguage, Before = LanguagePriority.FormalLanguage)]
+    [Order(After = PredefinedClassificationTypeNames.Identifier)]
     internal sealed class ModuleFormat : ClassificationFormatDefinition {
         public ModuleFormat() {
             DisplayName = Strings.ModuleClassificationType;
@@ -163,7 +168,7 @@ namespace Microsoft.PythonTools {
     [ClassificationType(ClassificationTypeNames = PythonPredefinedClassificationTypeNames.Parameter)]
     [Name(PythonPredefinedClassificationTypeNames.Parameter)]
     [UserVisible(true)]
-    [Order(After = LanguagePriority.NaturalLanguage, Before = LanguagePriority.FormalLanguage)]
+    [Order(After = PredefinedClassificationTypeNames.Identifier)]
     internal sealed class ParameterFormat : ClassificationFormatDefinition {
         public ParameterFormat() {
             DisplayName = Strings.ParameterClassificationType;
@@ -176,12 +181,38 @@ namespace Microsoft.PythonTools {
     [ClassificationType(ClassificationTypeNames = PythonPredefinedClassificationTypeNames.Function)]
     [Name(PythonPredefinedClassificationTypeNames.Function)]
     [UserVisible(true)]
-    [Order(After = LanguagePriority.NaturalLanguage, Before = LanguagePriority.FormalLanguage)]
+    [Order(After = PredefinedClassificationTypeNames.Identifier)]
     internal sealed class FunctionFormat : ClassificationFormatDefinition {
         public FunctionFormat() {
             DisplayName = Strings.FunctionClassificationType;
             // Matches "C++ Functions"
             ForegroundColor = Colors.Black;
+        }
+    }
+
+    [Export(typeof(EditorFormatDefinition))]
+    [ClassificationType(ClassificationTypeNames = PythonPredefinedClassificationTypeNames.Documentation)]
+    [Name(PythonPredefinedClassificationTypeNames.Documentation)]
+    [UserVisible(true)]
+    [Order(After = Priority.High)]
+    internal sealed class DocumentationFormat : ClassificationFormatDefinition {
+        public DocumentationFormat() {
+            DisplayName = Strings.DocumentationClassificationType;
+            // Matches comment color but slightly brighter
+            ForegroundColor = Color.FromArgb(0xFF, 0x00, 0x90, 0x10);
+        }
+    }
+
+    [Export(typeof(EditorFormatDefinition))]
+    [ClassificationType(ClassificationTypeNames = PythonPredefinedClassificationTypeNames.RegularExpression)]
+    [Name(PythonPredefinedClassificationTypeNames.RegularExpression)]
+    [UserVisible(true)]
+    [Order(After = PredefinedClassificationTypeNames.String)]
+    internal sealed class RegexFormat : ClassificationFormatDefinition {
+        public RegexFormat() {
+            DisplayName = Strings.RegularExpressionClassificationType;
+            // Matches existing regular expression color
+            ForegroundColor = Color.FromArgb(0x00, 0x80, 0x00, 0x00);
         }
     }
 

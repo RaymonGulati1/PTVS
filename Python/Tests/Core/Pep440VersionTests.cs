@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -82,7 +82,7 @@ v1.0rc1 == 1.0rc1 == 1.0c1 == 1.0_pre1 == 1.0preview-1
 1!1.0 == 01!1.0
 ".Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void VersionParsing() {
             foreach (var s in ExampleVersions) {
                 PackageVersion ver;
@@ -91,7 +91,7 @@ v1.0rc1 == 1.0rc1 == 1.0c1 == 1.0_pre1 == 1.0preview-1
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void VersionOrdering() {
             var versions = ExampleVersions.Select(PackageVersion.Parse).ToList();
             var rnd = new Random();
@@ -112,7 +112,7 @@ v1.0rc1 == 1.0rc1 == 1.0c1 == 1.0_pre1 == 1.0preview-1
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void VersionNormalization() {
             foreach (var line in ExampleNormalizedVersions) {
                 var versions = line.Split(new[] { "==" }, StringSplitOptions.RemoveEmptyEntries)
@@ -126,7 +126,7 @@ v1.0rc1 == 1.0rc1 == 1.0c1 == 1.0_pre1 == 1.0preview-1
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void LocalVersionEquality() {
             // Numeric sections of local versions are compared (but not
             // normalized!) as integers.

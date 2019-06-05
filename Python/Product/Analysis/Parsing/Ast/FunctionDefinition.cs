@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,10 +17,11 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 
 namespace Microsoft.PythonTools.Parsing.Ast {
 
-    public class FunctionDefinition : ScopeStatement {
+    public class FunctionDefinition : ScopeStatement, IMaybeAsyncStatement {
         protected Statement _body;
         private readonly NameExpression/*!*/ _name;
         private readonly Parameter[] _parameters;
@@ -35,6 +36,7 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         internal bool _hasReturn;
         private int _headerIndex;
         private int _defIndex;
+        private int? _keywordEndIndex;
 
         internal static readonly object WhitespaceAfterAsync = new object();
 
@@ -61,15 +63,14 @@ namespace Microsoft.PythonTools.Parsing.Ast {
             }
         }
 
-        public IList<Parameter> Parameters {
-            get { return _parameters; }
-        }
+        public IList<Parameter> Parameters => _parameters;
+        internal Parameter[] ParametersInternal => _parameters;
 
-        internal override int ArgCount {
-            get {
-                return _parameters.Length;
-            }
-        }
+        internal override int ArgCount => _parameters.Length;
+
+        internal void SetKeywordEndIndex(int index) => _keywordEndIndex = index;
+        public override int KeywordEndIndex => _keywordEndIndex ?? (DefIndex + (IsCoroutine ? 9 : 3));
+        public override int KeywordLength => KeywordEndIndex - StartIndex;
 
         public Expression ReturnAnnotation {
             get { return _returnAnnotation; }
@@ -107,6 +108,8 @@ namespace Microsoft.PythonTools.Parsing.Ast {
             internal set { _decorators = value; }
         }
 
+        internal LambdaExpression LambdaExpression { get; set; }
+
         /// <summary>
         /// True if the function is a generator.  Generators contain at least one yield
         /// expression and instead of returning a value when called they return a generator
@@ -125,6 +128,8 @@ namespace Microsoft.PythonTools.Parsing.Ast {
             get { return _coroutine; }
             set { _coroutine = value; }
         }
+
+        bool IMaybeAsyncStatement.IsAsync => IsCoroutine;
 
         /// <summary>
         /// Gets the variable that this function is assigned to.
@@ -197,48 +202,41 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         private void Verify(PythonNameBinder binder) {
             if (ContainsImportStar && IsClosure) {
                 binder.ReportSyntaxError(
-                    String.Format(
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        "import * is not allowed in function '{0}' because it is a nested function",
-                        Name),
+                    "import * is not allowed in function '{0}' because it is a nested function".FormatUI(Name),
                     this);
             }
             if (ContainsImportStar && Parent is FunctionDefinition) {
                 binder.ReportSyntaxError(
-                    String.Format(
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        "import * is not allowed in function '{0}' because it is a nested function",
-                        Name),
+                    "import * is not allowed in function '{0}' because it is a nested function".FormatUI(Name),
                     this);
             }
             if (ContainsImportStar && ContainsNestedFreeVariables) {
                 binder.ReportSyntaxError(
-                    String.Format(
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        "import * is not allowed in function '{0}' because it contains a nested function with free variables",
-                        Name),
+                    "import * is not allowed in function '{0}' because it contains a nested function with free variables".FormatUI(Name),
                     this);
             }
             if (ContainsUnqualifiedExec && ContainsNestedFreeVariables) {
                 binder.ReportSyntaxError(
-                    String.Format(
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        "unqualified exec is not allowed in function '{0}' because it contains a nested function with free variables",
-                        Name),
+                    "unqualified exec is not allowed in function '{0}' because it contains a nested function with free variables".FormatUI(Name),
                     this);
             }
             if (ContainsUnqualifiedExec && IsClosure) {
                 binder.ReportSyntaxError(
-                    String.Format(
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        "unqualified exec is not allowed in function '{0}' because it is a nested function",
-                        Name),
+                    "unqualified exec is not allowed in function '{0}' because it is a nested function".FormatUI(Name),
                     this);
             }
         }
-        
+
+        public int GetIndexOfDef(PythonAst ast) {
+            if (!IsCoroutine) {
+                return DefIndex;
+            }
+            return DefIndex + NodeAttributes.GetWhiteSpace(this, ast, WhitespaceAfterAsync).Length + 5;
+        }
+
         public override void Walk(PythonWalker walker) {
             if (walker.Walk(this)) {
+                _name?.Walk(walker);
                 if (_parameters != null) {
                     foreach (Parameter p in _parameters) {
                         p.Walk(walker);
@@ -277,18 +275,18 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         }
 
         internal override void AppendCodeStringStmt(StringBuilder res, PythonAst ast, CodeFormattingOptions format) {
-            var decorateWhiteSpace = this.GetNamesWhiteSpace(ast);
-            if (Decorators != null) {
-                Decorators.AppendCodeString(res, ast, format);
-            }
-            format.ReflowComment(res, this.GetProceedingWhiteSpaceDefaultNull(ast));
+            Decorators?.AppendCodeString(res, ast, format);
+
+            format.ReflowComment(res, this.GetPreceedingWhiteSpaceDefaultNull(ast));
+
             if (IsCoroutine) {
                 res.Append("async");
                 res.Append(NodeAttributes.GetWhiteSpace(this, ast, WhitespaceAfterAsync));
             }
+
             res.Append("def");
             var name = this.GetVerbatimImage(ast) ?? Name;
-            if (!String.IsNullOrEmpty(name)) {
+            if (!string.IsNullOrEmpty(name)) {
                 res.Append(this.GetSecondWhiteSpace(ast));
                 res.Append(name);
                 if (!this.IsIncompleteNode(ast)) {
@@ -301,7 +299,7 @@ namespace Microsoft.PythonTools.Parsing.Ast {
                     );
 
                     res.Append('(');
-                    if (Parameters.Count != 0) {
+                    if (ParametersInternal.Length != 0) {
                         var commaWhiteSpace = this.GetListWhiteSpace(ast);
                         ParamsToString(res,
                             ast,
@@ -318,19 +316,20 @@ namespace Microsoft.PythonTools.Parsing.Ast {
                         res.Append(namedOnly);
                     }
 
-                    if (!this.IsMissingCloseGrouping(ast)) {                        
-                        format.Append(
-                            res,
-                            Parameters.Count != 0 ? 
-                                format.SpaceWithinFunctionDeclarationParens :
-                                format.SpaceWithinEmptyParameterList,
-                            " ",
-                            "",
-                            this.GetFourthWhiteSpaceDefaultNull(ast)
-                        ); 
-                        
+                    format.Append(
+                        res,
+                        ParametersInternal.Length != 0 ? 
+                            format.SpaceWithinFunctionDeclarationParens :
+                            format.SpaceWithinEmptyParameterList,
+                        " ",
+                        "",
+                        this.GetFourthWhiteSpaceDefaultNull(ast)
+                    ); 
+
+                    if (!this.IsMissingCloseGrouping(ast)) {
                         res.Append(')');
                     }
+
                     if (ReturnAnnotation != null) {
                         format.Append(
                             res,
@@ -349,26 +348,25 @@ namespace Microsoft.PythonTools.Parsing.Ast {
                                 null
                         );
                     }
-                    if (Body != null) {
-                        Body.AppendCodeString(res, ast, format);
-                    }
+
+                    Body?.AppendCodeString(res, ast, format);
                 }
             }
         }
 
         internal void ParamsToString(StringBuilder res, PythonAst ast, string[] commaWhiteSpace, CodeFormattingOptions format, string initialLeadingWhiteSpace = null) {
-            for (int i = 0; i < Parameters.Count; i++) {
+            for (int i = 0; i < ParametersInternal.Length; i++) {
                 if (i > 0) {
                     if (commaWhiteSpace != null) {
                         res.Append(commaWhiteSpace[i - 1]);
                     }
                     res.Append(',');
                 }
-                Parameters[i].AppendCodeString(res, ast, format, initialLeadingWhiteSpace);
+                ParametersInternal[i].AppendCodeString(res, ast, format, initialLeadingWhiteSpace);
                 initialLeadingWhiteSpace = null;
             }
 
-            if (commaWhiteSpace != null && commaWhiteSpace.Length == Parameters.Count && Parameters.Count != 0) {
+            if (commaWhiteSpace != null && commaWhiteSpace.Length == ParametersInternal.Length && ParametersInternal.Length != 0) {
                 // trailing comma
                 res.Append(commaWhiteSpace[commaWhiteSpace.Length - 1]);
                 res.Append(",");

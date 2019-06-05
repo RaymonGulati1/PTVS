@@ -9,15 +9,16 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
-using Microsoft.PythonTools.Infrastructure;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 
 namespace Microsoft.PythonTools.Interpreter {
     public sealed class InterpreterConfiguration : IEquatable<InterpreterConfiguration> {
@@ -53,6 +54,74 @@ namespace Microsoft.PythonTools.Interpreter {
             UIMode = uiMode;
         }
 
+        private static string Read(Dictionary<string, object> d, string k) 
+            => d.TryGetValue(k, out var o) ? o as string: null;
+
+        private InterpreterConfiguration(Dictionary<string, object> properties) {
+            Id = Read(properties, nameof(Id));
+            _description = Read(properties, nameof(Description)) ?? "";
+            PrefixPath = Read(properties, nameof(PrefixPath));
+            InterpreterPath = Read(properties, nameof(InterpreterPath));
+            WindowsInterpreterPath = Read(properties, nameof(WindowsInterpreterPath));
+            PathEnvironmentVariable = Read(properties, nameof(PathEnvironmentVariable));
+            Architecture = InterpreterArchitecture.TryParse(Read(properties, nameof(Architecture)));
+            try {
+                Version = Version.Parse(Read(properties, nameof(Version)));
+            } catch (Exception ex) when (ex is ArgumentException || ex is FormatException) {
+                Version = new Version();
+            }
+            UIMode = 0;
+            foreach (var bit in (Read(properties, nameof(UIMode)) ?? "").Split('|')) {
+                if (Enum.TryParse(bit, out InterpreterUIMode m)) {
+                    UIMode |= m;
+                }
+            }
+            if (properties.TryGetValue(nameof(SearchPaths), out object o)) {
+                SearchPaths.Clear();
+                if (o is string s) {
+                    SearchPaths.AddRange(s.Split(';'));
+                } else if (o is IEnumerable<string> ss) {
+                    SearchPaths.AddRange(ss);
+                }
+            }
+        }
+
+        internal void WriteToDictionary(Dictionary<string, object> properties) {
+            properties[nameof(Id)] = Id;
+            properties[nameof(Description)] = _description;
+            properties[nameof(PrefixPath)] = PrefixPath;
+            properties[nameof(InterpreterPath)] = InterpreterPath;
+            properties[nameof(WindowsInterpreterPath)] = WindowsInterpreterPath;
+            properties[nameof(PathEnvironmentVariable)] = PathEnvironmentVariable;
+            properties[nameof(Architecture)] = Architecture.ToString();
+            if (Version != null) {
+                properties[nameof(Version)] = Version.ToString();
+            }
+            var m = Enum.GetValues(typeof(InterpreterUIMode)).Cast<Enum>()
+                .Where(flag => UIMode.HasFlag(flag))
+                .Select(flag => Enum.GetName(typeof(InterpreterUIMode), flag));
+            if (m.Any()) {
+                properties[nameof(UIMode)] = string.Join("|", m);
+            }
+            properties[nameof(SearchPaths)] = SearchPaths.ToArray();
+        }
+
+        /// <summary>
+        /// Reconstructs an interpreter configuration from a dictionary.
+        /// </summary>
+        public static InterpreterConfiguration FromDictionary(Dictionary<string, object> properties) {
+            return new InterpreterConfiguration(properties);
+        }
+
+        /// <summary>
+        /// Serializes an interpreter configuration to a dictionary.
+        /// </summary>
+        public Dictionary<string, object> ToDictionary() {
+            var d = new Dictionary<string, object>();
+            WriteToDictionary(d);
+            return d;
+        }
+
         /// <summary>
         /// Gets a unique and stable identifier for this interpreter.
         /// </summary>
@@ -67,10 +136,10 @@ namespace Microsoft.PythonTools.Interpreter {
         /// Changes the description to be less likely to be
         /// ambiguous with other interpreters.
         /// </summary>
-        private void SwitchToFullDescription() {
+        public void SwitchToFullDescription() {
             bool hasVersion = _description.Contains(Version.ToString());
-            bool hasArch = _description.IndexOf(Architecture.ToString(), StringComparison.CurrentCultureIgnoreCase) >= 0 ||
-                _description.IndexOf(Architecture.ToString("x"), StringComparison.CurrentCultureIgnoreCase) >= 0;
+            bool hasArch = _description.IndexOf(Architecture.ToString(null, CultureInfo.CurrentCulture), StringComparison.CurrentCultureIgnoreCase) >= 0 ||
+                _description.IndexOf(Architecture.ToString("x", CultureInfo.CurrentCulture), StringComparison.CurrentCultureIgnoreCase) >= 0;
 
             if (hasVersion && hasArch) {
                 // Regular description is sufficient
@@ -127,6 +196,11 @@ namespace Microsoft.PythonTools.Interpreter {
         /// </remarks>
         public InterpreterUIMode UIMode { get; }
 
+        /// <summary>
+        /// The fixed search paths of the interpreter.
+        /// </summary>
+        public List<string> SearchPaths { get; } = new List<string>();
+
         public static bool operator ==(InterpreterConfiguration x, InterpreterConfiguration y)
             => x?.Equals(y) ?? object.ReferenceEquals(y, null);
         public static bool operator !=(InterpreterConfiguration x, InterpreterConfiguration y)
@@ -177,7 +251,7 @@ namespace Microsoft.PythonTools.Interpreter {
             foreach (var c in configs) {
                 c._fullDescription = null;
             }
-            foreach (var c in configs.GroupBy(i => i._description ?? "").Where(g => g.Count() > 1).SelectMany()) {
+            foreach (var c in configs.GroupBy(i => i._description ?? "").Where(g => g.Count() > 1).SelectMany(g => g)) {
                 c.SwitchToFullDescription();
             }
         }

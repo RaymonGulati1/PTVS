@@ -19,7 +19,7 @@ namespace Microsoft.CookiecutterTools {
     // class via a tool like ResGen or Visual Studio.
     // To add or remove a member, edit your .ResX file then rerun ResGen
     // with the /str option, or rebuild your VS project.
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "4.0.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "15.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     public class Strings {
@@ -299,6 +299,15 @@ namespace Microsoft.CookiecutterTools {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to General.
+        /// </summary>
+        public static string GeneralPaneName {
+            get {
+                return ResourceManager.GetString("GeneralPaneName", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Could not retrieve results from GitHub.
         /// </summary>
         public static string GitHubSearchError {
@@ -335,11 +344,56 @@ namespace Microsoft.CookiecutterTools {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Creating virtual environment at &apos;{0}&apos;.
+        /// </summary>
+        public static string InstallingCookiecutterCreateEnv {
+            get {
+                return ResourceManager.GetString("InstallingCookiecutterCreateEnv", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Creating virtual environment without pip at &apos;{0}&apos;.
+        /// </summary>
+        public static string InstallingCookiecutterCreateEnvWithoutPip {
+            get {
+                return ResourceManager.GetString("InstallingCookiecutterCreateEnvWithoutPip", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Deleting previous environment at &apos;{0}&apos;.
+        /// </summary>
+        public static string InstallingCookiecutterDeleteEnv {
+            get {
+                return ResourceManager.GetString("InstallingCookiecutterDeleteEnv", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to ----- Failed to install cookiecutter -----.
         /// </summary>
         public static string InstallingCookiecutterFailed {
             get {
                 return ResourceManager.GetString("InstallingCookiecutterFailed", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Installing packages into virtual environment at &apos;{0}&apos;.
+        /// </summary>
+        public static string InstallingCookiecutterInstallPackages {
+            get {
+                return ResourceManager.GetString("InstallingCookiecutterInstallPackages", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Installing pip into virtual environment at &apos;{0}&apos;.
+        /// </summary>
+        public static string InstallingCookiecutterInstallPip {
+            get {
+                return ResourceManager.GetString("InstallingCookiecutterInstallPip", resourceCulture);
             }
         }
         
@@ -407,6 +461,15 @@ namespace Microsoft.CookiecutterTools {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to WARNING: The template item &apos;{0}&apos; has an unsupported value_source &apos;{1}&apos;..
+        /// </summary>
+        public static string LoadTemplateValueSourceNotSupportedWarning {
+            get {
+                return ResourceManager.GetString("LoadTemplateValueSourceNotSupportedWarning", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Some external dependencies are missing. Click the links to install them..
         /// </summary>
         public static string MissingDependenciesInfoBarMessage {
@@ -470,6 +533,15 @@ namespace Microsoft.CookiecutterTools {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Add to Solution.
+        /// </summary>
+        public static string OptionsPage_AddToSolution {
+            get {
+                return ResourceManager.GetString("OptionsPage_AddToSolution", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Cancel.
         /// </summary>
         public static string OptionsPage_Cancel {
@@ -488,6 +560,24 @@ namespace Microsoft.CookiecutterTools {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Create and Open Folder.
+        /// </summary>
+        public static string OptionsPage_CreateAndOpenFolder {
+            get {
+                return ResourceManager.GetString("OptionsPage_CreateAndOpenFolder", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Create and Open Project.
+        /// </summary>
+        public static string OptionsPage_CreateAndOpenProject {
+            get {
+                return ResourceManager.GetString("OptionsPage_CreateAndOpenProject", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Create To.
         /// </summary>
         public static string OptionsPage_CreateTo {
@@ -497,11 +587,20 @@ namespace Microsoft.CookiecutterTools {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Output folder path.
+        ///   Looks up a localized string similar to Output folder path for created files.
         /// </summary>
         public static string OptionsPage_CreateToAutomationName {
             get {
                 return ResourceManager.GetString("OptionsPage_CreateToAutomationName", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Browse for output folder path.
+        /// </summary>
+        public static string OptionsPage_CreateToBrowseAutomationName {
+            get {
+                return ResourceManager.GetString("OptionsPage_CreateToBrowseAutomationName", resourceCulture);
             }
         }
         
@@ -547,6 +646,15 @@ namespace Microsoft.CookiecutterTools {
         public static string OptionsPage_Name {
             get {
                 return ResourceManager.GetString("OptionsPage_Name", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Browse for database connection.
+        /// </summary>
+        public static string OptionsPage_OdbcConnectionBrowseAutomationName {
+            get {
+                return ResourceManager.GetString("OptionsPage_OdbcConnectionBrowseAutomationName", resourceCulture);
             }
         }
         
@@ -650,6 +758,24 @@ namespace Microsoft.CookiecutterTools {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Category: {0}..
+        /// </summary>
+        public static string SearchPage_CategoryHelpTextNoUpdate {
+            get {
+                return ResourceManager.GetString("SearchPage_CategoryHelpTextNoUpdate", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Category: {0}. Update is available.
+        /// </summary>
+        public static string SearchPage_CategoryHelpTextUpdate {
+            get {
+                return ResourceManager.GetString("SearchPage_CategoryHelpTextUpdate", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Checking for updates....
         /// </summary>
         public static string SearchPage_CheckingUpdates {
@@ -727,15 +853,6 @@ namespace Microsoft.CookiecutterTools {
         public static string SearchPage_ErrorLoadingTemplate {
             get {
                 return ResourceManager.GetString("SearchPage_ErrorLoadingTemplate", resourceCulture);
-            }
-        }
-        
-        /// <summary>
-        ///   Looks up a localized string similar to Files created successfully..
-        /// </summary>
-        public static string SearchPage_FilesCreatedSuccessfully {
-            get {
-                return ResourceManager.GetString("SearchPage_FilesCreatedSuccessfully", resourceCulture);
             }
         }
         
@@ -1035,6 +1152,15 @@ namespace Microsoft.CookiecutterTools {
         public static string ToolWindowCaption {
             get {
                 return ResourceManager.GetString("ToolWindowCaption", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Visual Studio was unable to launch the elevated process..
+        /// </summary>
+        public static string UnableToElevate {
+            get {
+                return ResourceManager.GetString("UnableToElevate", resourceCulture);
             }
         }
         

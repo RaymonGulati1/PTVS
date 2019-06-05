@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -55,7 +55,14 @@ namespace Microsoft.PythonTools.ProjectWizards {
 
             var webRoleSource = PythonToolsInstallPath.TryGetFile("Microsoft.PythonTools.WebRole.dll", GetType().Assembly);
             if (File.Exists(webRoleSource)) {
-                projectItem.ContainingProject.ProjectItems.AddFromFileCopy(webRoleSource);
+                ProjectItem binFolderItem;
+                try {
+                    binFolderItem = projectItem.ContainingProject.ProjectItems.Item("bin");
+                } catch (ArgumentException) {
+                    binFolderItem = projectItem.ContainingProject.ProjectItems.AddFolder("bin");
+                }
+
+                binFolderItem?.ProjectItems.AddFromFileCopy(webRoleSource);
             }
         }
 

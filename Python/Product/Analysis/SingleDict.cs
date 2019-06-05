@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -193,23 +193,6 @@ namespace Microsoft.PythonTools.Analysis {
         }
 
         [DebuggerBrowsable(DebuggerBrowsableState.Never)]
-        internal AnalysisDictionary<TKey, TValue> InternalDict {
-            get {
-                return _data as AnalysisDictionary<TKey, TValue>;
-            }
-            set {
-                if (value.Count == 1) {
-                    using (var e = value.GetEnumerator()) {
-                        e.MoveNext();
-                        _data = new SingleDependency(e.Current.Key, e.Current.Value, value.Comparer);
-                    }
-                } else {
-                    _data = value;
-                }
-            }
-        }
-
-        [DebuggerBrowsable(DebuggerBrowsableState.Never)]
         public IEnumerable<TValue> Values {
             get {
                 SingleDependency single;
@@ -254,10 +237,6 @@ namespace Microsoft.PythonTools.Analysis {
 
                 return 0;
             }
-        }
-
-        public void Clear() {
-            _data = Comparer;
         }
 
         #region IEnumerable<KeyValuePair<TKey,TValue>> Members

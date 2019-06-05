@@ -9,13 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.Composition;
 using System.ComponentModel.Composition.Hosting;
 using System.ComponentModel.Composition.Primitives;
 using System.Diagnostics;
@@ -50,11 +51,21 @@ namespace TestUtilities.Mocks {
             return null;
         }
 
-        public System.ComponentModel.Composition.Primitives.ComposablePartCatalog DefaultCatalog {
+        public object GetService(Type t) {
+            List<Lazy<object>> extensions;
+            if (Extensions.TryGetValue(t, out extensions)) {
+                Debug.Assert(extensions.Count == 1, "Multiple extensions were registered");
+                return extensions[0].Value;
+            }
+            Console.WriteLine("Unregistered component model service " + t.FullName);
+            return null;
+        }
+
+        public ComposablePartCatalog DefaultCatalog {
             get { throw new NotImplementedException(); }
         }
 
-        public System.ComponentModel.Composition.ICompositionService DefaultCompositionService {
+        public ICompositionService DefaultCompositionService {
             get { throw new NotImplementedException(); }
         }
 

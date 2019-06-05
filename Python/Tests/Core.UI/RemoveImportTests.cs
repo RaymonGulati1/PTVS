@@ -9,154 +9,123 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
-using System.Threading;
-using EnvDTE;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.PythonTools.Editor;
 using TestUtilities;
 using TestUtilities.Python;
 using TestUtilities.UI;
+using TestUtilities.UI.Python;
+using System.Threading;
+using Microsoft.PythonTools.Intellisense;
 
 namespace PythonToolsUITests {
-    [TestClass]
     public class RemoveImportTests {
-        [ClassInitialize]
-        public static void DoDeployment(TestContext context) {
-            AssertListener.Initialize();
-            PythonTestData.Deploy();
-        }
-
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void FromImport1() {
+        public void FromImport1(VisualStudioApp app) {
             string expectedText = @"from sys import oar
 
 oar";
 
-            RemoveSmartTagTest("FromImport1.py", 1, 1, true, expectedText);
-            RemoveSmartTagTest("FromImport1.py", 1, 1, false, expectedText);
+            RemoveLightBulbTest(app, "FromImport1.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "FromImport1.py", 1, 1, false, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void FromImport2() {
+        public void FromImport2(VisualStudioApp app) {
             string expectedText = @"from sys import baz
 
 baz";
 
-            RemoveSmartTagTest("FromImport2.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "FromImport2.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void FromImportParens1() {
+        public void FromImportParens1(VisualStudioApp app) {
             string expectedText = @"from sys import (oar)
 
 oar";
 
-            RemoveSmartTagTest("FromImportParens1.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "FromImportParens1.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void FromImportParens2() {
+        public void FromImportParens2(VisualStudioApp app) {
             string expectedText = @"from sys import (baz)
 
 baz";
 
-            RemoveSmartTagTest("FromImportParens2.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "FromImportParens2.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void FromImportParensTrailingComma1() {
+        public void FromImportParensTrailingComma1(VisualStudioApp app) {
             string expectedText = @"from sys import (baz, )
 
 baz";
 
-            RemoveSmartTagTest("FromImportParensTrailingComma1.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "FromImportParensTrailingComma1.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void FromImportParensTrailingComma2() {
+        public void FromImportParensTrailingComma2(VisualStudioApp app) {
             string expectedText = @"from sys import (oar, )
 
 oar";
 
-            RemoveSmartTagTest("FromImportParensTrailingComma2.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "FromImportParensTrailingComma2.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void Import1() {
+        public void Import1(VisualStudioApp app) {
             string expectedText = @"import oar
 
 oar";
 
-            RemoveSmartTagTest("Import1.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "Import1.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void Import2() {
+        public void Import2(VisualStudioApp app) {
             string expectedText = @"import baz
 
 baz";
 
-            RemoveSmartTagTest("Import2.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "Import2.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void Import3() {
+        public void Import3(VisualStudioApp app) {
             string expectedText = @"import baz
 
 baz";
 
-            RemoveSmartTagTest("Import3.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "Import3.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void Import4() {
+        public void Import4(VisualStudioApp app) {
             string expectedText = @"import oar, quox
 
 oar
 quox";
 
-            RemoveSmartTagTest("Import4.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "Import4.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void Import5() {
+        public void Import5(VisualStudioApp app) {
             string expectedText = @"import oar, quox
 
 oar
 quox";
 
-            RemoveSmartTagTest("Import5.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "Import5.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void Import6() {
+        public void Import6(VisualStudioApp app) {
             string expectedText = @"import oar,          quox
 
 oar
 quox";
 
-            RemoveSmartTagTest("Import6.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "Import6.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void ImportComment() {
+        public void ImportComment(VisualStudioApp app) {
             string expectedText = @"#baz
 import oar,          quox
 #fob
@@ -165,12 +134,10 @@ import oar,          quox
 oar
 quox";
 
-            RemoveSmartTagTest("ImportComment.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "ImportComment.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void FromImportComment() {
+        public void FromImportComment(VisualStudioApp app) {
             string expectedText = @"#baz
 from xyz import oar,          quox
 #fob
@@ -179,52 +146,40 @@ from xyz import oar,          quox
 oar
 quox";
 
-            RemoveSmartTagTest("FromImportComment.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "FromImportComment.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void ImportDup() {
+        public void ImportDup(VisualStudioApp app) {
             string expectedText = @"";
 
-            RemoveSmartTagTest("ImportDup.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "ImportDup.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void FromImportDup() {
+        public void FromImportDup(VisualStudioApp app) {
             string expectedText = @"";
 
-            RemoveSmartTagTest("FromImportDup.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "FromImportDup.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void Import() {
+        public void Import(VisualStudioApp app) {
             string expectedText = @"";
 
-            RemoveSmartTagTest("Import.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "Import.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void FromImport() {
+        public void FromImport(VisualStudioApp app) {
             string expectedText = @"";
 
-            RemoveSmartTagTest("FromImport.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "FromImport.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void FutureImport() {
+        public void FutureImport(VisualStudioApp app) {
             string expectedText = @"from __future__ import with_statement";
 
-            RemoveSmartTagTest("FutureImport.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "FutureImport.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void LocalScopeDontRemoveGlobal() {
+        public void LocalScopeDontRemoveGlobal(VisualStudioApp app) {
             string expectedText = @"import dne
 
 def f():
@@ -232,125 +187,110 @@ def f():
 
     baz";
 
-            RemoveSmartTagTest("LocalScopeDontRemoveGlobal.py", 4, 10, false, expectedText);
+            RemoveLightBulbTest(app, "LocalScopeDontRemoveGlobal.py", 4, 10, false, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void LocalScopeOnly() {
+        public void LocalScopeOnly(VisualStudioApp app) {
             string expectedText = @"import dne
 
 def f():
 
     oar";
 
-            RemoveSmartTagTest("LocalScopeOnly.py", 4, 10, false, expectedText);
+            RemoveLightBulbTest(app, "LocalScopeOnly.py", 4, 10, false, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void ImportTrailingWhitespace() {
+        public void ImportTrailingWhitespace(VisualStudioApp app) {
             string expectedText = @"fob";
 
-            RemoveSmartTagTest("ImportTrailingWhitespace.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "ImportTrailingWhitespace.py", 1, 1, true, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void ClosureReference() {
+        public void ClosureReference(VisualStudioApp app) {
             string expectedText = @"def f():
     import something
     def g():
         something";
 
-            RemoveSmartTagTest("ClosureReference.py", 1, 1, true, expectedText);
-            RemoveSmartTagTest("ClosureReference.py", 2, 14, false, expectedText);
+            RemoveLightBulbTest(app, "ClosureReference.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "ClosureReference.py", 2, 14, false, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void NameMangledUnmangled() {
+        public void NameMangledUnmangled(VisualStudioApp app) {
             string expectedText = @"class C:
     def f(self):
         import __fob
         x = _C__fob";
 
-            RemoveSmartTagTest("NameMangleUnmangled.py", 1, 1, true, expectedText);
-            RemoveSmartTagTest("NameMangleUnmangled.py", 3, 14, false, expectedText);
+            RemoveLightBulbTest(app, "NameMangleUnmangled.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "NameMangleUnmangled.py", 3, 14, false, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void NameMangledMangled() {
+        public void NameMangledMangled(VisualStudioApp app) {
             string expectedText = @"class C:
     def f(self):
         import __fob
         x = __fob";
 
-            RemoveSmartTagTest("NameMangleMangled.py", 1, 1, true, expectedText);
-            RemoveSmartTagTest("NameMangleMangled.py", 3, 14, false, expectedText);
+            RemoveLightBulbTest(app, "NameMangleMangled.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "NameMangleMangled.py", 3, 14, false, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void EmptyFuncDef1() {
+        public void EmptyFuncDef1(VisualStudioApp app) {
             string expectedText = @"def f():
     pass";
 
-            RemoveSmartTagTest("EmptyFuncDef1.py", 1, 1, true, expectedText);
-            RemoveSmartTagTest("EmptyFuncDef1.py", 2, 7, false, expectedText);
+            RemoveLightBulbTest(app, "EmptyFuncDef1.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "EmptyFuncDef1.py", 2, 7, false, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void EmptyFuncDef2() {
+        public void EmptyFuncDef2(VisualStudioApp app) {
             string expectedText = @"def f():
     pass";
 
-            RemoveSmartTagTest("EmptyFuncDef2.py", 1, 1, true, expectedText);
-            RemoveSmartTagTest("EmptyFuncDef2.py", 2, 7, false, expectedText);
+            RemoveLightBulbTest(app, "EmptyFuncDef2.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "EmptyFuncDef2.py", 2, 7, false, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void EmptyFuncDefWhitespace() {
+        public void EmptyFuncDefWhitespace(VisualStudioApp app) {
             string expectedText = @"def f():
     pass";
 
-            RemoveSmartTagTest("EmptyFuncDefWhitespace.py", 1, 1, true, expectedText);
-            RemoveSmartTagTest("EmptyFuncDefWhitespace.py", 2, 7, false, expectedText);
+            RemoveLightBulbTest(app, "EmptyFuncDefWhitespace.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "EmptyFuncDefWhitespace.py", 2, 7, false, expectedText);
         }
 
-        [TestMethod, Priority(1)]
-        [HostType("VSTestHost"), TestCategory("Installed")]
-        public void ImportStar() {
+        public void ImportStar(VisualStudioApp app) {
             string expectedText = @"from sys import *";
 
-            RemoveSmartTagTest("ImportStar.py", 1, 1, true, expectedText);
+            RemoveLightBulbTest(app, "ImportStar.py", 1, 1, true, expectedText);
         }
 
-        private static void RemoveSmartTagTest(string filename, int line, int column, bool allScopes, string expectedText) {
-            using (var app = new VisualStudioApp()) {
-                var project = app.OpenProject(@"TestData\RemoveImport.sln");
-                var item = project.ProjectItems.Item(filename);
-                var window = item.Open();
-                window.Activate();
+        private static void RemoveLightBulbTest(VisualStudioApp app, string filename, int line, int column, bool allScopes, string expectedText) {
+            var project = app.OpenProject(app.CopyProjectForTest(@"TestData\RemoveImport.sln"));
+            var item = project.ProjectItems.Item(filename);
+            var window = item.Open();
+            window.Activate();
 
-                var doc = app.GetDocument(item.Document.FullName);
+            var doc = app.GetDocument(item.Document.FullName);
 
-                doc.Invoke(() => {
-                    var point = doc.TextView.TextBuffer.CurrentSnapshot.GetLineFromLineNumber(line - 1).Start.Add(column - 1);
-                    doc.TextView.Caret.MoveTo(point);
-                });
+            VsProjectAnalyzer analyzer = null;
+            doc.InvokeTask(async () => {
+                var point = doc.TextView.TextBuffer.CurrentSnapshot.GetLineFromLineNumber(line - 1).Start.Add(column - 1);
+                doc.TextView.Caret.MoveTo(point);
+                analyzer = await doc.WaitForAnalyzerAtCaretAsync();
+            });
 
-                if (allScopes) {
-                    app.ExecuteCommand("EditorContextMenus.CodeWindow.RemoveImports.AllScopes");
-                } else {
-                    app.ExecuteCommand("EditorContextMenus.CodeWindow.RemoveImports.CurrentScope");
-                }
+            Assert.IsNotNull(analyzer, "Failed to get analyzer");
+            analyzer.WaitForCompleteAnalysis(_ => true);
 
-                doc.WaitForText(expectedText);
+            if (allScopes) {
+                app.ExecuteCommand("EditorContextMenus.CodeWindow.RemoveImports.AllScopes");
+            } else {
+                app.ExecuteCommand("EditorContextMenus.CodeWindow.RemoveImports.CurrentScope");
             }
+
+            doc.WaitForText(expectedText);
         }
     }
 }

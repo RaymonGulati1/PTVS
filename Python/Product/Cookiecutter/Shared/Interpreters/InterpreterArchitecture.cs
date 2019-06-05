@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,7 +17,10 @@
 using System;
 
 namespace Microsoft.CookiecutterTools.Interpreters {
-    public abstract class InterpreterArchitecture : IFormattable, IComparable<InterpreterArchitecture> {
+    public abstract class InterpreterArchitecture :
+        IFormattable,
+        IComparable<InterpreterArchitecture>,
+        IEquatable<InterpreterArchitecture> {
         protected abstract bool Equals(string value);
 
         public virtual string ToString(string format, IFormatProvider formatProvider, string defaultString) {
@@ -74,7 +77,7 @@ namespace Microsoft.CookiecutterTools.Interpreters {
             // subclasses so that we have some way to handle extra
             // architectures being injected while ensuring that the
             // standard ones take priority.
-            
+
             // The ordering is:
             //      x86
             //      x64
@@ -101,8 +104,16 @@ namespace Microsoft.CookiecutterTools.Interpreters {
                 return -1;
             }
 
-            return GetType().Name.CompareTo(other.GetType().Name);
+            return string.CompareOrdinal(GetType().Name, other.GetType().Name);
         }
+
+        public static bool operator ==(InterpreterArchitecture x, InterpreterArchitecture y)
+            => x?.Equals(y) ?? object.ReferenceEquals(y, null);
+        public static bool operator !=(InterpreterArchitecture x, InterpreterArchitecture y)
+            => !(x?.Equals(y) ?? object.ReferenceEquals(y, null));
+        public override bool Equals(object obj) => Equals(obj as InterpreterArchitecture);
+        public bool Equals(InterpreterArchitecture other) => other != null && GetType().IsEquivalentTo(other.GetType());
+        public override int GetHashCode() => GetType().GetHashCode();
 
         private sealed class UnknownArchitecture : InterpreterArchitecture {
             public UnknownArchitecture() { }

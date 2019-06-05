@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -32,30 +32,28 @@ namespace Microsoft.PythonTools.Options {
 
         private const string ShowOutputWindowForVirtualEnvCreateSetting = "ShowOutputWindowForVirtualEnvCreate";
         private const string ShowOutputWindowForPackageInstallationSetting = "ShowOutputWindowForPackageInstallation";
+        private const string PromptForEnvCreateSetting = "PromptForEnvCreate";
+        private const string PromptForPackageInstallationSetting = "PromptForPackageInstallation";
         private const string ElevatePipSetting = "ElevatePip";
-        private const string SurveyNewsCheckSetting = "SurveyNewsCheck";
-        private const string SurveyNewsLastCheckSetting = "SurveyNewsLastCheck";
-        private const string SurveyNewsFeedUrlSetting = "SurveyNewsFeedUrl";
-        private const string SurveyNewsIndexUrlSetting = "SurveyNewsIndexUrl";
         private const string UnresolvedImportWarningSetting = "UnresolvedImportWarning";
+        private const string InvalidEncodingWarningSetting = "InvalidEncodingWarningWarning";
         private const string ClearGlobalPythonPathSetting = "ClearGlobalPythonPath";
 
-        private const string DefaultSurveyNewsFeedUrl = "http://go.microsoft.com/fwlink/?LinkId=303967";
-        private const string DefaultSurveyNewsIndexUrl = "http://go.microsoft.com/fwlink/?LinkId=309158";
+        private const string DefaultSurveyNewsFeedUrl = "https://go.microsoft.com/fwlink/?LinkId=303967";
+        private const string DefaultSurveyNewsIndexUrl = "https://go.microsoft.com/fwlink/?LinkId=309158";
 
         internal GeneralOptions(PythonToolsService service) {
             _pyService = service;
         }
 
         public void Load() {
-            SurveyNewsCheck = _pyService.LoadEnum<SurveyNewsPolicy>(SurveyNewsCheckSetting, GeneralCategory) ?? SurveyNewsPolicy.CheckOnceWeek;
-            SurveyNewsLastCheck = _pyService.LoadDateTime(SurveyNewsLastCheckSetting, GeneralCategory) ?? DateTime.MinValue;
-            SurveyNewsFeedUrl = _pyService.LoadString(SurveyNewsFeedUrlSetting, GeneralCategory) ?? DefaultSurveyNewsFeedUrl;
-            SurveyNewsIndexUrl = _pyService.LoadString(SurveyNewsIndexUrlSetting, GeneralCategory) ?? DefaultSurveyNewsIndexUrl;
             ShowOutputWindowForVirtualEnvCreate = _pyService.LoadBool(ShowOutputWindowForVirtualEnvCreateSetting, GeneralCategory) ?? true;
             ShowOutputWindowForPackageInstallation = _pyService.LoadBool(ShowOutputWindowForPackageInstallationSetting, GeneralCategory) ?? true;
+            PromptForEnvCreate = _pyService.LoadBool(PromptForEnvCreateSetting, GeneralCategory) ?? true;
+            PromptForPackageInstallation = _pyService.LoadBool(PromptForPackageInstallationSetting, GeneralCategory) ?? true;
             ElevatePip = _pyService.LoadBool(ElevatePipSetting, GeneralCategory) ?? false;
             UnresolvedImportWarning = _pyService.LoadBool(UnresolvedImportWarningSetting, GeneralCategory) ?? true;
+            InvalidEncodingWarning = _pyService.LoadBool(InvalidEncodingWarningSetting, GeneralCategory) ?? true;
             ClearGlobalPythonPath = _pyService.LoadBool(ClearGlobalPythonPathSetting, GeneralCategory) ?? true;
 
 
@@ -74,10 +72,10 @@ namespace Microsoft.PythonTools.Options {
         }
 
         public void Save() {
-            _pyService.SaveEnum(SurveyNewsCheckSetting, GeneralCategory, SurveyNewsCheck);
-            _pyService.SaveDateTime(SurveyNewsLastCheckSetting, GeneralCategory, SurveyNewsLastCheck);
             _pyService.SaveBool(ShowOutputWindowForVirtualEnvCreateSetting, GeneralCategory, ShowOutputWindowForVirtualEnvCreate);
             _pyService.SaveBool(ShowOutputWindowForPackageInstallationSetting, GeneralCategory, ShowOutputWindowForPackageInstallation);
+            _pyService.SaveBool(PromptForEnvCreateSetting, GeneralCategory, PromptForEnvCreate);
+            _pyService.SaveBool(PromptForPackageInstallationSetting, GeneralCategory, PromptForPackageInstallation);
             _pyService.SaveBool(ElevatePipSetting, GeneralCategory, ElevatePip);
             _pyService.SaveBool(UnresolvedImportWarningSetting, GeneralCategory, UnresolvedImportWarning);
             _pyService.SaveBool(ClearGlobalPythonPathSetting, GeneralCategory, ClearGlobalPythonPath);
@@ -94,12 +92,10 @@ namespace Microsoft.PythonTools.Options {
         }
 
         public void Reset() {
-            SurveyNewsCheck = SurveyNewsPolicy.CheckOnceWeek;
-            SurveyNewsLastCheck = DateTime.MinValue;
-            SurveyNewsFeedUrl = DefaultSurveyNewsFeedUrl;
-            SurveyNewsIndexUrl = DefaultSurveyNewsIndexUrl;
             ShowOutputWindowForVirtualEnvCreate = true;
             ShowOutputWindowForPackageInstallation = true;
+            PromptForEnvCreate = true;
+            PromptForPackageInstallation = true;
             ElevatePip = false;
             UnresolvedImportWarning = true;
             ClearGlobalPythonPath = true;
@@ -157,43 +153,6 @@ namespace Microsoft.PythonTools.Options {
         public event EventHandler IndentationInconsistencyChanged;
 
         /// <summary>
-        /// The frequency at which to check for updated news. Default is once
-        /// per week.
-        /// </summary>
-        /// <remarks>New in 2.0</remarks>
-        public SurveyNewsPolicy SurveyNewsCheck {
-            get;
-            set;
-        }
-
-        /// <summary>
-        /// The date/time when the last check for news occurred.
-        /// </summary>
-        /// <remarks>New in 2.0</remarks>
-        public DateTime SurveyNewsLastCheck {
-            get;
-            set;
-        }
-
-        /// <summary>
-        /// The url of the news feed.
-        /// </summary>
-        /// <remarks>New in 2.0</remarks>
-        public string SurveyNewsFeedUrl {
-            get;
-            set;
-        }
-
-        /// <summary>
-        /// The url of the news index page.
-        /// </summary>
-        /// <remarks>New in 2.0</remarks>
-        public string SurveyNewsIndexUrl {
-            get;
-            set;
-        }
-
-        /// <summary>
         /// Show the output window for virtual environment creation.
         /// </summary>
         /// <remarks>New in 2.0</remarks>
@@ -211,6 +170,24 @@ namespace Microsoft.PythonTools.Options {
             set;
         }
 
+        /// <summary>
+        /// Show an info bar to propose creating an environment.
+        /// </summary>
+        /// <remarks>New in 2.0</remarks>
+        public bool PromptForEnvCreate {
+            get;
+            set;
+        }
+
+        /// <summary>
+        /// Show an info bar to propose installing missing packages.
+        /// </summary>
+        /// <remarks>New in 2.0</remarks>
+        public bool PromptForPackageInstallation {
+            get;
+            set;
+        }
+        
         /// <summary>
         /// True to always run pip elevated when installing or uninstalling
         /// packages.
@@ -234,6 +211,16 @@ namespace Microsoft.PythonTools.Options {
         /// </summary>
         /// <remarks>New in 2.1</remarks>
         public bool ClearGlobalPythonPath {
+            get;
+            set;
+        }
+
+        /// <summary>
+        /// True to warn when a file encoding does not match Python 
+        /// 'coding' designation in the beginning of the file.
+        /// </summary>
+        /// <remarks>New in 3.3</remarks>
+        public bool InvalidEncodingWarning {
             get;
             set;
         }

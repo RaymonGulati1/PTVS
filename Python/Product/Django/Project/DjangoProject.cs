@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,7 +21,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+#if DJANGO_HTML_EDITOR
 using Microsoft.PythonTools.Django.Analysis;
+#endif
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Intellisense;
 using Microsoft.PythonTools.Options;
@@ -31,6 +33,7 @@ using Microsoft.VisualStudio.OLE.Interop;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Flavor;
 using Microsoft.VisualStudio.Shell.Interop;
+using IServiceProvider = System.IServiceProvider;
 
 namespace Microsoft.PythonTools.Django.Project {
     [Guid("564253E9-EF07-4A40-89CF-790E61F53368")]
@@ -42,12 +45,13 @@ namespace Microsoft.PythonTools.Django.Project {
         IDjangoProject,
         IVsFilterAddProjectItemDlg
     {
-        internal DjangoPackage _package;
         private IVsProject _innerProject;
         private IVsProject3 _innerProject3;
         private IVsProjectFlavorCfgProvider _innerVsProjectFlavorCfgProvider;
         private static Guid PythonProjectGuid = new Guid(PythonConstants.ProjectFactoryGuid);
         private OleMenuCommandService _menuService;
+
+        private readonly IServiceProvider _serviceProvider;
         private readonly List<OleMenuCommand> _commands = new List<OleMenuCommand>();
         private bool _disposed;
 
@@ -58,7 +62,8 @@ namespace Microsoft.PythonTools.Django.Project {
         private static ImageList _images;
 #endif
 
-        public DjangoProject() {
+        public DjangoProject(IServiceProvider serviceProvider) {
+            _serviceProvider = serviceProvider;
         }
 
         public void Dispose() {
@@ -83,7 +88,7 @@ namespace Microsoft.PythonTools.Django.Project {
 
         public VsProjectAnalyzer Analyzer {
             get {
-                return _innerVsHierarchy.GetProject().GetPythonProject().GetProjectAnalyzer();
+                return _innerVsHierarchy.GetProject().GetPythonProject().GetProjectAnalyzer() as VsProjectAnalyzer;
             }
         }
 
@@ -96,12 +101,16 @@ namespace Microsoft.PythonTools.Django.Project {
         protected override void InitializeForOuter(string fileName, string location, string name, uint flags, ref Guid guidProject, out bool cancel) {
             base.InitializeForOuter(fileName, location, name, flags, ref guidProject, out cancel);
 
+            CommandID menuCommandID;
+            OleMenuCommand menuItem;
+
+#if DJANGO_HTML_EDITOR
             // register the open command with the menu service provided by the base class.  We can't just handle this
             // internally because we kick off the context menu, pass ourselves as the IOleCommandTarget, and then our
             // base implementation dispatches via the menu service.  So we could either have a different IOleCommandTarget
             // which handles the Open command programmatically, or we can register it with the menu service.  
-            CommandID menuCommandID = new CommandID(VSConstants.GUID_VSStandardCommandSet97, (int)VSConstants.VSStd97CmdID.Open);
-            OleMenuCommand menuItem = new OleMenuCommand(OpenFile, null, OpenFileBeforeQueryStatus, menuCommandID);
+            menuCommandID = new CommandID(VSConstants.GUID_VSStandardCommandSet97, (int)VSConstants.VSStd97CmdID.Open);
+            menuItem = new OleMenuCommand(OpenFile, null, OpenFileBeforeQueryStatus, menuCommandID);
             AddCommand(menuItem);
 
             menuCommandID = new CommandID(VSConstants.GUID_VSStandardCommandSet97, (int)VSConstants.VSStd97CmdID.ViewCode);
@@ -111,16 +120,19 @@ namespace Microsoft.PythonTools.Django.Project {
             menuCommandID = new CommandID(VSConstants.VSStd2K, (int)VSConstants.VSStd2KCmdID.ECMD_VIEWMARKUP);
             menuItem = new OleMenuCommand(OpenFile, null, OpenFileBeforeQueryStatus, menuCommandID);
             AddCommand(menuItem);
+#endif
 
             menuCommandID = new CommandID(VSConstants.GUID_VSStandardCommandSet97, (int)VSConstants.VSStd97CmdID.AddNewItem);
             menuItem = new OleMenuCommand(AddNewItem, menuCommandID);
             AddCommand(menuItem);
 
+#if DJANGO_HTML_EDITOR
             var pyProj = _innerVsHierarchy.GetProject().GetPythonProject();
             if (pyProj != null) {
-                RegisterExtension(pyProj.GetProjectAnalyzer());
+                RegisterExtension(pyProj.GetProjectAnalyzer() as VsProjectAnalyzer);
                 pyProj.ProjectAnalyzerChanging += OnProjectAnalyzerChanging;
             }
+#endif
 
             object extObject;
             ErrorHandler.ThrowOnFailure(
@@ -146,16 +158,23 @@ namespace Microsoft.PythonTools.Django.Project {
 
         #endregion
 
+#if DJANGO_HTML_EDITOR
         private void OnProjectAnalyzerChanging(object sender, AnalyzerChangingEventArgs e) {
             var pyProj = sender as IPythonProject;
             if (pyProj != null) {
-                RegisterExtension(e.New);
+                RegisterExtension(e.New as VsProjectAnalyzer);
             }
         }
 
-        private static void RegisterExtension(VsProjectAnalyzer newAnalyzer) {
-            newAnalyzer.RegisterExtension(typeof(DjangoAnalyzer).Assembly.Location);
+        private void RegisterExtension(VsProjectAnalyzer newAnalyzer) {
+            if (newAnalyzer == null) {
+                return;
+            }
+            newAnalyzer.RegisterExtensionAsync(typeof(DjangoAnalyzer))
+                .HandleAllExceptions(serviceProvider, GetType(), allowUI: false)
+                .DoNotWait();
         }
+#endif
 
         private void AddCommand(OleMenuCommand menuItem) {
             _menuService.AddCommand(menuItem);
@@ -167,6 +186,7 @@ namespace Microsoft.PythonTools.Django.Project {
             base.Close();
         }
 
+#if DJANGO_HTML_EDITOR
         private void OpenFileBeforeQueryStatus(object sender, EventArgs e) {
             var oleMenu = sender as OleMenuCommand;
             oleMenu.Supported = false;
@@ -212,6 +232,7 @@ namespace Microsoft.PythonTools.Django.Project {
                 }
             }
         }
+#endif
 
         private void AddNewItem(object sender, EventArgs e) {
             var items = GetSelectedItems().ToArray();
@@ -256,7 +277,7 @@ namespace Microsoft.PythonTools.Django.Project {
         /// </summary>
         /// <returns></returns>
         private IEnumerable<VSITEMSELECTION> GetSelectedItems() {
-            IVsMonitorSelection monitorSelection = _package.GetService(typeof(IVsMonitorSelection)) as IVsMonitorSelection;
+            IVsMonitorSelection monitorSelection = _serviceProvider.GetService(typeof(IVsMonitorSelection)) as IVsMonitorSelection;
 
             IntPtr hierarchyPtr = IntPtr.Zero;
             IntPtr selectionContainer = IntPtr.Zero;
@@ -320,6 +341,7 @@ namespace Microsoft.PythonTools.Django.Project {
             return hr;
         }
 
+#if DJANGO_HTML_EDITOR
         private int OpenWithDjangoEditor(uint selectionItemId) {
             Guid ourEditor = typeof(DjangoEditorFactory).GUID;
             Guid view = Guid.Empty;
@@ -337,6 +359,7 @@ namespace Microsoft.PythonTools.Django.Project {
             }
             return hr;
         }
+#endif
 
         protected override int QueryStatusCommand(uint itemid, ref Guid pguidCmdGroup, uint cCmds, VisualStudio.OLE.Interop.OLECMD[] prgCmds, IntPtr pCmdText) {
             if (pguidCmdGroup == GuidList.guidDjangoCmdSet) {
@@ -382,6 +405,7 @@ namespace Microsoft.PythonTools.Django.Project {
                             return res;
                         }
                         break;
+#if DJANGO_HTML_EDITOR
                     case VSConstants.VsUIHierarchyWindowCmdIds.UIHWCMDID_DoubleClick:
                     case VSConstants.VsUIHierarchyWindowCmdIds.UIHWCMDID_EnterKey:
                         // open the document if it's an HTML file
@@ -393,7 +417,7 @@ namespace Microsoft.PythonTools.Django.Project {
                             }
                         }
                         break;
-
+#endif
                 }
             } else if (pguidCmdGroup == GuidList.guidDjangoCmdSet) {
                 switch (nCmdID) {
@@ -564,7 +588,7 @@ namespace Microsoft.PythonTools.Django.Project {
         /// <param name="groupGuid">The GUID of the menu group.</param>
         /// <param name="points">The location at which to show the menu.</param>
         internal int ShowContextMenu(int menuId, Guid menuGroup, POINTS points) {
-            IVsUIShell shell = _package.GetService(typeof(SVsUIShell)) as IVsUIShell;
+            IVsUIShell shell = _serviceProvider.GetService(typeof(SVsUIShell)) as IVsUIShell;
 
             Debug.Assert(shell != null, "Could not get the UI shell from the project");
             if (shell == null) {
@@ -587,14 +611,33 @@ namespace Microsoft.PythonTools.Django.Project {
             _innerVsHierarchy = inner as IVsHierarchy;
 
             // Ensure we have a service provider as this is required for menu items to work
-            if (this.serviceProvider == null)
-                this.serviceProvider = (System.IServiceProvider)this._package;
+            if (serviceProvider == null)
+                serviceProvider = _serviceProvider;
 
             // Now let the base implementation set the inner object
             base.SetInnerProject(innerIUnknown);
 
             // Add our commands (this must run after we called base.SetInnerProject)
             _menuService = ((System.IServiceProvider)this).GetService(typeof(IMenuCommandService)) as OleMenuCommandService;
+
+#if !DJANGO_HTML_EDITOR
+            try {
+                var outputWindow = OutputWindowRedirector.GetGeneral(this);
+                outputWindow.WriteErrorLine("NOTE: Django template support has been disabled in the editor due to a\r\n" +
+                    "compatibility issue and will be restored in a future update.");
+                outputWindow.ShowAndActivate();
+
+                var shell = ((System.IServiceProvider)this).GetService(typeof(SVsUIShell)) as IVsUIShell;
+                if (shell != null) {
+                    var windowGuid = new Guid("{34E76E81-EE4A-11D0-AE2E-00A0C90FFFC3}");
+                    if (ErrorHandler.Succeeded(shell.FindToolWindow(0, ref windowGuid, out IVsWindowFrame wnd)) && wnd != null) {
+                        wnd.Show();
+                    }
+                }
+            } catch (Exception ex) {
+                Debug.Fail(ex.ToUnhandledExceptionMessage(GetType()));
+            }
+#endif
         }
 
         protected override int GetProperty(uint itemId, int propId, out object property) {
@@ -781,7 +824,8 @@ namespace Microsoft.PythonTools.Django.Project {
                 dlgOwner = IntPtr.Zero;
             }
 
-            var fullTemplate = ((EnvDTE80.Solution2)_package.DTE.Solution).GetProjectItemTemplate(
+            var dte = (EnvDTE.DTE)_serviceProvider.GetService(typeof(EnvDTE.DTE));
+            var fullTemplate = ((EnvDTE80.Solution2)dte.Solution).GetProjectItemTemplate(
                 "AzureCSWebRole.zip",
                 PythonConstants.LanguageName
             );
@@ -931,6 +975,7 @@ namespace Microsoft.PythonTools.Django.Project {
         }
 
         int IVsProject.OpenItem(uint itemid, ref Guid rguidLogicalView, IntPtr punkDocDataExisting, out IVsWindowFrame ppWindowFrame) {
+#if DJANGO_HTML_EDITOR
             if (_innerProject3 != null && IsHtmlFile(_innerVsHierarchy.GetItemName(itemid))) {
                 // force HTML files opened w/o an editor type to be opened w/ our editor factory.
                 Guid guid = GuidList.guidDjangoEditorFactory;
@@ -944,6 +989,7 @@ namespace Microsoft.PythonTools.Django.Project {
                     out ppWindowFrame
                 );
             }
+#endif
 
             return _innerProject.OpenItem(itemid, rguidLogicalView, punkDocDataExisting, out ppWindowFrame);
         }
@@ -952,7 +998,7 @@ namespace Microsoft.PythonTools.Django.Project {
 
         #region IDjangoProject Members
 
-        public ProjectSmuggler GetDjangoProject() {
+        ProjectSmuggler IDjangoProject.GetDjangoProject() {
             return new ProjectSmuggler(this);
         }
 

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -39,23 +39,36 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         }
 
         internal override void AppendCodeString(StringBuilder res, PythonAst ast, CodeFormattingOptions format) {
-            format.ReflowComment(res, this.GetProceedingWhiteSpace(ast));
+            format.ReflowComment(res, this.GetPreceedingWhiteSpace(ast));
             res.Append("lambda");
             var commaWhiteSpace = this.GetListWhiteSpace(ast);
 
-            _function.ParamsToString(res, ast, commaWhiteSpace, format);
+            if (_function.ParametersInternal.Length > 0) {
+                var paramStr = new StringBuilder();
+                _function.ParamsToString(paramStr, ast, commaWhiteSpace, format);
+                if (paramStr.Length > 0 && !char.IsWhiteSpace(paramStr[0]) && !(_function.ParametersInternal[0] is ErrorParameter)) {
+                    res.Append(' ');
+                }
+                res.Append(paramStr.ToString());
+            }
             string namedOnlyText = this.GetExtraVerbatimText(ast);
             if (namedOnlyText != null) {
                 res.Append(namedOnlyText);
             }
+            format.Append(res, format.SpaceBeforeLambdaColon, " ", "", this.GetSecondWhiteSpaceDefaultNull(ast) ?? "");
             if (!this.IsIncompleteNode(ast)) {
-                res.Append(this.GetSecondWhiteSpace(ast));
                 res.Append(":");
+                string afterColon = null;
+                if (format.SpaceAfterLambdaColon == true) {
+                    afterColon = " ";
+                } else if (format.SpaceAfterLambdaColon == false) {
+                    afterColon = "";
+                }
                 if (_function.Body is ReturnStatement) {
-                    ((ReturnStatement)_function.Body).Expression.AppendCodeString(res, ast, format);
+                    ((ReturnStatement)_function.Body).Expression.AppendCodeString(res, ast, format, afterColon);
                 } else {
                     Debug.Assert(_function.Body is ExpressionStatement);
-                    ((ExpressionStatement)_function.Body).Expression.AppendCodeString(res, ast, format);
+                    ((ExpressionStatement)_function.Body).Expression.AppendCodeString(res, ast, format, afterColon);
                 }
             }
         }

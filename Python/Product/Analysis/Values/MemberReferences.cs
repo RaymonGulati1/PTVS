@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -73,31 +73,28 @@ namespace Microsoft.PythonTools.Analysis.Values {
     /// A collection of references which are keyd off of project entry.
     /// </summary>
     class ReferenceDict : Dictionary<IProjectEntry, ReferenceList> {
-        public ReferenceList GetReferences(ProjectEntry project) {
+        public ReferenceList GetReferences(ProjectEntry projectEntry) {
             ReferenceList builtinRef;
             lock (this) {
-                if (!TryGetValue(project, out builtinRef) || builtinRef.Version != project.AnalysisVersion) {
-                    this[project] = builtinRef = new ReferenceList(project);
+                var isReferenced = TryGetValue(projectEntry, out builtinRef);
+                if (!isReferenced || builtinRef.Version != projectEntry.AnalysisVersion) {
+                    this[projectEntry] = builtinRef = new ReferenceList(projectEntry);
+                }
+
+                if (!isReferenced) {
+                    projectEntry.AddBackReference(this);
                 }
             }
             return builtinRef;
         }
 
-        public IEnumerable<LocationInfo> AllReferences {
-            get {
-                lock (this) {
-                    return AllReferencesNoLock.ToList();
-                }
-            }
-        }
+        public IEnumerable<LocationInfo> AllReferences => AllReferencesNoLock.AsLockedEnumerable(this).ToList();
 
         private IEnumerable<LocationInfo> AllReferencesNoLock {
             get {
                 foreach (var keyValue in this) {
-                    if (keyValue.Value.References != null) {
-                        foreach (var reference in keyValue.Value.References) {
-                            yield return reference.GetLocationInfo();
-                        }
+                    foreach (var reference in keyValue.Value.References) {
+                        yield return reference.GetLocationInfo();
                     }
                 }
             }
@@ -110,17 +107,16 @@ namespace Microsoft.PythonTools.Analysis.Values {
     class ReferenceList : IReferenceable {
         public readonly int Version;
         public readonly string Project;
-        public ISet<EncodedLocation> References;
+        public SmallSetWithExpiry<EncodedLocation> References;
 
         public ReferenceList(IProjectEntry project) {
             Version = project.AnalysisVersion;
             Project = project.FilePath;
-            References = new HashSet<EncodedLocation>();
         }
 
         public void AddReference(EncodedLocation location) {
             lock (this) {
-                HashSetExtensions.AddValue(ref References, location);
+                References.Add(location);
             }
         }
 
@@ -130,20 +126,8 @@ namespace Microsoft.PythonTools.Analysis.Values {
             get { yield break; }
         }
 
-        IEnumerable<EncodedLocation> IReferenceable.References {
-            get {
-                return ReferencesNoLock.AsLockedEnumerable(this);
-            }
-        }
-
-        IEnumerable<EncodedLocation> ReferencesNoLock {
-            get {
-                if (References != null) {
-                    return References;
-                }
-                return Enumerable.Empty<EncodedLocation>();
-            }
-        }
+        IEnumerable<EncodedLocation> IReferenceable.References => References.AsLockedEnumerable(this);
+        IEnumerable<EncodedLocation> ReferencesNoLock => References;
 
         #endregion
     }
@@ -162,8 +146,9 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
         public IEnumerable<EncodedLocation> Definitions {
             get {
-
-                yield return new EncodedLocation(_location, null);
+                if (_location != null) {
+                    yield return new EncodedLocation(_location, null);
+                }
             }
         }
 

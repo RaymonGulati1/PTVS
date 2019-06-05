@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,6 +21,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Windows;
 using System.Windows.Media.Imaging;
+using Microsoft.PythonTools.Editor;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Language.NavigateTo.Interfaces;
@@ -30,7 +31,7 @@ using Completion = Microsoft.PythonTools.Intellisense.AnalysisProtocol.Completio
 namespace Microsoft.PythonTools.Navigation.NavigateTo {
     internal class PythonNavigateToItemDisplay : INavigateToItemDisplay {
         private static readonly Dictionary<StandardGlyphGroup, Icon> _iconCache = new Dictionary<StandardGlyphGroup, Icon>();
-        private readonly IServiceProvider _site;
+        private readonly PythonEditorServices _services;
         private readonly NavigateToItem _item;
         private readonly Completion _completion;
         private readonly Icon _icon;
@@ -40,9 +41,9 @@ namespace Microsoft.PythonTools.Navigation.NavigateTo {
         public PythonNavigateToItemDisplay(NavigateToItem item) {
             _item = item;
             var tag = (PythonNavigateToItemProvider.ItemTag)item.Tag;
-            _site = tag.Site;
+            _services = tag.Services;
             _completion = tag.Completion;
-            _icon = GetIcon(tag.GlyphService, _completion.memberType.ToGlyphGroup());
+            _icon = GetIcon(_services.GlyphService, _completion.memberType.ToGlyphGroup());
 
             foreach (var v in _completion.detailedValues.MaybeEnumerate()) {
                 foreach (var loc in v.locations.MaybeEnumerate()) {
@@ -74,10 +75,10 @@ namespace Microsoft.PythonTools.Navigation.NavigateTo {
                 if (string.IsNullOrEmpty(AdditionalInformation)) {
                     AdditionalInformation = Strings.PythonNavigateToItemDisplay_FileInfo.FormatUI(_location.file);
                 }
-                if (_location.line > 0) {
+                if (_location.startLine > 0) {
                     descrItems.Add(new DescriptionItem(
                         Array.AsReadOnly(new[] { new DescriptionRun(Strings.PythonNavigateToItemDisplay_LineHeader, bold: true) }),
-                        Array.AsReadOnly(new[] { new DescriptionRun(_location.line.ToString()) })
+                        Array.AsReadOnly(new[] { new DescriptionRun(_location.startLine.ToString()) })
                     ));
                 }
             }
@@ -107,7 +108,7 @@ namespace Microsoft.PythonTools.Navigation.NavigateTo {
                 return;
             }
 
-            PythonToolsPackage.NavigateTo(_site, _location.file, Guid.Empty, _location.line - 1, _location.column - 1);
+            PythonToolsPackage.NavigateTo(_services.Site, _location.file, Guid.Empty, _location.startLine - 1, _location.startColumn - 1);
         }
 
         private static Icon GetIcon(IGlyphService glyphService, StandardGlyphGroup glyphGroup) {

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -49,8 +49,10 @@ namespace Microsoft.PythonTools.Django {
     [ProvideLanguageService(typeof(DjangoLanguageInfo), "Django Templates", 107, RequestStockColors = true, ShowSmartIndent = true, ShowCompletion = true, DefaultToInsertSpaces = true, HideAdvancedMembersByDefault = false, EnableAdvancedMembersOption = true, ShowDropDownOptions = true)]
     [ProvideLanguageExtension(typeof(DjangoLanguageInfo), ".djt")]
     [ProvideDebugLanguage("Django Templates", DjangoTemplateLanguageId, "{" + DjangoExpressionEvaluatorGuid + "}", "{EC1375B7-E2CE-43E8-BF75-DC638DE1F1F9}")]
+#if DJANGO_HTML_EDITOR
     [ProvideEditorExtension2(typeof(DjangoEditorFactory), ".djt", 50, "*:1", ProjectGuid = "{A2FE74E1-B743-11d0-AE1A-00A0C90FFFC3}", TemplateDir = ".\\NullPath", NameResourceID = 102, DefaultName = "webpage")]
     [ProvideEditorLogicalView(typeof(DjangoEditorFactory), VSConstants.LOGVIEWID.TextView_string)]
+#endif
     [ProvideKeyBindingTable(GuidList.guidDjangoKeyBindingString, 102)]
     [Guid(GuidList.guidDjangoPkgString)]
     [ProvideObject(typeof(DjangoProject), RegisterUsing = RegistrationMethod.CodeBase)]
@@ -90,8 +92,10 @@ namespace Microsoft.PythonTools.Django {
             var langService = new DjangoLanguageInfo(this);
             ((IServiceContainer)this).AddService(langService.GetType(), langService, true);
 
+#if DJANGO_HTML_EDITOR
             //Create Editor Factory. Note that the base Package class will call Dispose on it.
             RegisterEditorFactory(new DjangoEditorFactory(this));
+#endif
             RegisterProjectFactory(new DjangoProjectFactory(this));
             
             // Add our command handlers for menu (commands must exist in the .vsct file)
@@ -124,16 +128,6 @@ namespace Microsoft.PythonTools.Django {
         }
 
         #endregion
-
-        internal new object GetService(Type serviceType) {
-            return base.GetService(serviceType);
-        }
-
-        public EnvDTE.DTE DTE {
-            get {
-                return (EnvDTE.DTE)GetService(typeof(EnvDTE.DTE));
-            }
-        }
 
         internal static DjangoProject GetProject(IServiceProvider serviceProvider, string filename) {
             IVsHierarchy hierarchy;

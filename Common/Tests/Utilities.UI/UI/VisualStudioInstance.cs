@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 // 
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -24,11 +24,10 @@ using EnvDTE;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Microsoft.VisualStudioTools.VSTestHost;
 using TestUtilities.SharedProject;
+using Thread = System.Threading.Thread;
 
 namespace TestUtilities.UI {
-    using Thread = System.Threading.Thread;
 
     /// <summary>
     /// Wrapper around a generated SolutionFile.  Provides helpers for simplifying
@@ -41,12 +40,16 @@ namespace TestUtilities.UI {
         private SolutionExplorerTree _solutionExplorer;
         private bool _disposed;
 
-        public VisualStudioInstance(SolutionFile solution) {
+        public VisualStudioInstance(SolutionFile solution, VisualStudioApp app) {
             _solution = solution;
-            _app = new VisualStudioApp();
+            _app = app;
             Project = _app.OpenProject(solution.Filename);
 
-            ThreadHelper.Generic.Invoke(Keyboard.Reset);
+            ThreadHelper.JoinableTaskFactory.Run(async () => {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                Keyboard.Reset();
+            });
+
             _solutionExplorer = _app.OpenSolutionExplorer();
             SelectSolutionNode();
         }
@@ -71,7 +74,7 @@ namespace TestUtilities.UI {
         /// Opens the specified filename from the specified project name.
         /// </summary>
         public EditorWindow OpenItem(string project, params string[] path) {
-            foreach (EnvDTE.Project proj in VSTestContext.DTE.Solution.Projects) {
+            foreach (EnvDTE.Project proj in _app.Dte.Solution.Projects) {
                 if (proj.Name == project) {
                     var items = proj.ProjectItems;
                     EnvDTE.ProjectItem item = null;
@@ -184,6 +187,7 @@ namespace TestUtilities.UI {
             // point.
             _solutionExplorer = _app.OpenSolutionExplorer();
             var item = SolutionExplorer.WaitForItem(SolutionNodeText);
+            Assert.IsNotNull(item, "Failed to find {0}", SolutionNodeText);
             SolutionExplorer.CenterInView(item);
             Mouse.MoveTo(item.GetClickablePoint());
             Mouse.Click(MouseButton.Left);
@@ -203,7 +207,6 @@ namespace TestUtilities.UI {
         protected virtual void Dispose(bool disposing) {
             if (!_disposed) {
                 if (disposing) {
-                    _app.Dispose();
                     _solution.Dispose();
                 }
 
@@ -270,11 +273,15 @@ namespace TestUtilities.UI {
         }
 
         public void CheckMessageBox(params string[] text) {
-            VisualStudioApp.CheckMessageBox(text);
+            App.CheckMessageBox(text);
         }
 
         public void CheckMessageBox(MessageBoxButton button, params string[] text) {
-            VisualStudioApp.CheckMessageBox(button, text);
+            App.CheckMessageBox(button, text);
+        }
+
+        public void MaybeCheckMessageBox(MessageBoxButton button, params string[] text) {
+            App.MaybeCheckMessageBox(button, text);
         }
 
         public void Sleep(int ms) {

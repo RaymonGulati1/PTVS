@@ -9,25 +9,28 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System.Text;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 
 namespace Microsoft.PythonTools.Parsing.Ast {
     public class SublistParameter : Parameter {
         private readonly TupleExpression _tuple;
+        private readonly int _position;
 
         public SublistParameter(int position, TupleExpression tuple)
-            : base("." + position, ParameterKind.Normal) {
+            : base(null, ParameterKind.Normal) {
+            _position = position;
             _tuple = tuple;
         }
 
-        public TupleExpression Tuple {
-            get { return _tuple; }
-        }
+        public override string Name => ".{0}".FormatUI(_position);
+
+        public TupleExpression Tuple => _tuple;
 
         public override void Walk(PythonWalker walker) {
             if (walker.Walk(this)) {
@@ -52,12 +55,21 @@ namespace Microsoft.PythonTools.Parsing.Ast {
                     res.Append(kwOnlyText);
                 }
             }
-            res.Append(leadingWhiteSpace ?? this.GetProceedingWhiteSpace(ast));
-            res.Append('(');
-            Tuple.AppendCodeString(res, ast, format);
-            if (!this.IsMissingCloseGrouping(ast)) {
-                res.Append(this.GetSecondWhiteSpace(ast));
-                res.Append(')');
+            Tuple.AppendCodeString(res, ast, format, leadingWhiteSpace);
+            if (_defaultValue != null) {
+                format.Append(
+                    res,
+                    format.SpaceAroundDefaultValueEquals,
+                    " ",
+                    "",
+                    NodeAttributes.GetWhiteSpace(this, ast, WhitespacePrecedingAssign)
+                );
+                res.Append('=');
+                if (format.SpaceAroundDefaultValueEquals != null) {
+                    _defaultValue.AppendCodeString(res, ast, format, format.SpaceAroundDefaultValueEquals.Value ? " " : "");
+                } else {
+                    _defaultValue.AppendCodeString(res, ast, format);
+                }
             }
         }
     }

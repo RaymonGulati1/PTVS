@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -24,7 +24,7 @@ using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell.Interop;
 
 namespace Microsoft.PythonTools.Infrastructure {
-    public sealed class TaskDialog {
+    sealed class TaskDialog {
         private readonly IServiceProvider _provider;
         private readonly List<TaskDialogButton> _buttons;
         private readonly List<TaskDialogButton> _radioButtons;
@@ -639,7 +639,7 @@ namespace Microsoft.PythonTools.Infrastructure {
         }
     }
 
-    public sealed class TaskDialogButton {
+    sealed class TaskDialogButton {
         public TaskDialogButton(string text) {
             int i = text.IndexOfAny(Environment.NewLine.ToCharArray());
             if (i < 0) {
@@ -668,17 +668,15 @@ namespace Microsoft.PythonTools.Infrastructure {
         public static readonly TaskDialogButton Close = new TaskDialogButton();
     }
 
-    public sealed class TaskDialogHyperlinkClickedEventArgs : EventArgs {
-        private readonly string _url;
-
+    sealed class TaskDialogHyperlinkClickedEventArgs : EventArgs {
         public TaskDialogHyperlinkClickedEventArgs(string url) {
-            _url = url;
+            Url = url;
         }
 
-        public string Url { get { return _url; } }
+        public string Url { get; }
     }
 
-    public enum TaskDialogIcon {
+    enum TaskDialogIcon {
         None,
         Error,
         Warning,

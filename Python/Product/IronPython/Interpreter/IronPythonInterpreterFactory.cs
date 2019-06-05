@@ -9,59 +9,27 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
-using System;
-using System.IO;
+using System.Collections.Generic;
 using Microsoft.PythonTools.Interpreter;
+using Microsoft.PythonTools.Interpreter.Ast;
 
 namespace Microsoft.IronPythonTools.Interpreter {
-    class IronPythonInterpreterFactory : PythonInterpreterFactoryWithDatabase {
-        public IronPythonInterpreterFactory(InterpreterArchitecture arch)
-            : base(GetConfiguration(arch), GetCreationOptions(arch)) { }
-
-        private static string GetInterpreterId(InterpreterArchitecture arch) {
-            if (arch == InterpreterArchitecture.x64) {
-                return "IronPython|2.7-64";
-            } else {
-                return "IronPython|2.7-32";
-            }
+    class IronPythonAstInterpreterFactory : AstPythonInterpreterFactory {
+        public IronPythonAstInterpreterFactory(InterpreterConfiguration config, InterpreterFactoryCreationOptions options)
+            : base(config, options) {
         }
 
-        internal static InterpreterConfiguration GetConfiguration(InterpreterArchitecture arch) {
-            var prefixPath = IronPythonResolver.GetPythonInstallDir();
-            if (string.IsNullOrEmpty(prefixPath)) {
-                return null;
-            }
-
-            return new InterpreterConfiguration(
-                GetInterpreterId(arch),
-                string.Format("IronPython 2.7{0: ()}", arch),
-                prefixPath,
-                Path.Combine(prefixPath, arch == InterpreterArchitecture.x64 ? "ipy64.exe" : "ipy.exe"),
-                Path.Combine(prefixPath, arch == InterpreterArchitecture.x64 ? "ipyw64.exe" : "ipyw.exe"),
-                "IRONPYTHONPATH",
-                arch,
-                new Version(2, 7),
-                InterpreterUIMode.SupportsDatabase
-            );
+        private IronPythonAstInterpreterFactory(Dictionary<string, object> properties)
+            : base(InterpreterConfiguration.FromDictionary(properties), InterpreterFactoryCreationOptions.FromDictionary(properties)) {
         }
 
-        private static InterpreterFactoryCreationOptions GetCreationOptions(InterpreterArchitecture arch) {
-            return new InterpreterFactoryCreationOptions {
-                PackageManager = BuiltInPackageManagers.PipXFrames,
-                DatabasePath = Path.Combine(
-                    PythonTypeDatabase.CompletionDatabasePath,
-                    InterpreterFactoryCreator.GetRelativePathForConfigurationId(GetInterpreterId(arch))
-                )
-            };
-        }
-
-        public override IPythonInterpreter MakeInterpreter(PythonInterpreterFactoryWithDatabase factory) {
-            return new IronPythonInterpreter(factory);
+        public override IPythonInterpreter CreateInterpreter() {
+            return new IronPythonInterpreter(this);
         }
     }
 }

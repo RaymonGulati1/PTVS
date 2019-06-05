@@ -11,14 +11,14 @@
         <OldToolsVersion>14.0</OldToolsVersion>
       </PropertyGroup>
     </When>
-    <When Condition=" '$(VisualStudioVersion)'=='14.0'  Or '$(TargetVisualStudioVersion)'=='VS140' ">
+    <When Condition=" '$(VisualStudioVersion)'=='16.0'  Or '$(TargetVisualStudioVersion)'=='VS160' ">
       <PropertyGroup>
-        <MinimumVisualStudioVersion>14.0</MinimumVisualStudioVersion>
+        <MinimumVisualStudioVersion>16.0</MinimumVisualStudioVersion>
         <FileUpgradeFlags>
         </FileUpgradeFlags>
         <UpgradeBackupLocation>
         </UpgradeBackupLocation>
-        <OldToolsVersion>14.0</OldToolsVersion>
+        <OldToolsVersion>16.0</OldToolsVersion>
       </PropertyGroup>
     </When>
   </Choose>
@@ -41,11 +41,15 @@
   <ItemGroup>
     <ProjectReference Include="..\Analysis\Analysis.csproj">
       <Project>{A85D479D-67A9-4BDB-904A-7D86DAF68A6F}</Project>
-      <Name>Analysis</Name>
+      <Name>Microsoft.PythonTools.Analysis</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\Analyzer\Analyzer.csproj">
+      <Project>{29a4fa1f-a562-4ed1-86fb-5850ef5da92c}</Project>
+      <Name>Microsoft.PythonTools.Analyzer</Name>
     </ProjectReference>
     <ProjectReference Include="..\Common\Common.csproj">
       <Project>{b3db0521-d9e3-4f48-9e2e-e5ecae886049}</Project>
-      <Name>Common</Name>
+      <Name>Microsoft.PythonTools.Common</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
@@ -59,7 +63,16 @@
     <Reference Include="Microsoft.Build.Tasks.$(MicrosoftBuildAssemblyVersionSuffix), Version=$(MicrosoftBuildAssemblyVersion), Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
     <Reference Include="Microsoft.Build.Utilities.$(MicrosoftBuildAssemblyVersionSuffix), Version=$(MicrosoftBuildAssemblyVersion), Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
     <Reference Include="Microsoft.CSharp" />
-    <Reference Include="Newtonsoft.Json">
+    <Reference Include="Microsoft.VisualStudio.ComponentModelHost" />
+    <Reference Include="Microsoft.VisualStudio.Shell.Framework" />
+    <Reference Include="Microsoft.VisualStudio.Shell.Interop" />
+    <Reference Include="Microsoft.VisualStudio.Shell.Interop.10.0">
+      <EmbedInteropTypes>True</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="Microsoft.VisualStudio.Threading, Version=15.8.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
+    <Reference Include="Microsoft.VisualStudio.Workspace" />
+    <Reference Include="Microsoft.VisualStudio.Workspace.VSIntegration.Contracts" />
+    <Reference Include="Newtonsoft.Json, Version=9.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed">
       <HintPath>$(PackagesPath)\Newtonsoft.Json\lib\net45\Newtonsoft.Json.dll</HintPath>
       <Private>True</Private>
     </Reference>
@@ -74,21 +87,47 @@
     <Reference Include="System.Xml.Linq" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="AssemblyInfo.cs" />
-    <Compile Include="BuiltInPackageManagers.cs" />
-    <Compile Include="CPythonInterpreterFactoryConstants.cs" />
-    <Compile Include="CPythonInterpreterFactoryProvider.cs" />
-    <Compile Include="IInterpreterOptionsService.cs" />
-    <Compile Include="InterpreterOptionsService.cs" />
-    <Compile Include="MSBuildConstants.cs" />
-    <Compile Include="MSBuildProjectInterpreterFactoryProvider.cs" />
-    <Compile Include="NotFoundInterpreterFactory.cs" />
-    <Compile Include="PackageManagerUIRedirector.cs" />
-    <Compile Include="PipPackageCache.cs" />
-    <Compile Include="PipPackageManager.cs" />
-    <Compile Include="PythonInterpreterInformation.cs" />
-    <Compile Include="PythonRegistrySearch.cs" />
+    <Compile Include="Interpreter\WorkspaceInterpreterFactoryConstants.cs" />
+    <Compile Include="Interpreter\CondaLocatorProvider.cs" />
+    <Compile Include="Interpreter\WorkspaceInterpreterFactoryProvider.cs" />
+    <Compile Include="Interpreter\ICondaLocatorProvider.cs" />
+    <Compile Include="Interpreter\AutoDetectedLatestCondaLocator.cs" />
+    <Compile Include="Interpreter\IProjectContextProvider.cs" />
+    <Compile Include="Interpreter\ICondaEnvironmentManagerUI.cs" />
+    <Compile Include="Interpreter\ICondaEnvironmentManager.cs" />
+    <Compile Include="Interpreter\CondaEnvironmentManager.cs" />
+    <Compile Include="Interpreter\ICondaLocator.cs" />
+    <Compile Include="PackageManager\CPythonCondaPackageManagerProvider.cs" />
+    <Compile Include="PackageManager\IPackageManager.cs" />
+    <Compile Include="PackageManager\IPackageManagerProvider.cs" />
+    <Compile Include="PackageManager\IPackageManagerUI.cs" />
+    <Compile Include="PackageManager\NoPackageManager.cs" />
+    <Compile Include="PackageManager\PackageManagerFactoryExtensions.cs" />
+    <Compile Include="PackageManager\CPythonPipPackageManagerProvider.cs" />
+    <Compile Include="PackageManager\PipRequirementsUtils.cs" />
+    <Compile Include="PackageManager\PipPackageManagerCommands.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Interpreter\CondaEnvironmentFactoryConstants.cs" />
+    <Compile Include="PackageManager\CondaUtils.cs" />
+    <Compile Include="Interpreter\CondaEnvironmentFactoryProvider.cs" />
+    <Compile Include="PackageManager\CondaPackageManager.cs" />
+    <Compile Include="Interpreter\CPythonInterpreterFactoryConstants.cs" />
+    <Compile Include="Interpreter\CPythonInterpreterFactoryProvider.cs" />
+    <Compile Include="Interpreter\IInterpreterOptionsService.cs" />
+    <Compile Include="Interpreter\InterpreterFactoryIdAttribute.cs" />
+    <Compile Include="Interpreter\InterpreterOptionsService.cs" />
+    <Compile Include="Interpreter\InterpreterRegistryService.cs" />
+    <Compile Include="Interpreter\IPythonInterpreterFactoryProvider.cs" />
+    <Compile Include="Interpreter\MSBuildConstants.cs" />
+    <Compile Include="Interpreter\MSBuildProjectInterpreterFactoryProvider.cs" />
+    <Compile Include="Interpreter\NotFoundInterpreterFactory.cs" />
+    <Compile Include="PackageManager\PackageManagerUIRedirector.cs" />
+    <Compile Include="PackageManager\PipPackageCache.cs" />
+    <Compile Include="PackageManager\PipPackageManager.cs" />
+    <Compile Include="Interpreter\PythonInterpreterInformation.cs" />
+    <Compile Include="Interpreter\PythonRegistrySearch.cs" />
     <Compile Include="RegistryWatcher.cs" />
+    <Compile Include="WorkspaceExtensions.cs" />
   </ItemGroup>
   <Import Project="..\ProjectAfter.settings" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

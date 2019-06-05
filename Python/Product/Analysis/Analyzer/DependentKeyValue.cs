@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -39,7 +39,7 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
         }
 
         public bool AddTypes(AnalysisUnit unit, IEnumerable<AnalysisValue> keyTypes, IEnumerable<AnalysisValue> valueTypes, bool enqueue = true) {
-            return AddTypes(unit.ProjectEntry, unit.ProjectState, keyTypes, valueTypes, enqueue);
+            return AddTypes(unit.ProjectEntry, unit.State, keyTypes, valueTypes, enqueue);
         }
 
         public bool AddTypes(IProjectEntry projectEntry, PythonAnalyzer projectState, IEnumerable<AnalysisValue> keyTypes, IEnumerable<AnalysisValue> valueTypes, bool enqueue = true) {

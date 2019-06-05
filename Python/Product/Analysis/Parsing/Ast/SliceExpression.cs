@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -72,16 +72,26 @@ namespace Microsoft.PythonTools.Parsing.Ast {
                 _sliceStart.AppendCodeString(res, ast, format);
             }
             if (!this.IsIncompleteNode(ast)) {
-                res.Append(this.GetProceedingWhiteSpace(ast));
+                format.Append(res, format.SpaceBeforeSliceColon, " ", "", this.GetPreceedingWhiteSpaceDefaultNull(ast) ?? "");
                 res.Append(':');
                 if (_sliceStop != null) {
-                    _sliceStop.AppendCodeString(res, ast, format);
+                    string ws = null;
+                    if (format.SpaceAfterSliceColon.HasValue) {
+                        ws = "";
+                        format.Append(res, format.SpaceAfterSliceColon, " ", "", "");
+                    }
+                    _sliceStop.AppendCodeString(res, ast, format, ws);
                 }
                 if (_stepProvided) {
-                    res.Append(this.GetSecondWhiteSpace(ast));
+                    format.Append(res, format.SpaceBeforeSliceColon, " ", "", this.GetSecondWhiteSpaceDefaultNull(ast) ?? "");
                     res.Append(':');
                     if (_sliceStep != null) {
-                        _sliceStep.AppendCodeString(res, ast, format);
+                        string ws = null;
+                        if (format.SpaceAfterSliceColon.HasValue) {
+                            ws = "";
+                            format.Append(res, format.SpaceAfterSliceColon, " ", "", "");
+                        }
+                        _sliceStep.AppendCodeString(res, ast, format, ws);
                     }
                 }
             }
@@ -92,7 +102,7 @@ namespace Microsoft.PythonTools.Parsing.Ast {
             if (_sliceStart != null) {
                 return _sliceStart.GetLeadingWhiteSpace(ast);
             }
-            return this.GetProceedingWhiteSpace(ast);
+            return this.GetPreceedingWhiteSpace(ast);
         }
 
         public override void SetLeadingWhiteSpace(PythonAst ast, string whiteSpace) {

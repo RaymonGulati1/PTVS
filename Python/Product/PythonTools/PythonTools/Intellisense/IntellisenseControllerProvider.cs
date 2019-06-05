@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,10 +19,12 @@ using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Linq;
 using System.Runtime.InteropServices;
+using Microsoft.PythonTools.Editor;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Language.Intellisense;
+using Microsoft.VisualStudio.LanguageServer.Client;
 using Microsoft.VisualStudio.OLE.Interop;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
@@ -40,35 +42,25 @@ namespace Microsoft.PythonTools.Intellisense {
     [TextViewRole(PredefinedTextViewRoles.Editable)]
     class IntellisenseControllerProvider : IIntellisenseControllerProvider {
         [Import]
-        internal ICompletionBroker _CompletionBroker = null; // Set via MEF
-        [Import]
-        internal IEditorOperationsFactoryService _EditOperationsFactory = null; // Set via MEF
-        [Import]
-        internal IVsEditorAdaptersFactoryService _adaptersFactory { get; set; }
-        [Import]
-        internal ISignatureHelpBroker _SigBroker = null; // Set via MEF
-        [Import]
-        internal IQuickInfoBroker _QuickInfoBroker = null; // Set via MEF
-        [Import]
-        internal IIncrementalSearchFactoryService _IncrementalSearch = null; // Set via MEF
-        [Import]
-        internal AnalysisEntryService _EntryService = null; // Set via MEF
-        internal IServiceProvider _ServiceProvider;
-        internal PythonToolsService PythonService;
-
-        [ImportingConstructor]
-        public IntellisenseControllerProvider([Import(typeof(SVsServiceProvider))] IServiceProvider serviceProvider) {
-            _ServiceProvider = serviceProvider;
-            PythonService = serviceProvider.GetPythonToolsService();
-        }
+        internal PythonEditorServices Services = null;
 
         readonly Dictionary<ITextView, Tuple<BufferParser, VsProjectAnalyzer>> _hookedCloseEvents =
             new Dictionary<ITextView, Tuple<BufferParser, VsProjectAnalyzer>>();
 
         public IIntellisenseController TryCreateIntellisenseController(ITextView textView, IList<ITextBuffer> subjectBuffers) {
+            if (textView.Roles.Contains("DEBUGVIEW")) {
+                // TODO: Determine the context for this view and attach to the correct analyzer
+                return null;
+            }
+
+            if (textView.TextBuffer.ContentType.IsOfType(CodeRemoteContentDefinition.CodeRemoteContentTypeName)) {
+                // We want default handling when this is a remote buffer
+                return null;
+            }
+
             IntellisenseController controller;
             if (!textView.Properties.TryGetProperty(typeof(IntellisenseController), out controller)) {
-                controller = new IntellisenseController(this, textView, _ServiceProvider);
+                controller = new IntellisenseController(this, textView);
             }
 
             foreach (var subjectBuffer in subjectBuffers) {
@@ -97,7 +89,7 @@ namespace Microsoft.PythonTools.Intellisense {
                    where exportedContentType == PythonCoreConstants.ContentType && export.Value.GetType() == typeof(IntellisenseControllerProvider)
                    select export.Value
                 ).First();
-                controller = new IntellisenseController((IntellisenseControllerProvider)intellisenseControllerProvider, textView, serviceProvider);
+                controller = new IntellisenseController((IntellisenseControllerProvider)intellisenseControllerProvider, textView);
             }
             return controller;
         }
@@ -123,10 +115,10 @@ namespace Microsoft.PythonTools.Intellisense {
 
         #region IVsTextViewCreationListener Members
 
-        public void VsTextViewCreated(VisualStudio.TextManager.Interop.IVsTextView textViewAdapter) {
+        public void VsTextViewCreated(IVsTextView textViewAdapter) {
             var textView = _adaptersFactory.GetWpfTextView(textViewAdapter);
             IntellisenseController controller;
-            if (textView.Properties.TryGetProperty<IntellisenseController>(typeof(IntellisenseController), out controller)) {
+            if (textView.Properties.TryGetProperty(typeof(IntellisenseController), out controller)) {
                 controller.AttachKeyboardFilter();
             }
             InitKeyBindings(textViewAdapter);
@@ -145,11 +137,24 @@ namespace Microsoft.PythonTools.Intellisense {
 
             try {
                 os.GetSite(typeof(VisualStudio.OLE.Interop.IServiceProvider).GUID, out unkSite);
+                if (unkSite == IntPtr.Zero) {
+                    return;
+                }
                 var sp = Marshal.GetObjectForIUnknown(unkSite) as VisualStudio.OLE.Interop.IServiceProvider;
+                if (sp == null) {
+                    return;
+                }
 
                 sp.QueryService(typeof(SVsWindowFrame).GUID, typeof(IVsWindowFrame).GUID, out unkFrame);
+                if (unkFrame == IntPtr.Zero) {
+                    return;
+                }
 
                 var frame = Marshal.GetObjectForIUnknown(unkFrame) as IVsWindowFrame;
+                if (frame == null) {
+                    return;
+                }
+
                 frame.SetGuidProperty((int)__VSFPROPID.VSFPROPID_InheritKeyBindings, VSConstants.GUID_TextEditorFactory);
             } finally {
                 if (unkSite != IntPtr.Zero) {

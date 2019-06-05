@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -22,23 +22,17 @@ using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Parsing.Ast;
 
 namespace Microsoft.PythonTools.Analysis.Values {
-    class BuiltinInstanceInfo : BuiltinNamespace<IPythonType>, IReferenceableContainer {
+    class BuiltinInstanceInfo : BuiltinNamespace<IPythonType>, IBuiltinInstanceInfo, IReferenceableContainer {
         private readonly BuiltinClassInfo _klass;
 
         public BuiltinInstanceInfo(BuiltinClassInfo klass)
-            : base(klass._type, klass.ProjectState) {
+            : base(klass?._type, klass?.ProjectState) {
             _klass = klass;
         }
 
-        public BuiltinClassInfo ClassInfo {
-            get {
-                return _klass;
-            }
-        }
+        public BuiltinClassInfo ClassInfo => _klass;
 
-        public override IPythonType PythonType {
-            get { return _type; }
-        }
+        public override IPythonType PythonType => _type;
 
         public override IAnalysisSet GetInstanceType() {
             if (_klass.TypeId == BuiltinTypeId.Type) {
@@ -47,17 +41,9 @@ namespace Microsoft.PythonTools.Analysis.Values {
             return base.GetInstanceType();
         }
 
-        public override string Description {
-            get {
-                return _klass._type.Name;
-            }
-        }
-
-        public override string Documentation {
-            get {
-                return _klass.Documentation;
-            }
-        }
+        public override string Description => _klass.InstanceDescription;
+        public override string ShortDescription => _klass.ShortInstanceDescription;
+        public override string Documentation => _klass.Documentation;
 
         public override PythonMemberType MemberType {
             get {
@@ -88,10 +74,10 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
         public override IAnalysisSet UnaryOperation(Node node, AnalysisUnit unit, PythonOperator operation) {
             if (operation == PythonOperator.Not) {
-                return unit.ProjectState.ClassInfos[BuiltinTypeId.Bool].Instance;
+                return unit.State.ClassInfos[BuiltinTypeId.Bool].Instance;
             }
 
-            string methodName = InstanceInfo.UnaryOpToString(unit.ProjectState, operation);
+            string methodName = InstanceInfo.UnaryOpToString(unit.State, operation);
             if (methodName != null) {
                 var method = GetMember(node, unit, methodName);
                 if (method.Count > 0) {
@@ -155,9 +141,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 IAnalysisSet callRes;
                 if (_klass.GetAllMembers(ProjectState._defaultContext).TryGetValue("__call__", out callRes)) {
                     foreach (var overload in callRes.SelectMany(av => av.Overloads)) {
-                        yield return overload.WithNewParameters(
-                            overload.Parameters.Skip(1).ToArray()
-                        );
+                        yield return overload.WithoutLeadingParameters(1);
                     }
                 }
 
@@ -190,7 +174,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                     var iter = GetIterator(node, unit);
                     if (iter.Any()) {
                         return iter
-                            .GetMember(node, unit, unit.ProjectState.LanguageVersion.Is3x() ? "__next__" : "next")
+                            .GetMember(node, unit, unit.State.LanguageVersion.Is3x() ? "__next__" : "next")
                             .Call(node, unit, ExpressionEvaluator.EmptySets, ExpressionEvaluator.EmptyNames);
                     }
                 } finally {
@@ -202,7 +186,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
         }
 
         public override IAnalysisSet GetAsyncEnumeratorTypes(Node node, AnalysisUnit unit) {
-            if (unit.ProjectState.LanguageVersion.Is3x() && Push()) {
+            if (unit.State.LanguageVersion.Is3x() && Push()) {
                 try {
                     var iter = GetAsyncIterator(node, unit);
                     if (iter.Any()) {
@@ -236,9 +220,11 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
         internal override BuiltinTypeId TypeId {
             get {
-                return ClassInfo.PythonType.TypeId;
+                return _klass?.PythonType.TypeId ?? BuiltinTypeId.Unknown;
             }
         }
+
+        IBuiltinClassInfo IBuiltinInstanceInfo.ClassInfo => ClassInfo;
 
         internal override bool UnionEquals(AnalysisValue ns, int strength) {
             var dict = ProjectState.ClassInfos[BuiltinTypeId.Dict];
@@ -252,7 +238,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 }
                 return false;
             }
-            
+
             if (strength >= MergeStrength.ToObject) {
                 if (TypeId == BuiltinTypeId.NoneType || ns.TypeId == BuiltinTypeId.NoneType) {
                     // BII + BII(None) => do not merge
@@ -262,16 +248,8 @@ namespace Microsoft.PythonTools.Analysis.Values {
                     return TypeId == BuiltinTypeId.NoneType && ns.TypeId == BuiltinTypeId.NoneType;
                 }
 
-                var func = ProjectState.ClassInfos[BuiltinTypeId.Function];
-                if (this == func.Instance) {
-                    // FI + BII(function) => BII(function)
-                    return ns is FunctionInfo || ns is BuiltinFunctionInfo || ns == func.Instance;
-                } else if (ns == func.Instance) {
-                    return false;
-                }
-
                 var type = ProjectState.ClassInfos[BuiltinTypeId.Type];
-                if (this == type.Instance) {
+                if (ClassInfo == type) {
                     // CI + BII(type) => BII(type)
                     // BCI + BII(type) => BII(type)
                     return ns is ClassInfo || ns is BuiltinClassInfo || ns == type.Instance;
@@ -279,23 +257,32 @@ namespace Microsoft.PythonTools.Analysis.Values {
                     return false;
                 }
 
-                /// BII + II => BII(object)
-                /// BII + BII => BII(object)
-                return ns is InstanceInfo || ns is BuiltinInstanceInfo;
+                if (TypeId == BuiltinTypeId.Function) {
+                    // FI + BII(function) => BII(function)
+                    return ns is FunctionInfo || ns is BuiltinFunctionInfo ||
+                        (ns is BuiltinInstanceInfo && ns.TypeId == BuiltinTypeId.Function);
+                } else if (ns.TypeId == BuiltinTypeId.Function) {
+                    return false;
+                }
+
+                // BII + II => BII(object)
+                // BII + BII(!function) => BII(object)
+                return ns is InstanceInfo ||
+                    (ns is BuiltinInstanceInfo && ns.TypeId != BuiltinTypeId.Function);
 
             } else if (strength >= MergeStrength.ToBaseClass) {
                 var bii = ns as BuiltinInstanceInfo;
                 if (bii != null) {
-                    return ClassInfo.UnionEquals(bii.ClassInfo, strength);
+                    return _klass != null && _klass.UnionEquals(bii.ClassInfo, strength);
                 }
                 var ii = ns as InstanceInfo;
                 if (ii != null) {
-                    return ClassInfo.UnionEquals(ii.ClassInfo, strength);
+                    return _klass != null && _klass.UnionEquals(ii.ClassInfo, strength);
                 }
-            } else if (this is ConstantInfo || ns is ConstantInfo) {
+            } else if (ns is BuiltinInstanceInfo) {
                 // ConI + BII => BII if CIs match
                 var bii = ns as BuiltinInstanceInfo;
-                return bii != null && ClassInfo.Equals(bii.ClassInfo);
+                return bii != null && _klass != null && _klass.Equals(bii.ClassInfo);
             }
 
             return base.UnionEquals(ns, strength);
@@ -303,6 +290,10 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
         internal override int UnionHashCode(int strength) {
             if (strength >= MergeStrength.ToObject) {
+                var type = ProjectState.ClassInfos[BuiltinTypeId.Type];
+                if (ClassInfo == type) {
+                    return type.UnionHashCode(strength);
+                }
                 return ProjectState.ClassInfos[BuiltinTypeId.Object].GetHashCode();
             }
             return ClassInfo.UnionHashCode(strength);
@@ -316,6 +307,10 @@ namespace Microsoft.PythonTools.Analysis.Values {
                     // combinations of BuiltinInstanceInfo or ConstantInfo that
                     // need to be merged.
                     return ProjectState.ClassInfos[BuiltinTypeId.NoneType].Instance;
+                }
+
+                if (ClassInfo == ProjectState.ClassInfos[BuiltinTypeId.Type]) {
+                    return this;
                 }
 
                 var func = ProjectState.ClassInfos[BuiltinTypeId.Function];

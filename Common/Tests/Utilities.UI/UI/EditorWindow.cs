@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -31,21 +31,23 @@ using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
 using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Text.Tagging;
-using Microsoft.VisualStudioTools.VSTestHost;
 using Task = System.Threading.Tasks.Task;
 
 namespace TestUtilities.UI {
     public class EditorWindow : AutomationWrapper, IEditor {
         private readonly string _filename;
 
-        public EditorWindow(string filename, AutomationElement element)
+        public EditorWindow(VisualStudioApp app, string filename, AutomationElement element)
             : base(element) {
+            VisualStudioApp = app;
             _filename = filename;
         }
 
+        public VisualStudioApp VisualStudioApp { get; }
+
         public string Text {
             get {
-                return GetValue();
+                return TextView.TextSnapshot.GetText();
             }
         }
 
@@ -170,27 +172,21 @@ namespace TestUtilities.UI {
                 }
             }
         }
-#if DEV14_OR_LATER
-#pragma warning disable 0618
-#endif
-        public void StartSmartTagSessionNoSession() {
-            ShowSmartTag();
+
+        public void StartLightBulbSessionNoSession() {
+            ShowLightBulb();
             Thread.Sleep(100);
             Assert.IsNotInstanceOfType(
                 IntellisenseSessionStack.TopSession,
-#if DEV14_OR_LATER
                 typeof(ILightBulbSession)
-#else
-                typeof(ISmartTagSession)
-#endif
             );
         }
 
-        private static void ShowSmartTag() {
+        private void ShowLightBulb() {
             Task.Run(() => {
                 for (int i = 0; i < 40; i++) {
                     try {
-                        VSTestContext.DTE.ExecuteCommand("View.ShowSmartTag");
+                        VisualStudioApp.ExecuteCommand("View.ShowSmartTag");
                         break;
                     } catch {
                         Thread.Sleep(250);
@@ -199,14 +195,10 @@ namespace TestUtilities.UI {
             }).Wait();
         }
 
-        public SessionHolder<SmartTagSessionWrapper> StartSmartTagSession() {
-            ShowSmartTag();
-#if DEV14_OR_LATER
+        public SessionHolder<LightBulbSessionWrapper> StartLightBulbSession() {
+            ShowLightBulb();
             var sh = WaitForSession<ILightBulbSession>();
-#else
-            var sh = WaitForSession<ISmartTagSession>();
-#endif
-            return sh == null ? null : new SessionHolder<SmartTagSessionWrapper>(new SmartTagSessionWrapper(sh), this);
+            return sh == null ? null : new SessionHolder<LightBulbSessionWrapper>(new LightBulbSessionWrapper(sh), this);
         }
 
         public SessionHolder<T> WaitForSession<T>() where T : IIntellisenseSession {
@@ -224,7 +216,7 @@ namespace TestUtilities.UI {
 
             if (!(sessionStack.TopSession is T)) {
                 if (assertIfNoSession) {
-                    Console.WriteLine("Buffer text:\r\n{0}", Text);
+                    Console.WriteLine("Buffer text:\r\n{0}", TextView.TextBuffer.CurrentSnapshot.GetText());
                     Console.WriteLine("-----");
                     AutomationWrapper.DumpVS();
                     Assert.Fail("failed to find session " + typeof(T).FullName);
@@ -237,7 +229,7 @@ namespace TestUtilities.UI {
 
         public IIntellisenseSessionStack IntellisenseSessionStack {
             get {
-                var compModel = (IComponentModel)VSTestContext.ServiceProvider.GetService(typeof(SComponentModel));
+                var compModel = (IComponentModel)VisualStudioApp.ServiceProvider.GetService(typeof(SComponentModel));
                 var stackMapService = compModel.GetService<IIntellisenseSessionStackMapService>();
 
                 return stackMapService.GetStackForTextView(TextView);
@@ -252,7 +244,7 @@ namespace TestUtilities.UI {
         public IClassifier Classifier {
             get {
 
-                var compModel = (IComponentModel)VSTestContext.ServiceProvider.GetService(typeof(SComponentModel));
+                var compModel = (IComponentModel)VisualStudioApp.ServiceProvider.GetService(typeof(SComponentModel));
 
                 var provider = compModel.GetService<IClassifierAggregatorService>();
                 return provider.GetClassifier(TextView.TextBuffer);
@@ -260,19 +252,19 @@ namespace TestUtilities.UI {
         }
 
         public ITagAggregator<T> GetTaggerAggregator<T>(ITextBuffer buffer) where T : ITag {
-            var compModel = (IComponentModel)VSTestContext.ServiceProvider.GetService(typeof(SComponentModel));
+            var compModel = (IComponentModel)VisualStudioApp.ServiceProvider.GetService(typeof(SComponentModel));
 
             return compModel.GetService<Microsoft.VisualStudio.Text.Tagging.IBufferTagAggregatorFactoryService>().CreateTagAggregator<T>(buffer);
         }
 
-        internal static IWpfTextView GetTextView(string filePath) {
+        internal IWpfTextView GetTextView(string filePath) {
             IVsUIHierarchy uiHierarchy;
             uint itemID;
             IVsWindowFrame windowFrame;
 
-            if (VsShellUtilities.IsDocumentOpen(VSTestContext.ServiceProvider, filePath, Guid.Empty, out uiHierarchy, out itemID, out windowFrame)) {
+            if (VsShellUtilities.IsDocumentOpen(VisualStudioApp.ServiceProvider, filePath, Guid.Empty, out uiHierarchy, out itemID, out windowFrame)) {
                 var textView = VsShellUtilities.GetTextView(windowFrame);
-                IComponentModel compModel = (IComponentModel)VSTestContext.ServiceProvider.GetService(typeof(SComponentModel));
+                IComponentModel compModel = (IComponentModel)VisualStudioApp.ServiceProvider.GetService(typeof(SComponentModel));
                 var adapterFact = compModel.GetService<IVsEditorAdaptersFactoryService>();
                 return adapterFact.GetWpfTextView(textView);
             }
@@ -288,33 +280,42 @@ namespace TestUtilities.UI {
                         action();
                     } catch (Exception e) {
                         excep = ExceptionDispatchInfo.Capture(e);
-
                     }
                 })
             );
 
-            if (excep != null) {
-                excep.Throw();
-            }
+            excep?.Throw();
+        }
+
+        public void InvokeTask(Func<Task> asyncAction) {
+            ExceptionDispatchInfo excep = null;
+            ThreadHelper.JoinableTaskFactory.Run(async () => {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                try {
+                    Assert.AreSame(((UIElement)TextView).Dispatcher.Thread, Thread.CurrentThread);
+                    await asyncAction();
+                } catch (Exception e) {
+                    excep = ExceptionDispatchInfo.Capture(e);
+                }
+            });
+
+            excep?.Throw();
         }
 
         public T Invoke<T>(Func<T> action) {
-            Exception excep = null;
+            ExceptionDispatchInfo excep = null;
             T res = default(T);
             ((UIElement)TextView).Dispatcher.Invoke(
                 (Action)(() => {
                     try {
                         res = action();
                     } catch (Exception e) {
-                        excep = e;
-
+                        excep = ExceptionDispatchInfo.Capture(e);
                     }
                 })
             );
 
-            if (excep != null) {
-                Assert.Fail("Exception on UI thread: " + excep.ToString());
-            }
+            excep?.Throw();
             return res;
         }
 

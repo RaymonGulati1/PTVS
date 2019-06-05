@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -27,6 +27,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.PythonTools.Debugger.DebugEngine;
+using Microsoft.PythonTools.Editor;
 using Microsoft.PythonTools.Editor.Core;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Intellisense;
@@ -55,7 +56,9 @@ using Microsoft.VisualStudioTools.Project;
 using Task = System.Threading.Tasks.Task;
 
 namespace Microsoft.PythonTools {
-    public static class Extensions {
+    static class Extensions {
+        internal static readonly char[] QuoteChars = { '"', '\'' };
+
         internal static bool IsAppxPackageableProject(this ProjectNode projectNode) {
             var appxProp = projectNode.BuildProject.GetPropertyValue(ProjectFileConstants.AppxPackage);
             var containerProp = projectNode.BuildProject.GetPropertyValue(ProjectFileConstants.WindowsAppContainer);
@@ -87,6 +90,7 @@ namespace Microsoft.PythonTools {
                 case PythonMemberType.Event: group = StandardGlyphGroup.GlyphGroupEvent; break;
                 case PythonMemberType.Keyword: group = StandardGlyphGroup.GlyphKeyword; break;
                 case PythonMemberType.CodeSnippet: group = StandardGlyphGroup.GlyphCSharpExpansion; break;
+                case PythonMemberType.NamedArgument: group = StandardGlyphGroup.GlyphGroupMapItem; break;
                 case PythonMemberType.Function:
                 case PythonMemberType.Method:
                 default:
@@ -111,7 +115,7 @@ namespace Microsoft.PythonTools {
             var snapshot = buffer.CurrentSnapshot;
             var triggerPoint = session.GetTriggerPoint(buffer);
 
-            var span = snapshot.GetApplicableSpan(triggerPoint);
+            var span = snapshot.GetApplicableSpan(triggerPoint.GetPosition(snapshot), session.IsCompleteWordMode());
             if (span != null) {
                 return span;
             }
@@ -123,16 +127,7 @@ namespace Microsoft.PythonTools {
         /// </summary>
         /// <returns>A tracking span, or null if there is no token at the
         /// provided position.</returns>
-        internal static ITrackingSpan GetApplicableSpan(this ITextSnapshot snapshot, ITrackingPoint point) {
-            return snapshot.GetApplicableSpan(point.GetPosition(snapshot));
-        }
-
-        /// <summary>
-        /// Returns the applicable span at the provided position.
-        /// </summary>
-        /// <returns>A tracking span, or null if there is no token at the
-        /// provided position.</returns>
-        internal static ITrackingSpan GetApplicableSpan(this ITextSnapshot snapshot, int position) {
+        internal static ITrackingSpan GetApplicableSpan(this ITextSnapshot snapshot, int position, bool completeWord) {
             var classifier = snapshot.TextBuffer.GetPythonClassifier();
             var line = snapshot.GetLineFromPosition(position);
             if (classifier == null || line == null) {
@@ -140,9 +135,11 @@ namespace Microsoft.PythonTools {
             }
 
             var spanLength = position - line.Start.Position;
-            // Increase position by one to include 'fob' in: "abc.|fob"
-            if (spanLength < line.Length) {
-                spanLength += 1;
+            if (completeWord) {
+                // Increase position by one to include 'fob' in: "abc.|fob"
+                if (spanLength < line.Length) {
+                    spanLength += 1;
+                }
             }
 
             var classifications = classifier.GetClassificationSpans(new SnapshotSpan(line.Start, spanLength));
@@ -161,16 +158,20 @@ namespace Microsoft.PythonTools {
                 if (lastToken.ClassificationType.IsOfType(PredefinedClassificationTypeNames.String)) {
                     // Handle "'contents of strin|g"
                     var text = lastToken.Span.GetText();
-                    var span = StringLiteralCompletionList.GetStringContentSpan(text, lastToken.Span.Start) ?? lastToken.Span;
+                    var span = GetStringContentSpan(text, lastToken.Span.Start) ?? lastToken.Span;
 
                     return snapshot.CreateTrackingSpan(span, SpanTrackingMode.EdgeInclusive);
-                } else if (lastToken.CanComplete()) {
-                    // Handle "fo|o"
-                    return snapshot.CreateTrackingSpan(lastToken.Span, SpanTrackingMode.EdgeInclusive);
-                } else {
-                    // Handle "<|="
-                    return null;
                 }
+
+                if (lastToken.CanComplete()) {
+                    // Handle "fo|o" : when it is 'show member' or 'complete word' use complete token.
+                    // When it is autocompletion (as when typing in front of the existing contruct), take left part only.
+                    var span = completeWord ? lastToken.Span : Span.FromBounds(lastToken.Span.Start, position);
+                    return snapshot.CreateTrackingSpan(span, SpanTrackingMode.EdgeInclusive);
+                } 
+
+                // Handle "<|="
+                return null;
             }
 
             var secondLastToken = classifications.Count >= 2 ? classifications[classifications.Count - 2] : null;
@@ -190,8 +191,28 @@ namespace Microsoft.PythonTools {
             return null;
         }
 
+        internal static Span? GetStringContentSpan(string text, int globalStart = 0) {
+            var firstQuote = text.IndexOfAny(QuoteChars);
+            var lastQuote = text.LastIndexOfAny(QuoteChars) - 1;
+            if (firstQuote < 0 || lastQuote < 0) {
+                return null;
+            }
+
+            if (firstQuote + 2 < text.Length &&
+                text[firstQuote + 1] == text[firstQuote] && text[firstQuote + 2] == text[firstQuote]) {
+                firstQuote += 2;
+
+                lastQuote -= 2;
+            }
+
+            return new Span(
+                globalStart + firstQuote + 1,
+                (lastQuote >= firstQuote ? lastQuote : text.Length) - firstQuote
+            );
+        }
+
         public static IPythonInterpreterFactory GetPythonInterpreterFactory(this IVsHierarchy self) {
-            var node = (self.GetProject().GetCommonProject() as PythonProjectNode);
+            var node = (self.GetProject()?.GetCommonProject() as PythonProjectNode);
             if (node != null) {
                 return node.GetInterpreterFactory();
             }
@@ -222,75 +243,71 @@ namespace Microsoft.PythonTools {
         }
 
 
+        internal static PythonProjectNode GetPythonProject(this ProjectNode project) {
+            return ((IVsHierarchy)project).GetPythonProject();
+        }
+
         internal static PythonProjectNode GetPythonProject(this IVsProject project) {
-            return ((IVsHierarchy)project).GetProject().GetCommonProject() as PythonProjectNode;
+            return ((IVsHierarchy)project).GetPythonProject();
+        }
+
+        internal static PythonProjectNode GetPythonProject(this IVsHierarchy project) {
+            return project.GetProject()?.GetCommonProject() as PythonProjectNode;
         }
 
         internal static PythonProjectNode GetPythonProject(this EnvDTE.Project project) {
             return project.GetCommonProject() as PythonProjectNode;
         }
 
-        internal static AnalysisEntry GetAnalysisEntry(this FileNode node) {
-            return ((PythonProjectNode)node.ProjectMgr).GetAnalyzer().GetAnalysisEntryFromPath(node.Url);
+        internal static string GetNameProperty(this IVsHierarchy project) {
+            object value;
+            ErrorHandler.ThrowOnFailure(project.GetProperty(
+                (uint)VSConstants.VSITEMID.Root,
+                (int)__VSHPROPID.VSHPROPID_Name,
+                out value
+            ));
+            return value as string;
         }
 
-        internal static PythonProjectNode GetProject(this ITextBuffer buffer, IServiceProvider serviceProvider) {
-            var path = buffer.GetFilePath();
-            if (path != null) {
-                var sln = serviceProvider.GetService(typeof(SVsSolution)) as IVsSolution;
-                if (sln != null) {
-                    foreach (var proj in sln.EnumerateLoadedPythonProjects()) {
-                        int found;
-                        var priority = new VSDOCUMENTPRIORITY[1];
-                        uint itemId;
-                        ErrorHandler.ThrowOnFailure(proj.IsDocumentInProject(path, out found, priority, out itemId));
-                        if (found != 0) {
-                            return proj;
-                        }
-                    }
-                }
-            }
-            return null;
+        internal static Guid GetProjectIDGuidProperty(this IVsHierarchy project) {
+            Guid guid;
+            ErrorHandler.ThrowOnFailure(project.GetGuidProperty(
+                (uint)VSConstants.VSITEMID.Root,
+                (int)__VSHPROPID.VSHPROPID_ProjectIDGuid,
+                out guid
+            ));
+            return guid;
         }
 
-        internal static AnalysisEntryService GetEntryService(this IServiceProvider serviceProvider) {
-            return serviceProvider.GetComponentModel()?.GetService<AnalysisEntryService>();
+
+        internal static PythonEditorServices GetEditorServices(this IServiceProvider serviceProvider) {
+            return serviceProvider.GetComponentModel()?.GetService<PythonEditorServices>();
         }
 
-        internal static PythonLanguageVersion GetLanguageVersion(this ITextView textView, IServiceProvider serviceProvider) {
+        internal static async Task<PythonLanguageVersion> GetLanguageVersionAsync(this ITextView textView, IServiceProvider serviceProvider) {
             var evaluator = textView.TextBuffer.GetInteractiveWindow().GetPythonEvaluator();
             if (evaluator != null) {
                 return evaluator.LanguageVersion;
             }
 
-            var service = serviceProvider.GetEntryService();
-            if (service != null) {
-                var analyzer = service.GetVsAnalyzer(textView, null) ?? (service.DefaultAnalyzer as VsProjectAnalyzer);
-                if (analyzer != null) {
-                    return analyzer.LanguageVersion;
-                }
-            }
-            return PythonLanguageVersion.None;
-        }
-
-        internal static PythonLanguageVersion GetLanguageVersion(this ITextBuffer textBuffer, IServiceProvider serviceProvider) {
-            var evaluator = textBuffer.GetInteractiveWindow().GetPythonEvaluator();
-            if (evaluator != null) {
-                return evaluator.LanguageVersion;
+            var entry = textView.TextBuffer.TryGetAnalysisEntry();
+            if (entry?.Analyzer != null) {
+                return entry.Analyzer.LanguageVersion;
             }
 
-            var service = serviceProvider.GetEntryService();
-            if (service != null) {
-                VsProjectAnalyzer analyzer = service.GetVsAnalyzer(null, textBuffer);
-                if (analyzer != null) {
-                    return analyzer.LanguageVersion;
-                }
+            var analyzer = await serviceProvider.FindAnalyzerAsync(textView);
+            if (analyzer is VsProjectAnalyzer pyAnalyzer) {
+                return pyAnalyzer.LanguageVersion;
+            }
 
-                analyzer = service.DefaultAnalyzer as VsProjectAnalyzer;
-                if (analyzer != null) {
-                    return analyzer.LanguageVersion;
+            var defaultInterp = serviceProvider.GetPythonToolsService().InterpreterOptionsService.DefaultInterpreter;
+            if (defaultInterp?.Configuration != null) {
+                try {
+                    return defaultInterp.Configuration.Version.ToLanguageVersion();
+                } catch (InvalidOperationException) {
                 }
             }
+
             return PythonLanguageVersion.None;
         }
 
@@ -308,14 +325,10 @@ namespace Microsoft.PythonTools {
         /// </summary>
         internal static AnalysisEntry GetAnalysisAtCaret(this ITextView textView, IServiceProvider serviceProvider) {
             var buffer = textView.GetPythonBufferAtCaret();
-            if (buffer == null) {
-                return null;
+            if (buffer != null) {
+                return buffer.TryGetAnalysisEntry();
             }
-
-            var service = serviceProvider.GetEntryService();
-            AnalysisEntry entry = null;
-            service?.TryGetAnalysisEntry(textView, buffer, out entry);
-            return entry;
+            return textView.TryGetAnalysisEntry(serviceProvider);
         }
 
         /// <summary>
@@ -413,7 +426,12 @@ namespace Microsoft.PythonTools {
             }
             var project = hierarchy.GetProject();
             if (project != null) {
-                return project.GetPythonProject();
+                var pyProj = project.GetPythonProject();
+                var node = pyProj?.FindNodeByFullPath(filename);
+                if (node == null || !node.IsVisible) {
+                    return null;
+                }
+                return pyProj;
             }
 
             object projectObj;
@@ -422,6 +440,11 @@ namespace Microsoft.PythonTools {
         }
 
         internal static PythonProjectNode GetProjectContainingFile(this IServiceProvider serviceProvider, string filename) {
+            if (!Path.IsPathRooted(filename)) {
+                // If the file is not a full path, it didn't come from a project
+                return null;
+            }
+
             var sln = (IVsSolution)serviceProvider.GetService(typeof(SVsSolution));
             return sln.EnumerateLoadedPythonProjects()
                 .FirstOrDefault(p => p.FindNodeByFullPath(filename) != null);
@@ -691,7 +714,8 @@ namespace Microsoft.PythonTools {
 
         internal static bool TryGetShellProperty<T>(this IServiceProvider provider, __VSSPROPID propId, out T value) {
             object obj;
-            if (ErrorHandler.Failed(provider.GetShell().GetProperty((int)propId, out obj))) {
+            var shell = provider.GetShell();
+            if (shell == null || ErrorHandler.Failed(shell.GetProperty((int)propId, out obj))) {
                 value = default(T);
                 return false;
             }
@@ -816,7 +840,18 @@ namespace Microsoft.PythonTools {
 
         internal static void ShowWindowPane(this IServiceProvider serviceProvider, Type windowPane, bool focus) {
             var toolWindowService = (IPythonToolsToolWindowService)serviceProvider.GetService(typeof(IPythonToolsToolWindowService));
-            toolWindowService.ShowWindowPane(windowPane, focus);
+            toolWindowService.ShowWindowPaneAsync(windowPane, focus).DoNotWait();
+        }
+
+        private const string TaskStatusCenterCommandSetGuidString = "EF254CCF-CEE3-43E9-A22C-3AE3AB08E7FE";
+        private static readonly Guid TaskStatusCenterCommandSetGuid = new Guid(TaskStatusCenterCommandSetGuidString);
+
+        // View.ShowTaskStatusCenter
+        private const int cmdidShowTaskStatusCenter = 0x0100;
+        public static readonly CommandID ShowTaskStatusCenterCommand = new CommandID(TaskStatusCenterCommandSetGuid, cmdidShowTaskStatusCenter);
+
+        public static void ShowTaskStatusCenter(this IServiceProvider provider) {
+            provider.GlobalInvoke(ShowTaskStatusCenterCommand);
         }
 
         public static string BrowseForDirectory(this IServiceProvider provider, IntPtr owner, string initialDirectory = null) {
@@ -873,26 +908,26 @@ namespace Microsoft.PythonTools {
                    (snapshot[0] == '%' || snapshot[0] == '$'); // IPython and normal repl commands
         }
 
-        internal static bool IsAnalysisCurrent(this IPythonInterpreterFactory factory) {
-            var interpFact = factory as IPythonInterpreterFactoryWithDatabase;
-            if (interpFact != null) {
-                return interpFact.IsCurrent;
-            }
-
-            return true;
-        }
-
         internal static bool IsOpenGrouping(this ClassificationSpan span) {
             return span.ClassificationType.IsOfType(PythonPredefinedClassificationTypeNames.Grouping) &&
                 span.Span.Length == 1 &&
-                (span.Span.GetText() == "{" || span.Span.GetText() == "[" || span.Span.GetText() == "(");
+                span.Span.GetText().IsOpenGrouping();
         }
 
         internal static bool IsCloseGrouping(this ClassificationSpan span) {
             return span.ClassificationType.IsOfType(PythonPredefinedClassificationTypeNames.Grouping) &&
                 span.Span.Length == 1 &&
-                (span.Span.GetText() == "}" || span.Span.GetText() == "]" || span.Span.GetText() == ")");
+                span.Span.GetText().IsCloseGrouping();
         }
+
+        internal static bool IsOpenGrouping(this string s) {
+            return s == "{" || s == "[" || s == "(";
+        }
+
+        internal static bool IsCloseGrouping(this string s) {
+            return s == "}" || s == "]" || s == ")";
+        }
+
 
         internal static T Pop<T>(this List<T> list) {
             if (list.Count == 0) {

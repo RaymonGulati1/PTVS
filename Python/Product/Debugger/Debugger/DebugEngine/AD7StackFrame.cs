@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -76,9 +76,9 @@ namespace Microsoft.PythonTools.Debugger.DebugEngine {
                 if (funcName == "<module>") {
                     if (PathUtils.IsValidPath(_stackFrame.FileName)) {
                         funcName = Strings.DebugFileModule.FormatUI(Path.GetFileNameWithoutExtension(_stackFrame.FileName));
-                    } else if (_stackFrame.FileName.EndsWith("<string>")) {
+                    } else if (_stackFrame.FileName.EndsWithOrdinal("<string>")) {
                         funcName = Strings.DebugExecEvalFunctionName;
-                    } else if (_stackFrame.FileName.EndsWith("<stdin>")) {
+                    } else if (_stackFrame.FileName.EndsWithOrdinal("<stdin>")) {
                         funcName = Strings.DebugReplInputFunctionName;
                     } else {
                         funcName = Strings.DebugFileUnknownCode.FormatUI(_stackFrame.FileName);
@@ -119,9 +119,9 @@ namespace Microsoft.PythonTools.Debugger.DebugEngine {
             if ((dwFieldSpec & enum_FRAMEINFO_FLAGS.FIF_MODULE) != 0) {
                 if (PathUtils.IsValidPath(_stackFrame.FileName)) {
                     frameInfo.m_bstrModule = Path.GetFileNameWithoutExtension(this._stackFrame.FileName);
-                } else if (_stackFrame.FileName.EndsWith("<string>")) {
+                } else if (_stackFrame.FileName.EndsWithOrdinal("<string>")) {
                     frameInfo.m_bstrModule = Strings.DebugExecEvalModuleName;
-                } else if (_stackFrame.FileName.EndsWith("<stdin>")) {
+                } else if (_stackFrame.FileName.EndsWithOrdinal("<stdin>")) {
                     frameInfo.m_bstrModule = Strings.DebugReplModuleName;
                 } else {
                     frameInfo.m_bstrModule = Strings.DebugUnknownModuleName;
@@ -268,13 +268,10 @@ namespace Microsoft.PythonTools.Debugger.DebugEngine {
         // and will use it to open the correct source document for this stack frame.
         int IDebugStackFrame2.GetDocumentContext(out IDebugDocumentContext2 docContext) {
             docContext = null;
-            // Assume all lines begin and end at the beginning of the line.
-            TEXT_POSITION begTp = new TEXT_POSITION();
-            begTp.dwColumn = 0;
-            begTp.dwLine = (uint)_stackFrame.LineNo - 1;
-            TEXT_POSITION endTp = new TEXT_POSITION();
-            endTp.dwColumn = 0;
-            endTp.dwLine = (uint)_stackFrame.LineNo - 1;
+
+            var span = _engine.Process.GetStatementSpan(StackFrame.FileName, _stackFrame.LineNo, 0);
+            var begTp = new TEXT_POSITION { dwLine = (uint)(span.Start.Line - 1), dwColumn = (uint)(span.Start.Column - 1) };
+            var endTp = new TEXT_POSITION { dwLine = (uint)(span.End.Line - 1), dwColumn = (uint)(span.End.Column - 1) };
 
             docContext = new AD7DocumentContext(_stackFrame.FileName, begTp, endTp, null, _stackFrame.Kind);
             return VSConstants.S_OK;

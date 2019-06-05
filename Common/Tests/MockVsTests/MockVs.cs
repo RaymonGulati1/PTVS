@@ -9,15 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.ComponentModel.Composition;
-using System.ComponentModel.Composition.Hosting;
 using System.ComponentModel.Composition.Primitives;
 using System.ComponentModel.Design;
 using System.Diagnostics;
@@ -27,10 +26,12 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using EnvDTE;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.ComponentModelHost;
+using Microsoft.VisualStudio.Composition;
 using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.OLE.Interop;
@@ -42,39 +43,40 @@ using Microsoft.VisualStudio.TextManager.Interop;
 using Microsoft.VisualStudio.Utilities;
 using TestUtilities;
 using TestUtilities.Mocks;
+using MefV1 = System.ComponentModel.Composition;
 using Thread = System.Threading.Thread;
 
 namespace Microsoft.VisualStudioTools.MockVsTests {
     public sealed class MockVs : IComponentModel, IDisposable, IVisualStudioInstance {
         internal static CachedVsInfo CachedInfo = CreateCachedVsInfo();
-        public CompositionContainer Container;
+        private ExportProvider _container;
         private IContentTypeRegistryService _contentTypeRegistry;
         private Dictionary<Guid, Package> _packages = new Dictionary<Guid, Package>();
-        internal readonly MockVsTextManager TextManager;
+        internal MockVsTextManager TextManager;
         internal readonly MockActivityLog ActivityLog = new MockActivityLog();
         internal readonly MockSettingsManager SettingsManager = new MockSettingsManager();
         internal readonly MockLocalRegistry LocalRegistry = new MockLocalRegistry();
         internal readonly MockVsDebugger Debugger = new MockVsDebugger();
         internal readonly MockVsTrackProjectDocuments TrackDocs = new MockVsTrackProjectDocuments();
         internal readonly MockVsShell Shell = new MockVsShell();
-        internal readonly MockVsUIShell UIShell;
+        internal MockVsUIShell UIShell;
         public readonly MockVsSolution Solution = new MockVsSolution();
-        private readonly MockVsServiceProvider _serviceProvider;
+        private MockVsServiceProvider _serviceProvider;
         private readonly List<MockVsTextView> _views = new List<MockVsTextView>();
         private readonly MockVsProfferCommands _proferredCommands = new MockVsProfferCommands();
         private readonly MockOleComponentManager _compManager = new MockOleComponentManager();
         private readonly MockOutputWindow _outputWindow = new MockOutputWindow();
         private readonly MockVsBuildManagerAccessor _buildManager = new MockVsBuildManagerAccessor();
         private readonly MockUIHierWinClipboardHelper _hierClipHelper = new MockUIHierWinClipboardHelper();
-        internal readonly MockVsMonitorSelection _monSel;
-        internal readonly uint _monSelCookie;
-        internal readonly MockVsUIHierarchyWindow _uiHierarchy;
+        internal MockVsMonitorSelection _monSel;
+        internal uint _monSelCookie;
+        internal MockVsUIHierarchyWindow _uiHierarchy;
         private readonly MockVsQueryEditQuerySave _queryEditSave = new MockVsQueryEditQuerySave();
-        private readonly MockVsRunningDocumentTable _rdt;
+        private MockVsRunningDocumentTable _rdt;
         private readonly MockVsUIShellOpenDocument _shellOpenDoc = new MockVsUIShellOpenDocument();
         private readonly MockVsSolutionBuildManager _slnBuildMgr = new MockVsSolutionBuildManager();
         private readonly MockVsExtensibility _extensibility = new MockVsExtensibility();
-        private readonly MockDTE _dte;
+        private MockDTE _dte;
         private bool _shutdown;
         private AutoResetEvent _uiEvent = new AutoResetEvent(false);
         private readonly List<Action> _uiEvents = new List<Action>();
@@ -93,50 +95,6 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
         private readonly Thread UIThread;
 
         public MockVs() {
-            TextManager = new MockVsTextManager(this);
-            Container = CreateCompositionContainer();
-            var serviceProvider = _serviceProvider = Container.GetExportedValue<MockVsServiceProvider>();
-            UIShell = new MockVsUIShell(this);
-            _monSel = new MockVsMonitorSelection(this);
-            _uiHierarchy = new MockVsUIHierarchyWindow(this);
-            _rdt = new MockVsRunningDocumentTable(this);
-            _dte = new MockDTE(this);
-            _serviceProvider.AddService(typeof(SVsTextManager), TextManager);
-            _serviceProvider.AddService(typeof(SVsActivityLog), ActivityLog);
-            _serviceProvider.AddService(typeof(SVsSettingsManager), SettingsManager);
-            _serviceProvider.AddService(typeof(SLocalRegistry), LocalRegistry);
-            _serviceProvider.AddService(typeof(SComponentModel), this);
-            _serviceProvider.AddService(typeof(IVsDebugger), Debugger);
-            _serviceProvider.AddService(typeof(SVsSolution), Solution);
-            _serviceProvider.AddService(typeof(SVsRegisterProjectTypes), Solution);
-            _serviceProvider.AddService(typeof(SVsCreateAggregateProject), Solution);
-            _serviceProvider.AddService(typeof(SVsTrackProjectDocuments), TrackDocs);
-            _serviceProvider.AddService(typeof(SVsShell), Shell);
-            _serviceProvider.AddService(typeof(SOleComponentManager), _compManager);
-            _serviceProvider.AddService(typeof(SVsProfferCommands), _proferredCommands);
-            _serviceProvider.AddService(typeof(SVsOutputWindow), _outputWindow);
-            _serviceProvider.AddService(typeof(SVsBuildManagerAccessor), _buildManager);
-            _serviceProvider.AddService(typeof(SVsUIHierWinClipboardHelper), _hierClipHelper);
-            _serviceProvider.AddService(typeof(IVsUIShell), UIShell);
-            _serviceProvider.AddService(typeof(IVsMonitorSelection), _monSel);
-            _serviceProvider.AddService(typeof(SVsQueryEditQuerySave), _queryEditSave);
-            _serviceProvider.AddService(typeof(SVsRunningDocumentTable), _rdt);
-            _serviceProvider.AddService(typeof(SVsUIShellOpenDocument), _shellOpenDoc);
-            _serviceProvider.AddService(typeof(SVsSolutionBuildManager), _slnBuildMgr);
-            _serviceProvider.AddService(typeof(EnvDTE.IVsExtensibility), _extensibility);
-            _serviceProvider.AddService(typeof(EnvDTE.DTE), _dte);
-
-            Shell.SetProperty((int)__VSSPROPID4.VSSPROPID_ShellInitialized, true);
-
-            UIShell.AddToolWindow(new Guid(ToolWindowGuids80.SolutionExplorer), new MockToolWindow(_uiHierarchy));
-
-            ErrorHandler.ThrowOnFailure(
-                _monSel.AdviseSelectionEvents(
-                    new SelectionEvents(this),
-                    out _monSelCookie
-                )
-            );
-
 #if DEV15_OR_LATER
             // If we are not in Visual Studio, we need to set MSBUILD_EXE_PATH
             // to use any project support.
@@ -148,6 +106,12 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
                         vsPath = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
                     }
                     vsPath = Path.Combine(vsPath, "Microsoft Visual Studio", AssemblyVersionInfo.VSVersionSuffix);
+                    foreach (var sku in new[] { "Enterprise", "Professional", "Community" }) {
+                        if (Directory.Exists(Path.Combine(vsPath, sku))) {
+                            vsPath = Path.Combine(vsPath, sku);
+                            break;
+                        }
+                    }
                 }
                 if (Directory.Exists(vsPath)) {
                     var msbuildPath = Path.Combine(vsPath, "MSBuild");
@@ -166,6 +130,7 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
 
             using (var e = new AutoResetEvent(false)) {
                 UIThread = new Thread(UIThreadWorker);
+                UIThread.SetApartmentState(ApartmentState.STA);
                 UIThread.Name = "Mock UI Thread";
                 UIThread.Start((object)e);
                 // Wait for UI thread to start before returning. This ensures that
@@ -187,17 +152,17 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
                 package.Dispose();
             }
 
-            _shutdown = true;
+            _monSel.UnadviseSelectionEvents(_monSelCookie);
             Shell.SetProperty((int)__VSSPROPID6.VSSPROPID_ShutdownStarted, true);
+            _serviceProvider.Dispose();
+            _container.Dispose();
+            _shutdown = true;
             _uiEvent.Set();
             if (!UIThread.Join(TimeSpan.FromSeconds(30))) {
                 Console.WriteLine("Failed to wait for UI thread to terminate");
             }
             ThrowPendingException();
-            _monSel.UnadviseSelectionEvents(_monSelCookie);
             AssertListener.ThrowUnhandled();
-            _serviceProvider.Dispose();
-            Container.Dispose();
         }
 
 
@@ -243,10 +208,57 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
         }
 
         private void UIThreadWorker(object evt) {
+            Console.WriteLine($"Started UIThreadWorker on {Thread.CurrentThread.ManagedThreadId}");
             try {
                 try {
                     SynchronizationContext.SetSynchronizationContext(new MockSyncContext(this));
-                    foreach (var package in Container.GetExportedValues<IMockPackage>()) {
+
+                    TextManager = new MockVsTextManager(this);
+                    _container = CreateCompositionContainer();
+
+                    _serviceProvider = _container.GetExportedValue<MockVsServiceProvider>();
+                    UIShell = new MockVsUIShell(this);
+                    _monSel = new MockVsMonitorSelection(this);
+                    _uiHierarchy = new MockVsUIHierarchyWindow(this);
+                    _rdt = new MockVsRunningDocumentTable(this);
+                    _dte = new MockDTE(this);
+                    _serviceProvider.AddService(typeof(SVsTextManager), TextManager);
+                    _serviceProvider.AddService(typeof(SVsActivityLog), ActivityLog);
+                    _serviceProvider.AddService(typeof(SVsSettingsManager), SettingsManager);
+                    _serviceProvider.AddService(typeof(SLocalRegistry), LocalRegistry);
+                    _serviceProvider.AddService(typeof(SComponentModel), this);
+                    _serviceProvider.AddService(typeof(IVsDebugger), Debugger);
+                    _serviceProvider.AddService(typeof(SVsSolution), Solution);
+                    _serviceProvider.AddService(typeof(SVsRegisterProjectTypes), Solution);
+                    _serviceProvider.AddService(typeof(SVsCreateAggregateProject), Solution);
+                    _serviceProvider.AddService(typeof(SVsTrackProjectDocuments), TrackDocs);
+                    _serviceProvider.AddService(typeof(SVsShell), Shell);
+                    _serviceProvider.AddService(typeof(SOleComponentManager), _compManager);
+                    _serviceProvider.AddService(typeof(SVsProfferCommands), _proferredCommands);
+                    _serviceProvider.AddService(typeof(SVsOutputWindow), _outputWindow);
+                    _serviceProvider.AddService(typeof(SVsBuildManagerAccessor), _buildManager);
+                    _serviceProvider.AddService(typeof(SVsUIHierWinClipboardHelper), _hierClipHelper);
+                    _serviceProvider.AddService(typeof(IVsUIShell), UIShell);
+                    _serviceProvider.AddService(typeof(IVsMonitorSelection), _monSel);
+                    _serviceProvider.AddService(typeof(SVsQueryEditQuerySave), _queryEditSave);
+                    _serviceProvider.AddService(typeof(SVsRunningDocumentTable), _rdt);
+                    _serviceProvider.AddService(typeof(SVsUIShellOpenDocument), _shellOpenDoc);
+                    _serviceProvider.AddService(typeof(SVsSolutionBuildManager), _slnBuildMgr);
+                    _serviceProvider.AddService(typeof(EnvDTE.IVsExtensibility), _extensibility);
+                    _serviceProvider.AddService(typeof(EnvDTE.DTE), _dte);
+
+                    Shell.SetProperty((int)__VSSPROPID4.VSSPROPID_ShellInitialized, true);
+
+                    UIShell.AddToolWindow(new Guid(ToolWindowGuids80.SolutionExplorer), new MockToolWindow(_uiHierarchy));
+
+                    ErrorHandler.ThrowOnFailure(
+                        _monSel.AdviseSelectionEvents(
+                            new SelectionEvents(this),
+                            out _monSelCookie
+                        )
+                    );
+
+                    foreach (var package in _container.GetExportedValues<IMockPackage>()) {
                         _loadedPackages.Add(package);
                         package.Initialize();
                     }
@@ -311,44 +323,61 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
             }
         }
 
-        public void InvokeSync(Action action) {
-            Invoke<int>(() => {
+        public void InvokeSync(Action action, int timeout = 30000) {
+            Invoke(() => {
                 action();
                 return 0;
             });
         }
 
-        public T Invoke<T>(Func<T> func) {
+        public T InvokeTask<T>(Func<Task<T>> taskCreator, int timeout = 30000) {
+            return WaitForTask(Invoke(taskCreator, timeout), timeout);
+        }
+
+        public T Invoke<T>(Func<T> func, int timeout = 30000) {
             ThrowPendingException();
             if (Thread.CurrentThread == UIThread) {
                 return func();
             }
 
-            T res = default(T);
-            using (var tmp = new AutoResetEvent(false)) {
-                Action action = () => {
-                    try {
-                        res = func();
-                    } finally {
-                        tmp.Set();
-                    }
-                };
-
-                lock (_uiEvents) {
-                    _uiEvents.Add(action);
-                    _uiEvent.Set();
+            var tcs = new TaskCompletionSource<T>();
+            Action action = () => {
+                try {
+                    tcs.SetResult(func());
+                } catch (Exception ex) {
+                    tcs.SetException(ex);
                 }
+            };
 
-                while (!tmp.WaitOne(100)) {
-                    if (!UIThread.IsAlive) {
-                        ThrowPendingException(checkThread: false);
-                        Debug.Fail("UIThread was terminated");
-                        return res;
+            lock (_uiEvents) {
+                _uiEvents.Add(action);
+                _uiEvent.Set();
+            }
+
+            return WaitForTask(tcs.Task, timeout);
+        }
+
+        private T WaitForTask<T>(Task<T> task, int timeout) {
+            try {
+                if (timeout > 0) {
+                    if (!task.Wait(timeout)) {
+                        Assert.Fail("Timed out waiting for operation");
+                        throw new OperationCanceledException();
+                    }
+                } else {
+                    while (!task.Wait(100)) {
+                        if (!UIThread.IsAlive) {
+                            ThrowPendingException(checkThread: false);
+                            Debug.Fail("UIThread was terminated");
+                            return default(T);
+                        }
                     }
                 }
+            } catch (AggregateException ae) when (ae.InnerException != null) {
+                throw ae.InnerException;
             }
             ThrowPendingException(checkThread: false);
-            return res;
+            return task.Result;
         }
 
 
@@ -398,7 +427,7 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
             LanguageServiceInfo info;
             if (CachedInfo.LangServicesByName.TryGetValue(contentType, out info)) {
                 var id = info.Attribute.LanguageServiceSid;
-                var serviceProvider = Container.GetExportedValue<MockVsServiceProvider>();
+                var serviceProvider = _container.GetExportedValue<MockVsServiceProvider>();
                 var langInfo = (IVsLanguageInfo)serviceProvider.GetService(id);
                 if (langInfo == null) {
                     throw new NotImplementedException("Unable to get IVsLanguageInfo for " + info.Attribute.LanguageName);
@@ -414,7 +443,7 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
             }
 
             // Initialize intellisense imports
-            var providers = Container.GetExports<IIntellisenseControllerProvider, IContentTypeMetadata>();
+            var providers = _container.GetExports<IIntellisenseControllerProvider, IContentTypeMetadata>();
             foreach (var provider in providers) {
                 foreach (var targetContentType in provider.Metadata.ContentTypes) {
                     if (buffer.ContentType.IsOfType(targetContentType)) {
@@ -428,7 +457,7 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
             }
 
             // tell the world we have a new view...
-            foreach (var listener in Container.GetExports<IVsTextViewCreationListener, IContentTypeMetadata>()) {
+            foreach (var listener in _container.GetExports<IVsTextViewCreationListener, IContentTypeMetadata>()) {
                 foreach (var targetContentType in listener.Metadata.ContentTypes) {
                     if (buffer.ContentType.IsOfType(targetContentType)) {
                         listener.Value.VsTextViewCreated(res);
@@ -443,8 +472,8 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
         public IContentTypeRegistryService ContentTypeRegistry {
             get {
                 if (_contentTypeRegistry == null) {
-                    _contentTypeRegistry = Container.GetExport<IContentTypeRegistryService>().Value;
-                    var contentDefinitions = Container.GetExports<ContentTypeDefinition, IContentTypeDefinitionMetadata>();
+                    _contentTypeRegistry = _container.GetExport<IContentTypeRegistryService>().Value;
+                    var contentDefinitions = _container.GetExports<ContentTypeDefinition, IContentTypeDefinitionMetadata>();
                     foreach (var contentDef in contentDefinitions) {
                         _contentTypeRegistry.AddContentType(
                             contentDef.Metadata.Name,
@@ -457,100 +486,88 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
             }
         }
 
-#region Composition Container Initialization
+        #region Composition Container Initialization
 
-        private CompositionContainer CreateCompositionContainer() {
-            var container = new CompositionContainer(CachedInfo.Catalog);
-            container.ComposeExportedValue<MockVs>(this);
-            var batch = new CompositionBatch();
+        private ExportProvider CreateCompositionContainer() {
+            var catalog = CachedInfo.Catalog.AddInstance(() => this);
 
-            container.Compose(batch);
-
-            return container;
+            var configuration = CompositionConfiguration.Create(catalog);
+            var runtimeConfiguration = RuntimeComposition.CreateRuntimeComposition(configuration);
+            var exportProviderFactory = runtimeConfiguration.CreateExportProviderFactory();
+            return exportProviderFactory.CreateExportProvider();
         }
 
         private static CachedVsInfo CreateCachedVsInfo() {
             var runningLoc = Path.GetDirectoryName(typeof(MockVs).Assembly.Location);
-            // we want to pick up all of the MEF exports which are available, but they don't
-            // depend upon us.  So if we're just running some tests in the IDE when the deployment
-            // happens it won't have the DLLS with the MEF exports.  So we copy them here.
-#if USE_PYTHON_TESTDATA
-            TestUtilities.Python.PythonTestData.Deploy(includeTestData: false);
-#else
-            TestData.Deploy(null, includeTestData: false);
-#endif
 
             // load all of the available DLLs that depend upon TestUtilities into our catalog
-            List<AssemblyCatalog> catalogs = new List<AssemblyCatalog>();
-            List<Type> packageTypes = new List<Type>();
+            var assemblies = new List<Assembly>();
+            var packageTypes = new List<Type>();
 
-            AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
-            try {
-                var _excludedAssemblies = new HashSet<string>(new string[] {
-#if DEV14
-                    "Microsoft.PythonTools.Workspace.dll",
-                    "Microsoft.VisualStudio.Workspace.dll",
-                    "Microsoft.VisualStudio.Workspace.Extensions.VS.dll",
-#endif
-                }, StringComparer.OrdinalIgnoreCase);
+            var excludedAssemblies = new HashSet<string>(new string[] {
+                "Microsoft.VisualStudio.Text.Internal.dll",
+                "Microsoft.VisualStudio.Utilities.dll",
+                "Microsoft.VisualStudio.Validation.dll",
+                "Microsoft.VisualStudio.Workspace.dll",
+                "Microsoft.VisualStudio.Debugger.DebugAdapterHost.Interfaces.dll",
+                "TestUtilities"
+            }, StringComparer.OrdinalIgnoreCase);
 
-                foreach (var file in Directory.GetFiles(runningLoc, "*.dll")) {
-                    if (_excludedAssemblies.Contains(Path.GetFileName(file))) {
-                        continue;
-                    }
+            foreach (var file in Directory.GetFiles(runningLoc, "*.dll")) {
+                if (excludedAssemblies.Contains(Path.GetFileName(file))) {
+                    continue;
+                }
 
-                    Assembly asm;
-                    try {
-                        asm = Assembly.Load(Path.GetFileNameWithoutExtension(file));
-                    } catch {
-                        continue;
-                    }
+                Assembly asm;
+                try {
+                    asm = Assembly.Load(Path.GetFileNameWithoutExtension(file));
+                } catch {
+                    continue;
+                }
 
-                    Console.WriteLine("Including {0}", file);
-                    try {
-                        foreach (var type in asm.GetTypes()) {
-                            if (type.IsDefined(typeof(PackageRegistrationAttribute), false)) {
-                                packageTypes.Add(type);
-                            }
+                Console.WriteLine("Including {0}", file);
+                try {
+                    foreach (var type in asm.GetTypes()) {
+                        if (type.IsDefined(typeof(PackageRegistrationAttribute), false)) {
+                            packageTypes.Add(type);
                         }
-                        catalogs.Add(new AssemblyCatalog(asm));
-                    } catch (TypeInitializationException tix) {
-                        Console.WriteLine(tix);
-                    } catch (ReflectionTypeLoadException tlx) {
-                        Console.WriteLine(tlx);
-                    } catch (IOException iox) {
-                        Console.WriteLine(iox);
                     }
-                }
-            } finally {
-                AppDomain.CurrentDomain.AssemblyResolve -= CurrentDomain_AssemblyResolve;
-            }
-
-            return new CachedVsInfo(
-                new AggregateCatalog(catalogs.ToArray()),
-                packageTypes
-            );
-        }
-
-        private static Assembly CurrentDomain_AssemblyResolve(object sender, ResolveEventArgs args) {
-            Assembly asm = null;
-            var name = new AssemblyName(args.Name);
-            var path = Path.Combine(VisualStudioPath.PrivateAssemblies, name.Name + ".dll");
-            if (File.Exists(path)) {
-                asm = Assembly.LoadFile(path);
-            } else {
-                path = Path.Combine(VisualStudioPath.PublicAssemblies, name.Name + ".dll");
-                if (File.Exists(path)) {
-                    asm = Assembly.LoadFile(path);
+                    assemblies.Add(asm);
+                } catch (TypeInitializationException tix) {
+                    Console.WriteLine(tix);
+                } catch (ReflectionTypeLoadException tlx) {
+                    Console.WriteLine(tlx);
+                    foreach (var ex in tlx.LoaderExceptions) {
+                        Console.WriteLine(ex);
+                    }
+                } catch (IOException iox) {
+                    Console.WriteLine(iox);
                 }
             }
-            if (asm != null && asm.FullName != name.FullName) {
-                asm = null;
-            }
-            return asm;
-        }
 
-#endregion
+            var catalog = MefCatalogFactory.CreateAssembliesCatalog(
+                    "Microsoft.VisualStudio.CoreUtility",
+                    "Microsoft.VisualStudio.Text.Data",
+                    "Microsoft.VisualStudio.Text.Logic",
+                    "Microsoft.VisualStudio.Text.UI",
+                    "Microsoft.VisualStudio.Text.UI.Wpf",
+                    "Microsoft.VisualStudio.InteractiveWindow",
+                    "Microsoft.VisualStudio.VsInteractiveWindow",
+                    "Microsoft.VisualStudio.Editor",
+                    "Microsoft.VisualStudio.Language.Intellisense",
+                    "Microsoft.PythonTools",
+                    "Microsoft.PythonTools.TestAdapter",
+                    "Microsoft.PythonTools.VSInterpreters",
+                    "MockVsTests",
+                    "PythonToolsMockTests")
+                .WithCompositionService()
+                .AddType<MockTextUndoHistoryRegistry>()
+                .AddType<MockContentTypeRegistryService>()
+                .AddType<MockClassificationTypeRegistryService>();
+
+            return new CachedVsInfo(catalog, packageTypes);
+        }
+        #endregion
 
         public ITreeNode WaitForItemRemoved(params string[] path) {
             ITreeNode item = null;
@@ -559,7 +576,7 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
                 if (item == null) {
                     break;
                 }
-                System.Threading.Thread.Sleep(25);
+                Thread.Sleep(25);
             }
             return item;
         }
@@ -687,12 +704,12 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
             get { throw new NotImplementedException(); }
         }
 
-        ICompositionService IComponentModel.DefaultCompositionService {
+        MefV1.ICompositionService IComponentModel.DefaultCompositionService {
             get { throw new NotImplementedException(); }
         }
 
-        ExportProvider IComponentModel.DefaultExportProvider {
-            get { return Container; }
+        MefV1.Hosting.ExportProvider IComponentModel.DefaultExportProvider {
+            get { return _container.AsExportProvider(); }
         }
 
         ComposablePartCatalog IComponentModel.GetCatalog(string catalogName) {
@@ -700,11 +717,11 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
         }
 
         IEnumerable<T> IComponentModel.GetExtensions<T>() {
-            return Container.GetExportedValues<T>();
+            return _container.GetExportedValues<T>();
         }
 
         T IComponentModel.GetService<T>() {
-            return Container.GetExportedValue<T>();
+            return _container.GetExportedValue<T>();
         }
 
 
@@ -727,7 +744,7 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
                     guid = VSConstants.VSStd2K;
                     Exec(ref guid, (int)VSConstants.VSStd2KCmdID.TAB, 0, IntPtr.Zero, IntPtr.Zero);
                     break;
-                case Key.Delete: 
+                case Key.Delete:
                     guid = VSConstants.VSStd2K;
                     Exec(ref guid, (int)VSConstants.VSStd2KCmdID.DELETE, 0, IntPtr.Zero, IntPtr.Zero);
                     break;
@@ -872,6 +889,10 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
 
         public void CheckMessageBox(MessageBoxButton button, params string[] text) {
             UIShell.CheckMessageBox(button, text);
+        }
+
+        public void MaybeCheckMessageBox(MessageBoxButton button, params string[] text) {
+            UIShell.MaybeCheckMessageBox(button, text);
         }
 
         public void Sleep(int ms) {

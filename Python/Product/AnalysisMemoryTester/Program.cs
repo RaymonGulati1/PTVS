@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,10 +20,11 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
-using Microsoft.PythonTools.Infrastructure;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
 
@@ -35,8 +36,8 @@ namespace Microsoft.PythonTools.Analysis.MemoryTester {
             Console.WriteLine("Each line of the script file contains one of the following commands:");
             Console.WriteLine();
             Console.WriteLine("== Configuration Commands ==");
-            Console.WriteLine(" python <version in x.y format>");
-            Console.WriteLine(" db <relative path to completion DB from CWD>");
+            Console.WriteLine(" python <version in x.y format> <interpreter path>");
+            Console.WriteLine(" logs <path to log directory>");
             Console.WriteLine();
             Console.WriteLine("== Analysis Sequence Commands ==");
             Console.WriteLine(" module <module name> <relative path to source file>");
@@ -89,32 +90,43 @@ namespace Microsoft.PythonTools.Analysis.MemoryTester {
 
             Environment.CurrentDirectory = Path.GetDirectoryName(responseFile);
 
-            var version = GetFirstCommand(commands, "python\\s+(\\d\\.\\d)", m => {
-                Version ver;
-                return Version.TryParse(m.Groups[1].Value, out ver) ? ver : null;
-            }, v => v != null) ?? new Version(3, 3);
-            Console.WriteLine("Using Python Version {0}.{1}", version.Major, version.Minor);
+            var interpreter = GetFirstCommand(commands, "python\\s+(\\d\\.\\d)\\s+(.+)", m => m.Groups[1].Value + " " + m.Groups[2].Value, v => v.Length > 4 && File.Exists(v.Substring(4).Trim()));
+            var version = Version.Parse(interpreter.Substring(0, 3));
+            interpreter = interpreter.Substring(4).Trim();
+            Console.WriteLine($"Using Python from {interpreter}");
 
-            var dbPath = GetFirstCommand(commands, "db\\s+(.+)", m => {
-                var path = m.Groups[1].Value;
-                if (!Path.IsPathRooted(path)) {
-                    path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), path);
+            var logs = GetFirstCommand(commands, "logs\\s+(.+)", m => m.Groups[1].Value, IsValidPath);
+            if (!string.IsNullOrEmpty(logs)) {
+                if (!Path.IsPathRooted(logs)) {
+                    logs = Path.GetFullPath(logs);
                 }
-                return Path.GetFullPath(path);
-            }, Directory.Exists);
-
-            if (dbPath == null) {
-                if (!string.IsNullOrEmpty(dbPath)) {
-                    Console.WriteLine("Could not find DB path {0}", dbPath);
-                } else {
-                    Console.WriteLine("No DB path specified");
-                }
-                PrintUsage();
-                return;
+                Directory.CreateDirectory(logs);
+                AnalysisLog.Output = Path.Combine(logs, "Detailed.csv");
+                AnalysisLog.AsCSV = true;
             }
-            Console.WriteLine("Using database in {0}", dbPath);
 
-            using (var factory = InterpreterFactoryCreator.CreateAnalysisInterpreterFactory(version, "Test Factory", dbPath))
+            var config = new InterpreterConfiguration(
+                "Python|" + interpreter,
+                interpreter,
+                Path.GetDirectoryName(interpreter),
+                interpreter,
+                interpreter,
+                "PYTHONPATH",
+                GetBinaryType(interpreter) == ProcessorArchitecture.Amd64 ? InterpreterArchitecture.x64 : InterpreterArchitecture.x86,
+                version
+            );
+
+            var creationOpts = new InterpreterFactoryCreationOptions {
+                UseExistingCache = false,
+                WatchFileSystem = false,
+                TraceLevel = TraceLevel.Verbose
+            };
+
+            if (!string.IsNullOrEmpty(logs)) {
+                creationOpts.DatabasePath = logs;
+            }
+
+            using (var factory = new Interpreter.Ast.AstPythonInterpreterFactory(config, creationOpts))
             using (var analyzer = PythonAnalyzer.CreateAsync(factory).WaitAndUnwrapExceptions()) {
                 var modules = new Dictionary<string, IPythonProjectEntry>();
                 var state = new State();
@@ -133,7 +145,7 @@ namespace Microsoft.PythonTools.Analysis.MemoryTester {
 
         private static HashSet<string> IgnoredCommands = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase) {
             "python",
-            "db",
+            "logs",
             "",
             null
         };
@@ -217,13 +229,16 @@ namespace Microsoft.PythonTools.Analysis.MemoryTester {
                             Console.WriteLine("Reusing module {0}", mod.ModuleName);
                         }
 
-                        using (var file = File.OpenText(mod.SourceFile))
-                        using (var parser = Parser.CreateParser(
-                            file,
-                            analyzer.LanguageVersion,
-                            new ParserOptions() { BindReferences = true })
-                        ) {
-                            entry.UpdateTree(parser.ParseFile(), null);
+                        using (var file = File.OpenText(mod.SourceFile)) {
+                            var parser = Parser.CreateParser(
+                                file,
+                                analyzer.LanguageVersion,
+                                new ParserOptions() { BindReferences = true }
+                            );
+                            using (var p = entry.BeginParse()) {
+                                p.Tree = parser.ParseFile();
+                                p.Complete();
+                            }
                         }
                     }
                     break;
@@ -245,8 +260,12 @@ namespace Microsoft.PythonTools.Analysis.MemoryTester {
                     break;
                 case "analyze":
                     Console.Write("Waiting for complete analysis... ");
+                    var start = DateTime.UtcNow;
+                    if (!Console.IsOutputRedirected) {
+                        ConfigureProgressOutput(analyzer);
+                    }
                     analyzer.AnalyzeQueuedEntries(CancellationToken.None);
-                    Console.WriteLine("done!");
+                    Console.WriteLine("done in {0} with peak memory {1}MB!", DateTime.UtcNow - start, Process.GetCurrentProcess().PeakWorkingSet64 / 1024 / 1024);
                     break;
 
                 case "pause":
@@ -294,6 +313,56 @@ namespace Microsoft.PythonTools.Analysis.MemoryTester {
             }
         }
 
+        private static void ConfigureProgressOutput(PythonAnalyzer analyzer) {
+            int cLine = Console.CursorTop;
+            int cChar = Console.CursorLeft, lastChar = 0;
+            var start = DateTime.UtcNow;
+            analyzer.SetQueueReporting(i => {
+                Console.SetCursorPosition(cChar, cLine);
+                if (lastChar > cChar) {
+                    Console.Write(new string(' ', lastChar - cChar));
+                    Console.SetCursorPosition(cChar, cLine);
+                }
+                Console.Write($"{i} in queue; {DateTime.UtcNow - start} taken... ");
+                lastChar = Console.CursorLeft;
+            }, 50);
+        }
+
+        [DllImport("kernel32", EntryPoint = "GetBinaryTypeW", CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Winapi)]
+        private static extern bool _GetBinaryType(string lpApplicationName, out GetBinaryTypeResult lpBinaryType);
+
+        private enum GetBinaryTypeResult : uint {
+            SCS_32BIT_BINARY = 0,
+            SCS_DOS_BINARY = 1,
+            SCS_WOW_BINARY = 2,
+            SCS_PIF_BINARY = 3,
+            SCS_POSIX_BINARY = 4,
+            SCS_OS216_BINARY = 5,
+            SCS_64BIT_BINARY = 6
+        }
+
+        private static ProcessorArchitecture GetBinaryType(string path) {
+            GetBinaryTypeResult result;
+
+            if (_GetBinaryType(path, out result)) {
+                switch (result) {
+                    case GetBinaryTypeResult.SCS_32BIT_BINARY:
+                        return ProcessorArchitecture.X86;
+                    case GetBinaryTypeResult.SCS_64BIT_BINARY:
+                        return ProcessorArchitecture.Amd64;
+                    case GetBinaryTypeResult.SCS_DOS_BINARY:
+                    case GetBinaryTypeResult.SCS_WOW_BINARY:
+                    case GetBinaryTypeResult.SCS_PIF_BINARY:
+                    case GetBinaryTypeResult.SCS_POSIX_BINARY:
+                    case GetBinaryTypeResult.SCS_OS216_BINARY:
+                    default:
+                        break;
+                }
+            }
+
+            return ProcessorArchitecture.None;
+        }
+
         private static IEnumerable<ModulePath> GetModules(string args) {
             var m = Regex.Match(args, "(\\*|[\\w\\.]+)\\s+(.+)");
             var modName = m.Groups[1].Value;
@@ -311,20 +380,57 @@ namespace Microsoft.PythonTools.Analysis.MemoryTester {
 
             var opt = SearchOption.TopDirectoryOnly;
 
-            if (fileName.StartsWith("**\\")) {
+            var dir = PathUtils.TrimEndSeparator(PathUtils.GetParent(fileName));
+            var filter = GetFileOrDirectoryName(fileName);
+
+            if (dir.EndsWith("**")) {
                 opt = SearchOption.AllDirectories;
-                fileName = fileName.Substring(3);
+                dir = dir.Substring(0, dir.Length - 2);
             }
 
-            if (!Path.IsPathRooted(fileName)) {
-                fileName = Path.Combine(Environment.CurrentDirectory, fileName);
+            if (!Path.IsPathRooted(dir)) {
+                dir = Path.Combine(Environment.CurrentDirectory, dir);
             }
 
-            Console.WriteLine("Adding modules from {0}", fileName);
-            foreach (var file in Directory.EnumerateFiles(Path.GetDirectoryName(fileName), Path.GetFileName(fileName), opt)) {
-                yield return ModulePath.FromFullPath(file);
+            if (!Directory.Exists(dir)) {
+                Console.WriteLine("Invalid directory: {0}", dir);
+                yield break;
+            }
+
+            Console.WriteLine("Adding modules from {0}:{1}", dir, filter);
+            foreach (var file in Directory.EnumerateFiles(dir, filter, opt)) {
+                ModulePath mp;
+                try {
+                    mp = ModulePath.FromFullPath(file, PathUtils.GetParent(dir));
+                } catch (ArgumentException) {
+                    Console.WriteLine("Failed to get module name for {0}", file);
+                    continue;
+                }
+                yield return mp;
             }
         }
+
+        public static string GetFileOrDirectoryName(string path) {
+            if (string.IsNullOrEmpty(path)) {
+                return string.Empty;
+            }
+
+            int last = path.Length - 1;
+            if (path[last] == Path.DirectorySeparatorChar || path[last] == Path.AltDirectorySeparatorChar) {
+                last -= 1;
+            }
+
+            if (last < 0) {
+                return string.Empty;
+            }
+
+            var start = path.LastIndexOfAny(new [] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, last);
+
+            return path.Substring(start + 1, last - start);
+        }
+
+        private static bool IsValidPath(string path) 
+            => !string.IsNullOrWhiteSpace(path) && path.IndexOfAny(Path.GetInvalidPathChars().Concat(new[] { '*', '?' }).ToArray()) < 0;
 
         #region MiniDump Support
 

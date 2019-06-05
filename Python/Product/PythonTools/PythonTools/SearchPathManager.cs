@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,31 +17,42 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Microsoft.PythonTools.Infrastructure;
+using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.Shell.Interop;
 
 namespace Microsoft.PythonTools {
-    class SearchPathManager {
+    sealed class SearchPathManager : IVsFileChangeEvents, IDisposable {
+        private readonly IVsFileChangeEx _changeService;
+        private readonly Timer _notifyChangeTimer;
         private readonly List<SearchPath> _paths = new List<SearchPath>();
 
-        public SearchPathManager() { }
+        public SearchPathManager(IServiceProvider site) {
+            _changeService = site.GetService(typeof(SVsFileChangeEx)) as IVsFileChangeEx;
+            _notifyChangeTimer = new Timer(RaiseChanged, null, Timeout.Infinite, Timeout.Infinite);
+        }
 
-        public event EventHandler Changed;
-
-        public IList<string> GetRelativeSearchPaths(string root) {
+        public void Dispose() {
+            uint[] cookies;
             lock (_paths) {
-                return _paths.Select(p => PathUtils.GetRelativeFilePath(root, p.Path)).ToArray();
+                cookies = _paths.Select(p => p.Cookie).ToArray();
+                _paths.Clear();
+            }
+
+            Unwatch(cookies);
+
+            var timer = _notifyChangeTimer;
+            if (timer != null) {
+                timer.Dispose();
             }
         }
+
+        public event EventHandler Changed;
 
         public IList<string> GetAbsoluteSearchPaths() {
             lock (_paths) {
                 return _paths.Select(p => p.Path).ToArray();
-            }
-        }
-
-        public IList<string> GetRelativePersistedSearchPaths(string root) {
-            lock (_paths) {
-                return _paths.Where(p => p.Persisted).Select(p => PathUtils.GetRelativeFilePath(root, p.Path)).ToArray();
             }
         }
 
@@ -57,62 +68,11 @@ namespace Microsoft.PythonTools {
                 throw new ArgumentException("cannot be null or empty", nameof(absolutePath));
             }
 
+            var cookie = Watch(absolutePath);
             lock (_paths) {
-                _paths.Add(new SearchPath(absolutePath, persisted, moniker));
+                _paths.Add(new SearchPath(absolutePath, persisted, moniker, cookie));
             }
             Changed?.Invoke(this, EventArgs.Empty);
-        }
-
-        public void Insert(int index, string absolutePath, bool persisted, object moniker = null) {
-            absolutePath = PathUtils.TrimEndSeparator(absolutePath);
-            if (string.IsNullOrEmpty(absolutePath)) {
-                throw new ArgumentException("cannot be null or empty", nameof(absolutePath));
-            }
-
-            lock (_paths) {
-                _paths.Insert(index, new SearchPath(absolutePath, persisted, moniker));
-            }
-            Changed?.Invoke(this, EventArgs.Empty);
-        }
-
-        public bool Contains(string absolutePath) {
-            absolutePath = PathUtils.TrimEndSeparator(absolutePath);
-            if (string.IsNullOrEmpty(absolutePath)) {
-                throw new ArgumentException("cannot be null or empty", nameof(absolutePath));
-            }
-
-            lock (_paths) {
-                return _paths.Any(p => p.Path.Equals(absolutePath, StringComparison.OrdinalIgnoreCase));
-            }
-        }
-
-        public bool ContainsMoniker(object moniker) {
-            lock (_paths) {
-                return _paths.Any(p => p.Moniker == moniker);
-            }
-        }
-
-        public bool Contains(string absolutePath, bool isPersisted) {
-            absolutePath = PathUtils.TrimEndSeparator(absolutePath);
-            if (string.IsNullOrEmpty(absolutePath)) {
-                throw new ArgumentException("cannot be null or empty", nameof(absolutePath));
-            }
-
-            lock (_paths) {
-                return _paths.Any(p => p.Persisted == isPersisted && p.Path.Equals(absolutePath, StringComparison.OrdinalIgnoreCase));
-            }
-        }
-
-        public void Clear() {
-            bool any;
-            lock (_paths) {
-                any = _paths.Any();
-                _paths.Clear();
-            }
-
-            if (any) {
-                Changed?.Invoke(this, EventArgs.Empty);
-            }
         }
 
         public void Remove(string absolutePath) {
@@ -121,14 +81,15 @@ namespace Microsoft.PythonTools {
                 throw new ArgumentException("cannot be null or empty", nameof(absolutePath));
             }
 
-            bool removed = false;
+            uint? removed = null;
             lock (_paths) {
                 var toRemove = _paths.FirstOrDefault(p => p.Path.Equals(absolutePath, StringComparison.OrdinalIgnoreCase));
                 if (toRemove.Path != null && _paths.Remove(toRemove)) {
-                    removed = true;
+                    removed = toRemove.Cookie;
                 }
             }
-            if (removed) {
+            if (removed != null) {
+                Unwatch(removed.Value);
                 Changed?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -142,6 +103,7 @@ namespace Microsoft.PythonTools {
                 throw new ArgumentNullException("cannot be null", nameof(moniker));
             }
 
+            var cookie = Watch(absolutePath);
             bool any = false, changed = false;
             lock (_paths) {
                 for (int i = 0; i < _paths.Count; ++i) {
@@ -153,13 +115,13 @@ namespace Microsoft.PythonTools {
                         any = true;
                         if (!p.Path.Equals(absolutePath, StringComparison.OrdinalIgnoreCase) ||
                             p.Persisted != isPersisted) {
-                            _paths[i] = new SearchPath(absolutePath, isPersisted, moniker);
+                            _paths[i] = new SearchPath(absolutePath, isPersisted, moniker, cookie);
                             changed = true;
                         }
                     }
                 }
                 if (!any) {
-                    _paths.Add(new SearchPath(absolutePath, isPersisted, moniker));
+                    _paths.Add(new SearchPath(absolutePath, isPersisted, moniker, cookie));
                     changed = true;
                 }
             }
@@ -171,11 +133,14 @@ namespace Microsoft.PythonTools {
 
         public void RemoveByMoniker(object moniker) {
             bool any;
+            uint[] removed;
             lock (_paths) {
+                removed = _paths.Where(p => p.Moniker == moniker).Select(p => p.Cookie).ToArray();
                 any = _paths.RemoveAll(p => p.Moniker == moniker) > 0;
             }
 
             if (any) {
+                Unwatch(removed);
                 Changed?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -189,17 +154,21 @@ namespace Microsoft.PythonTools {
                     }
 
                     if (string.IsNullOrEmpty(projectHome)) {
-                        newPaths.Add(new SearchPath(path, true, null));
+                        newPaths.Add(new SearchPath(path, true, null, Watch(path)));
                     } else {
-                        newPaths.Add(new SearchPath(PathUtils.GetAbsoluteFilePath(projectHome, path), true, null));
+                        var absolutePath = PathUtils.GetAbsoluteFilePath(projectHome, path);
+                        newPaths.Add(new SearchPath(absolutePath, true, null, Watch(absolutePath)));
                     }
                 }
             }
 
+            uint[] removed;
             lock (_paths) {
+                removed = _paths.Where(p => p.Moniker == null).Select(p => p.Cookie).ToArray();
                 _paths.RemoveAll(p => p.Moniker == null);
                 _paths.InsertRange(0, newPaths);
             }
+            Unwatch(removed);
             Changed?.Invoke(this, EventArgs.Empty);
         }
 
@@ -227,12 +196,60 @@ namespace Microsoft.PythonTools {
             public string Path;
             public bool Persisted;
             public object Moniker;
+            public uint Cookie;
 
-            public SearchPath(string path, bool persisted, object moniker) {
+            public SearchPath(string path, bool persisted, object moniker, uint cookie) {
                 Path = path;
                 Persisted = persisted;
                 Moniker = moniker;
+                Cookie = cookie;
             }
+        }
+
+        private uint Watch(string path) {
+            if (_changeService == null) {
+                return 0;
+            }
+
+            uint cookie;
+            if (ErrorHandler.Succeeded(_changeService.AdviseDirChange(path, 1, this, out cookie))) {
+                return cookie;
+            }
+            return 0;
+        }
+
+        private void Unwatch(uint[] cookies) {
+            foreach (var cookie in cookies) {
+                Unwatch(cookie);
+            }
+        }
+
+        private void Unwatch(uint cookie) {
+            if (_changeService == null || cookie == 0) {
+                return;
+            }
+
+            ErrorHandler.ThrowOnFailure(_changeService.UnadviseDirChange(cookie));
+        }
+
+        private void RaiseChanged(object state) {
+            try {
+                _notifyChangeTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            } catch (ObjectDisposedException) {
+            }
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        public int FilesChanged(uint cChanges, string[] rgpszFile, uint[] rggrfChange) {
+            return VSConstants.S_OK;
+        }
+
+        int IVsFileChangeEvents.DirectoryChanged(string pszDirectory) {
+            try {
+                _notifyChangeTimer?.Change(500, Timeout.Infinite);
+            } catch (ObjectDisposedException) {
+            }
+            return VSConstants.S_OK;
         }
     }
 }

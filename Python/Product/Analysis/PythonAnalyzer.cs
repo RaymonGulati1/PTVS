@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 // 
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,20 +19,16 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Contracts;
-using System.IO;
 using System.Linq;
 using System.Numerics;
-using System.Runtime.ExceptionServices;
-using System.Security;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.PythonTools.Analysis.Analyzer;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Analysis.Values;
-using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
-using Microsoft.PythonTools.PyAnalysis;
-using Microsoft.Win32;
+using Microsoft.PythonTools.Parsing.Ast;
 
 namespace Microsoft.PythonTools.Analysis {
     /// <summary>
@@ -46,38 +42,38 @@ namespace Microsoft.PythonTools.Analysis {
         private readonly ConcurrentDictionary<string, ModuleInfo> _modulesByFilename;
         private readonly HashSet<ModuleInfo> _modulesWithUnresolvedImports;
         private readonly object _modulesWithUnresolvedImportsLock = new object();
+        private IKnownPythonTypes _knownTypes;
         private readonly Dictionary<object, AnalysisValue> _itemCache;
-        private readonly string _builtinName;
+        internal readonly string _builtinName;
         internal BuiltinModule _builtinModule;
-        private readonly ConcurrentDictionary<string, XamlProjectEntry> _xamlByFilename = new ConcurrentDictionary<string, XamlProjectEntry>();
         internal ConstantInfo _noneInst;
-        private readonly Deque<AnalysisUnit> _queue;
         private Action<int> _reportQueueSize;
         private int _reportQueueInterval;
         internal readonly IModuleContext _defaultContext;
         private readonly PythonLanguageVersion _langVersion;
         internal readonly AnalysisUnit _evalUnit;   // a unit used for evaluating when we don't otherwise have a unit available
         private readonly List<string> _searchPaths = new List<string>();
+        private readonly List<string> _typeStubPaths = new List<string>();
         private readonly Dictionary<string, List<SpecializationInfo>> _specializationInfo = new Dictionary<string, List<SpecializationInfo>>();  // delayed specialization information, for modules not yet loaded...
         private AnalysisLimits _limits;
         private static object _nullKey = new object();
         private readonly SemaphoreSlim _reloadLock = new SemaphoreSlim(1, 1);
-        private ExceptionDispatchInfo _loadKnownTypesException;
         private Dictionary<IProjectEntry[], AggregateProjectEntry> _aggregates = new Dictionary<IProjectEntry[], AggregateProjectEntry>(AggregateComparer.Instance);
+        private readonly Dictionary<IProjectEntry, Dictionary<Node, LanguageServer.Diagnostic>> _diagnostics = new Dictionary<IProjectEntry, Dictionary<Node, LanguageServer.Diagnostic>>();
 
-        private const string AnalysisLimitsKey = @"Software\Microsoft\PythonTools\" + AssemblyVersionInfo.VSVersion +
-            @"\Analysis\Project";
+        public const string PythonAnalysisSource = "Python (analysis)";
 
         /// <summary>
         /// Creates a new analyzer that is ready for use.
         /// </summary>
         public static async Task<PythonAnalyzer> CreateAsync(
             IPythonInterpreterFactory factory,
-            IPythonInterpreter interpreter = null
+            IPythonInterpreter interpreter = null,
+            CancellationToken token = default(CancellationToken)
         ) {
-            var res = new PythonAnalyzer(factory, interpreter, null);
+            var res = new PythonAnalyzer(factory, interpreter);
             try {
-                await res.ReloadModulesAsync().ConfigureAwait(false);
+                await res.ReloadModulesAsync(token).ConfigureAwait(false);
                 var r = res;
                 res = null;
                 return r;
@@ -91,12 +87,11 @@ namespace Microsoft.PythonTools.Analysis {
         // Test helper method
         internal static PythonAnalyzer CreateSynchronously(
             IPythonInterpreterFactory factory,
-            IPythonInterpreter interpreter = null,
-            string builtinName = null
+            IPythonInterpreter interpreter = null
         ) {
-            var res = new PythonAnalyzer(factory, interpreter, null);
+            var res = new PythonAnalyzer(factory, interpreter);
             try {
-                res.ReloadModulesAsync().WaitAndUnwrapExceptions();
+                res.ReloadModulesAsync(CancellationToken.None).WaitAndUnwrapExceptions();
                 var r = res;
                 res = null;
                 return r;
@@ -112,112 +107,53 @@ namespace Microsoft.PythonTools.Analysis {
         /// wait for <see cref="ReloadModulesAsync"/> to complete before using.
         /// </summary>
         public static PythonAnalyzer Create(IPythonInterpreterFactory factory, IPythonInterpreter interpreter = null) {
-            return new PythonAnalyzer(factory, interpreter, null);
+            return new PythonAnalyzer(factory, interpreter);
         }
 
-        internal PythonAnalyzer(IPythonInterpreterFactory factory, IPythonInterpreter pythonInterpreter, string builtinName) {
+        internal PythonAnalyzer(IPythonInterpreterFactory factory, IPythonInterpreter pythonInterpreter) {
             _interpreterFactory = factory;
             _langVersion = factory.GetLanguageVersion();
             _disposeInterpreter = pythonInterpreter == null;
             _interpreter = pythonInterpreter ?? factory.CreateInterpreter();
-            _builtinName = builtinName ?? (_langVersion.Is3x() ? SharedDatabaseState.BuiltinName3x : SharedDatabaseState.BuiltinName2x);
+            _builtinName = BuiltinTypeId.Unknown.GetModuleName(_langVersion);
             _modules = new ModuleTable(this, _interpreter);
             _modulesByFilename = new ConcurrentDictionary<string, ModuleInfo>(StringComparer.OrdinalIgnoreCase);
             _modulesWithUnresolvedImports = new HashSet<ModuleInfo>();
             _itemCache = new Dictionary<object, AnalysisValue>();
 
-            try {
-                using (var key = Registry.CurrentUser.OpenSubKey(AnalysisLimitsKey)) {
-                    Limits = AnalysisLimits.LoadFromStorage(key);
-                }
-            } catch (SecurityException) {
-                Limits = new AnalysisLimits();
-            } catch (UnauthorizedAccessException) {
-                Limits = new AnalysisLimits();
-            } catch (IOException) {
-                Limits = new AnalysisLimits();
-            }
+            Limits = AnalysisLimits.GetDefaultLimits();
 
-            _queue = new Deque<AnalysisUnit>();
+            Queue = new Deque<AnalysisUnit>();
 
             _defaultContext = _interpreter.CreateModuleContext();
 
-            _evalUnit = new AnalysisUnit(null, null, new ModuleInfo("$global", new ProjectEntry(this, "$global", String.Empty, null), _defaultContext).Scope, true);
+            _evalUnit = new AnalysisUnit(null, null, new ModuleInfo("$global", new ProjectEntry(this, "$global", String.Empty, null, null), _defaultContext).Scope, true);
             AnalysisLog.NewUnit(_evalUnit);
-
-            try {
-                LoadInitialKnownTypes();
-            } catch (Exception ex) {
-                if (ex.IsCriticalException()) {
-                    throw;
-                }
-                // This will be rethrown in LoadKnownTypesAsync
-                _loadKnownTypesException = ExceptionDispatchInfo.Capture(ex);
-            }
         }
 
-        private void LoadInitialKnownTypes() {
-            if (_builtinModule != null) {
-                Debug.Fail("LoadInitialKnownTypes should only be called once");
-                return;
-            }
-
-            var fallbackDb = PythonTypeDatabase.CreateDefaultTypeDatabase(LanguageVersion.ToVersion());
-            _builtinModule = _modules.GetBuiltinModule(fallbackDb.GetModule(SharedDatabaseState.BuiltinName2x));
-
-            FinishLoadKnownTypes(fallbackDb);
-        }
-
-        private async Task LoadKnownTypesAsync() {
-            if (_loadKnownTypesException != null) {
-                _loadKnownTypesException.Throw();
-            }
-
+        private async Task LoadKnownTypesAsync(CancellationToken token) {
             _itemCache.Clear();
 
-            Debug.Assert(_builtinModule != null, "LoadInitialKnownTypes was not called");
-            if (_builtinModule == null) {
-                LoadInitialKnownTypes();
-            }
+            var fallback = new FallbackBuiltinModule(_langVersion);
 
-            var moduleRef = await Modules.TryImportAsync(_builtinName).ConfigureAwait(false);
+            var moduleRef = await Modules.TryImportAsync(_builtinName, token).ConfigureAwait(false);
             if (moduleRef != null) {
                 _builtinModule = (BuiltinModule)moduleRef.Module;
             } else {
-                Modules[_builtinName] = new ModuleReference(_builtinModule);
+                _builtinModule = new BuiltinModule(fallback, this);
+                Modules[_builtinName] = new ModuleReference(_builtinModule, _builtinName);
             }
+            _builtinModule.InterpreterModule.Imported(_defaultContext);
 
-            FinishLoadKnownTypes(null);
+            Modules.AddBuiltinModuleWrapper("sys", SysModuleInfo.Wrap);
+            Modules.AddBuiltinModuleWrapper("typing", TypingModuleInfo.Wrap);
 
-            var sysModule = await _modules.TryImportAsync("sys").ConfigureAwait(false);
-            if (sysModule != null) {
-                var bm = sysModule.AnalysisModule as BuiltinModule;
-                if (bm != null) {
-                    sysModule.Module = new SysModuleInfo(bm);
-                }
-            }
-        }
+            _knownTypes = KnownTypes.Create(this, fallback);
 
-        private void FinishLoadKnownTypes(PythonTypeDatabase db) {
-            _itemCache.Clear();
-
-            if (db == null) {
-                db = PythonTypeDatabase.CreateDefaultTypeDatabase(LanguageVersion.ToVersion());
-                Types = KnownTypes.Create(this, db);
-            } else {
-                Types = KnownTypes.CreateDefault(this, db);
-            }
-
-            ClassInfos = (IKnownClasses)Types;
             _noneInst = (ConstantInfo)GetCached(
                 _nullKey,
                 () => new ConstantInfo(ClassInfos[BuiltinTypeId.NoneType], null, PythonMemberType.Constant)
             );
-
-            DoNotUnionInMro = AnalysisSet.Create(new AnalysisValue[] {
-                ClassInfos[BuiltinTypeId.Object],
-                ClassInfos[BuiltinTypeId.Type]
-            });
 
             AddBuiltInSpecializations();
         }
@@ -228,7 +164,7 @@ namespace Microsoft.PythonTools.Analysis {
         /// This method should be called on the analysis thread and is usually invoked
         /// when the interpreter signals that it's modules have changed.
         /// </summary>
-        public async Task ReloadModulesAsync() {
+        public async Task ReloadModulesAsync(CancellationToken token = default(CancellationToken)) {
             if (!_reloadLock.Wait(0)) {
                 // If we don't lock immediately, wait for the current reload to
                 // complete and then return.
@@ -238,13 +174,15 @@ namespace Microsoft.PythonTools.Analysis {
             }
 
             try {
+                _interpreterFactory.NotifyImportNamesChanged();
                 _modules.ReInit();
-                await LoadKnownTypesAsync().ConfigureAwait(false);
-
                 _interpreter.Initialize(this);
+
+                await LoadKnownTypesAsync(token);
 
                 foreach (var mod in _modulesByFilename.Values) {
                     mod.Clear();
+                    mod.EnsureModuleVariables(this);
                 }
             } finally {
                 _reloadLock.Release();
@@ -268,8 +206,8 @@ namespace Microsoft.PythonTools.Analysis {
         /// <param name="filePath">The path to the file on disk</param>
         /// <param name="cookie">An application-specific identifier for the module</param>
         /// <returns>The project entry for the new module.</returns>
-        public IPythonProjectEntry AddModule(string moduleName, string filePath, IAnalysisCookie cookie = null) {
-            var entry = new ProjectEntry(this, moduleName, filePath, cookie);
+        public IPythonProjectEntry AddModule(string moduleName, string filePath, Uri documentUri = null, IAnalysisCookie cookie = null) {
+            var entry = new ProjectEntry(this, moduleName, filePath, documentUri, cookie);
 
             if (moduleName != null) {
                 var moduleRef = Modules.GetOrAdd(moduleName);
@@ -294,42 +232,47 @@ namespace Microsoft.PythonTools.Analysis {
             }
         }
 
+        public void RemoveModule(IProjectEntry entry) => RemoveModule(entry, null);
+
         /// <summary>
         /// Removes the specified project entry from the current analysis.
         /// 
         /// This method is thread safe.
         /// </summary>
-        public void RemoveModule(IProjectEntry entry) {
+        /// <param name="entry">The entry to remove.</param>
+        /// <param name="onImporter">Action to perform on each module that
+        /// had imported the one being removed.</param>
+        public void RemoveModule(IProjectEntry entry, Action<IPythonProjectEntry> onImporter) {
             if (entry == null) {
-                throw new ArgumentNullException("entry");
+                throw new ArgumentNullException(nameof(entry));
             }
             Contract.EndContractBlock();
 
-            ModuleInfo removed;
-            _modulesByFilename.TryRemove(entry.FilePath, out removed);
-
             var pyEntry = entry as IPythonProjectEntry;
-            if (pyEntry != null) {
-                ModuleReference modRef;
-                Modules.TryRemove(pyEntry.ModuleName, out modRef);
+            IPythonProjectEntry[] importers = null;
+            if (!string.IsNullOrEmpty(pyEntry?.ModuleName)) {
+                importers = GetEntriesThatImportModule(pyEntry.ModuleName, false).ToArray();
             }
+
+            if (!string.IsNullOrEmpty(entry.FilePath) && _modulesByFilename.TryRemove(entry.FilePath, out var moduleInfo)) {
+                lock (_modulesWithUnresolvedImportsLock) {
+                    _modulesWithUnresolvedImports.Remove(moduleInfo);
+                }
+            }
+
             entry.RemovedFromProject();
-        }
+            ClearDiagnostics(entry);
 
-        /// <summary>
-        /// Adds a XAML file to be analyzed.  
-        /// 
-        /// This method is thread safe.
-        /// </summary>
-        /// <param name="filePath"></param>
-        /// <param name="cookie"></param>
-        /// <returns></returns>
-        public IXamlProjectEntry AddXamlFile(string filePath, IAnalysisCookie cookie = null) {
-            var entry = new XamlProjectEntry(filePath);
+            if (onImporter == null) {
+                onImporter = e => e.Analyze(CancellationToken.None, enqueueOnly: true);
+            }
 
-            _xamlByFilename[filePath] = entry;
-
-            return entry;
+            if (!string.IsNullOrEmpty(pyEntry?.ModuleName)) {
+                Modules.TryRemove(pyEntry.ModuleName, out var _);
+                foreach (var e in importers.MaybeEnumerate()) {
+                    onImporter(e);
+                }
+            }
         }
 
         /// <summary>
@@ -404,122 +347,25 @@ namespace Microsoft.PythonTools.Analysis {
         /// True if the module was imported during analysis; otherwise, false.
         /// </returns>
         public bool IsModuleResolved(IPythonProjectEntry importFrom, string relativeModuleName, bool absoluteImports) {
-            ModuleReference moduleRef;
-            return ResolvePotentialModuleNames(importFrom, relativeModuleName, absoluteImports)
-                .Any(m => Modules.TryImport(m, out moduleRef));
-        }
-
-        /// <summary>
-        /// Returns a sequence of candidate absolute module names for the given
-        /// modules.
-        /// </summary>
-        /// <param name="projectEntry">
-        /// The project entry that is importing the module.
-        /// </param>
-        /// <param name="relativeModuleName">
-        /// A dotted name identifying the path to the module.
-        /// </param>
-        /// <returns>
-        /// A sequence of strings representing the absolute names of the module
-        /// in order of precedence.
-        /// </returns>
-        internal static IEnumerable<string> ResolvePotentialModuleNames(
-            IPythonProjectEntry projectEntry,
-            string relativeModuleName,
-            bool absoluteImports
-        ) {
-            string importingFrom = null;
-            if (projectEntry != null) {
-                importingFrom = projectEntry.ModuleName;
-                if (ModulePath.IsInitPyFile(projectEntry.FilePath)) {
-                    if (string.IsNullOrEmpty(importingFrom)) {
-                        importingFrom = "__init__";
-                    } else {
-                        importingFrom += ".__init__";
-                    }
-                }
+            var unresolved = importFrom.GetModuleInfo()?.GetAllUnresolvedModules();
+            if (unresolved == null || unresolved.Count == 0) {
+                return true;
             }
-
-            if (string.IsNullOrEmpty(relativeModuleName)) {
-                yield break;
-            }
-
-            // Handle relative module names
-            if (relativeModuleName.FirstOrDefault() == '.') {
-                if (string.IsNullOrEmpty(importingFrom)) {
-                    // No source to import relative to.
-                    yield break;
-                }
-
-                var prefix = importingFrom.Split('.');
-
-                if (relativeModuleName.LastOrDefault() == '.') {
-                    // Last part empty means the whole name is dots, so there's
-                    // nothing to concatenate.
-                    yield return string.Join(".", prefix.Take(prefix.Length - relativeModuleName.Length));
-                } else {
-                    var suffix = relativeModuleName.Split('.');
-                    var dotCount = suffix.TakeWhile(bit => string.IsNullOrEmpty(bit)).Count();
-                    if (dotCount < prefix.Length) {
-                        // If we have as many dots as prefix parts, the entire
-                        // name will disappear. Despite what PEP 328 says, in
-                        // reality this means the import will fail.
-                        yield return string.Join(".", prefix.Take(prefix.Length - dotCount).Concat(suffix.Skip(dotCount)));
-                    }
-                }
-                yield break;
-            }
-
-            // The two possible names that can be imported here are:
-            // * relativeModuleName
-            // * importingFrom.relativeModuleName
-            // and the order they are returned depends on whether
-            // absolute_import is enabled or not.
-
-            // With absolute_import, we treat the name as complete first.
-            if (absoluteImports) {
-                yield return relativeModuleName;
-            }
-
-            if (!string.IsNullOrEmpty(importingFrom)) {
-                var prefix = importingFrom.Split('.');
-
-                if (prefix.Length > 1) {
-                    var adjacentModuleName = string.Join(".", prefix.Take(prefix.Length - 1)) + "." + relativeModuleName;
-                    yield return adjacentModuleName;
-                }
-            }
-
-            // Without absolute_import, we treat the name as complete last.
-            if (!absoluteImports) {
-                yield return relativeModuleName;
-            }
-        }
-
-
-        /// <summary>
-        /// Looks up the specified module by name.
-        /// </summary>
-        public MemberResult[] GetModule(string name) {
-            return GetModules(modName => modName != name);
+            var names = ModuleResolver.ResolvePotentialModuleNames(importFrom, relativeModuleName, absoluteImports);
+            return names.All(n => !unresolved.Contains(n));
         }
 
         /// <summary>
         /// Gets a top-level list of all the available modules as a list of MemberResults.
         /// </summary>
         /// <returns></returns>
-        public MemberResult[] GetModules(bool topLevelOnly = false) {
-            return GetModules(modName => topLevelOnly && modName.IndexOf('.') != -1);
-        }
-
-        private MemberResult[] GetModules(Func<string, bool> excludedPredicate) {
+        public MemberResult[] GetModules() {
             var d = new Dictionary<string, List<ModuleLoadState>>();
             foreach (var keyValue in Modules) {
                 var modName = keyValue.Key;
                 var moduleRef = keyValue.Value;
 
-                if (String.IsNullOrWhiteSpace(modName) ||
-                    excludedPredicate(modName)) {
+                if (string.IsNullOrWhiteSpace(modName) || modName.Contains(".")) {
                     continue;
                 }
 
@@ -561,7 +407,13 @@ namespace Microsoft.PythonTools.Analysis {
 
             public IEnumerable<AnalysisValue> GetLazyModules() {
                 foreach (var value in _loaded) {
-                    yield return value.Module;
+                    yield return new SyntheticDefinitionInfo(
+                        value.Name,
+                        null,
+                        string.IsNullOrEmpty(value.MaybeSourceFile) ?
+                            Enumerable.Empty<LocationInfo>() :
+                            new[] { new LocationInfo(value.MaybeSourceFile, null, 0, 0) }
+                    );
                 }
             }
 
@@ -586,14 +438,45 @@ namespace Microsoft.PythonTools.Analysis {
         /// </summary>
         /// <param name="name"></param>
         public IEnumerable<ExportedMemberInfo> FindNameInAllModules(string name) {
+            string pkgName;
+
+            if (_interpreter is ICanFindModuleMembers finder) {
+                foreach (var modName in finder.GetModulesNamed(name)) {
+                    int dot = modName.LastIndexOf('.');
+                    if (dot < 0) {
+                        yield return new ExportedMemberInfo(null, modName);
+                    } else {
+                        yield return new ExportedMemberInfo(modName.Remove(dot), modName.Substring(dot + 1));
+                    }
+                }
+
+                foreach (var modName in finder.GetModulesContainingName(name)) {
+                    yield return new ExportedMemberInfo(modName, name);
+                }
+
+                // Scan added modules directly
+                foreach (var mod in _modulesByFilename.Values) {
+                    if (mod.Name == name) {
+                        yield return new ExportedMemberInfo(null, mod.Name);
+                    } else if (GetPackageNameIfMatch(name, mod.Name, out pkgName)) {
+                        yield return new ExportedMemberInfo(pkgName, name);
+                    }
+
+                    if (mod.IsMemberDefined(_defaultContext, name)) {
+                        yield return new ExportedMemberInfo(mod.Name, name);
+                    }
+                }
+
+                yield break;
+            }
+
             // provide module names first
             foreach (var keyValue in Modules) {
                 var modName = keyValue.Key;
                 var moduleRef = keyValue.Value;
-            
+
                 if (moduleRef.IsValid) {
                     // include modules which can be imported
-                    string pkgName;
                     if (modName == name) {
                         yield return new ExportedMemberInfo(null, modName);
                     } else if (GetPackageNameIfMatch(name, modName, out pkgName)) {
@@ -602,7 +485,15 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
-            // then include module members
+            foreach (var modName in _interpreter.GetModuleNames()) {
+                if (modName == name) {
+                    yield return new ExportedMemberInfo(null, modName);
+                } else if (GetPackageNameIfMatch(name, modName, out pkgName)) {
+                    yield return new ExportedMemberInfo(pkgName, name);
+                }
+            }
+
+            // then include imported module members
             foreach (var keyValue in Modules) {
                 var modName = keyValue.Key;
                 var moduleRef = keyValue.Value;
@@ -621,7 +512,7 @@ namespace Microsoft.PythonTools.Analysis {
             }
 
             packageName = fullName.Remove(lastDot);
-            return String.Compare(fullName, lastDot + 1, name, 0, name.Length) == 0;
+            return String.Compare(fullName, lastDot + 1, name, 0, name.Length, StringComparison.Ordinal) == 0;
         }
 
         /// <summary>
@@ -669,15 +560,21 @@ namespace Microsoft.PythonTools.Analysis {
             }
 
             if (module != null) {
-                List<MemberResult> result = new List<MemberResult>();
+                var result = new Dictionary<string, List<IAnalysisSet>>();
                 if (includeMembers) {
                     foreach (var keyValue in module.GetAllMembers(moduleContext)) {
-                        result.Add(new MemberResult(keyValue.Key, keyValue.Value));
+                        if (!result.TryGetValue(keyValue.Key, out var results)) {
+                            result[keyValue.Key] = results = new List<IAnalysisSet>();
+                        }
+                        results.Add(keyValue.Value);
                     }
-                    return result.ToArray();
+                    return MemberDictToMemberResult(result);
                 } else {
                     foreach (var child in module.GetChildrenPackages(moduleContext)) {
-                        result.Add(new MemberResult(child.Key, child.Key, new[] { child.Value }, PythonMemberType.Module));
+                        if (!result.TryGetValue(child.Key, out var results)) {
+                            result[child.Key] = results = new List<IAnalysisSet>();
+                        }
+                        results.Add(child.Value);
                     }
                     foreach (var keyValue in module.GetAllMembers(moduleContext)) {
                         bool anyModules = false;
@@ -688,77 +585,124 @@ namespace Microsoft.PythonTools.Analysis {
                             }
                         }
                         if (anyModules) {
-                            result.Add(new MemberResult(keyValue.Key, keyValue.Value));
+                            if (!result.TryGetValue(keyValue.Key, out var results)) {
+                                result[keyValue.Key] = results = new List<IAnalysisSet>();
+                            }
+                            results.Add(keyValue.Value);
                         }
                     }
-                    return result.ToArray();
+                    return MemberDictToMemberResult(result);
                 }
             }
             return new MemberResult[0];
         }
+
+        private static MemberResult[] MemberDictToMemberResult(Dictionary<string, List<IAnalysisSet>> results) {
+            return results.Select(r => new MemberResult(r.Key, r.Value.SelectMany())).ToArray();
+        }
+
 
         /// <summary>
         /// Gets the list of directories which should be analyzed.
         /// 
         /// This property is thread safe.
         /// </summary>
-        public IEnumerable<string> AnalysisDirectories {
-            get {
-                lock (_searchPaths) {
-                    return _searchPaths.ToArray();
-                }
-            }
-        }
-
-        [Obsolete("Use ModulePath.FromFullPath() instead")]
-        public static string PathToModuleName(string path) {
-            return ModulePath.FromFullPath(path).ModuleName;
-        }
+        public IEnumerable<string> AnalysisDirectories => _searchPaths.AsLockedEnumerable().ToArray();
 
         /// <summary>
-        /// Converts a given absolute path name to a fully qualified Python module name by walking the directory tree.
+        /// Gets the list of directories which should be searched for type stubs.
+        /// 
+        /// This property is thread safe.
         /// </summary>
-        /// <param name="path">Path to convert.</param>
-        /// <param name="fileExists">A function that is used to verify the existence of files (in particular, __init__.py)
-        /// in the tree. Its signature and semantics should match that of <see cref="File.Exists"/>.</param>
-        /// <returns>A fully qualified module name.</returns>
-        [Obsolete("Use ModulePath.FromFullPath() instead")]
-        public static string PathToModuleName(string path, Func<string, bool> fileExists) {
-            return ModulePath.FromFullPath(
-                path,
-                isPackage: dirName => fileExists(Path.Combine(dirName, "__init__.py"))
-            ).ModuleName;
-        }
+        public IEnumerable<string> TypeStubDirectories => _typeStubPaths.AsLockedEnumerable().ToArray();
 
         public AnalysisLimits Limits {
             get { return _limits; }
             set { _limits = value; }
         }
 
+        public bool EnableDiagnostics { get; set; }
+
+        public void AddDiagnostic(Node node, AnalysisUnit unit, string message, LanguageServer.DiagnosticSeverity severity, string code = null) {
+            if (!EnableDiagnostics) {
+                return;
+            }
+
+            lock (_diagnostics) {
+                if (!_diagnostics.TryGetValue(unit.ProjectEntry, out var diags)) {
+                    _diagnostics[unit.ProjectEntry] = diags = new Dictionary<Node, LanguageServer.Diagnostic>();
+                }
+                diags[node] = new LanguageServer.Diagnostic {
+                    message = message,
+                    range = node.GetSpan(unit.ProjectEntry.Tree),
+                    severity = severity,
+                    code = code,
+                    source = PythonAnalysisSource
+                };
+            }
+        }
+
+        public IReadOnlyList<LanguageServer.Diagnostic> GetDiagnostics(IProjectEntry entry) {
+            lock (_diagnostics) {
+                if (_diagnostics.TryGetValue(entry, out var diags)) {
+                    return diags.OrderBy(kv => kv.Key.StartIndex).Select(kv => kv.Value).ToArray();
+                }
+            }
+            return Array.Empty<LanguageServer.Diagnostic>();
+        }
+
+        public IReadOnlyDictionary<IProjectEntry, IReadOnlyList<LanguageServer.Diagnostic>> GetAllDiagnostics() {
+            var res = new Dictionary<IProjectEntry, IReadOnlyList<LanguageServer.Diagnostic>>();
+            lock (_diagnostics) {
+                foreach (var kv in _diagnostics) {
+                    res[kv.Key] = kv.Value.OrderBy(d => d.Key.StartIndex).Select(d => d.Value).ToArray();
+                }
+            }
+            return res;
+        }
+
+        public void ClearDiagnostic(Node node, AnalysisUnit unit, string code = null) {
+            if (!EnableDiagnostics) {
+                return;
+            }
+
+            lock (_diagnostics) {
+                if (_diagnostics.TryGetValue(unit.ProjectEntry, out var diags) && diags.TryGetValue(node, out var d)) {
+                    if (code == null || d.code == code) {
+                        diags.Remove(node);
+                    }
+                }
+            }
+        }
+
+        public void ClearDiagnostics(IProjectEntry entry) {
+            lock (_diagnostics) {
+                _diagnostics.Remove(entry);
+            }
+        }
         #endregion
 
         #region Internal Implementation
 
         internal IKnownPythonTypes Types {
-            get;
-            private set;
+            get {
+                if (_knownTypes != null) {
+                    return _knownTypes;
+                }
+                throw new InvalidOperationException("Analyzer has not been initialized. Call ReloadModulesAsync() first.");
+            }
         }
 
         internal IKnownClasses ClassInfos {
-            get;
-            private set;
-        }
-
-        internal IAnalysisSet DoNotUnionInMro {
-            get;
-            private set;
-        }
-
-        internal Deque<AnalysisUnit> Queue {
             get {
-                return _queue;
+                if (_knownTypes != null) {
+                    return (IKnownClasses)_knownTypes;
+                }
+                throw new InvalidOperationException("Analyzer has not been initialized. Call ReloadModulesAsync() first.");
             }
         }
+
+        internal Deque<AnalysisUnit> Queue { get; }
 
         /// <summary>
         /// Returns the cached value for the provided key, creating it with
@@ -824,43 +768,40 @@ namespace Microsoft.PythonTools.Analysis {
             return GetAnalysisValueFromObjects(attr);
         }
 
-        internal AnalysisValue GetAnalysisValueFromObjects(object attr) {
+        public AnalysisValue GetAnalysisValueFromObjects(object attr) {
             if (attr == null) {
                 return _noneInst;
             }
 
-            var attrType = (attr != null) ? attr.GetType() : typeof(NoneType);
-            if (attr is IPythonType) {
-                return GetBuiltinType((IPythonType)attr);
-            } else if (attr is IPythonFunction) {
-                var bf = (IPythonFunction)attr;
-                return GetCached(attr, () => new BuiltinFunctionInfo(bf, this)) ?? _noneInst;
-            } else if (attr is IPythonMethodDescriptor) {
+            var attrType = attr.GetType();
+            if (attr is IPythonType pt) {
+                return GetBuiltinType(pt);
+            } else if (attr is IPythonFunction pf) {
+                return GetCached(attr, () => new BuiltinFunctionInfo(pf, this)) ?? _noneInst;
+            } else if (attr is IPythonMethodDescriptor md) {
                 return GetCached(attr, () => {
-                    var md = (IPythonMethodDescriptor)attr;
                     if (md.IsBound) {
                         return new BuiltinFunctionInfo(md.Function, this);
                     } else {
                         return new BuiltinMethodInfo(md, this);
                     }
                 }) ?? _noneInst;
-            } else if (attr is IBuiltinProperty) {
-                return GetCached(attr, () => new BuiltinPropertyInfo((IBuiltinProperty)attr, this)) ?? _noneInst;
-            } else if (attr is IPythonModule) {
-                return _modules.GetBuiltinModule((IPythonModule)attr);
-            } else if (attr is IPythonEvent) {
-                return GetCached(attr, () => new BuiltinEventInfo((IPythonEvent)attr, this)) ?? _noneInst;
-            } else if (attr is IPythonConstant) {
-                return GetConstant((IPythonConstant)attr).First();
-            } else if (attrType == typeof(bool) || attrType == typeof(int) || attrType == typeof(Complex) ||
-                        attrType == typeof(string) || attrType == typeof(long) || attrType == typeof(double) ||
-                        attr == null) {
+            } else if (attr is IPythonBoundFunction pbf) {
+                return GetCached(attr, () => new BoundBuiltinMethodInfo(pbf, this)) ?? _noneInst;
+            } else if (attr is IBuiltinProperty bp) {
+                return GetCached(attr, () => new BuiltinPropertyInfo(bp, this)) ?? _noneInst;
+            } else if (attr is IPythonModule pm) {
+                return _modules.GetBuiltinModule(pm);
+            } else if (attr is IPythonEvent pe) {
+                return GetCached(attr, () => new BuiltinEventInfo(pe, this)) ?? _noneInst;
+            } else if (attr is IPythonConstant ||
+                       attrType == typeof(bool) || attrType == typeof(int) || attrType == typeof(Complex) ||
+                       attrType == typeof(string) || attrType == typeof(long) || attrType == typeof(double)) {
                 return GetConstant(attr).First();
-            } else if (attr is IMemberContainer) {
-                return GetCached(attr, () => new ReflectedNamespace((IMemberContainer)attr, this));
-            } else if (attr is IPythonMultipleMembers) {
-                IPythonMultipleMembers multMembers = (IPythonMultipleMembers)attr;
-                var members = multMembers.Members;
+            } else if (attr is IMemberContainer mc) {
+                return GetCached(attr, () => new ReflectedNamespace(mc, this));
+            } else if (attr is IPythonMultipleMembers mm) {
+                var members = mm.Members;
                 return GetCached(attr, () =>
                     MultipleMemberInfo.Create(members.Select(GetAnalysisValueFromObjects)).FirstOrDefault() ??
                         ClassInfos[BuiltinTypeId.NoneType].Instance
@@ -877,6 +818,17 @@ namespace Microsoft.PythonTools.Analysis {
             var result = new Dictionary<string, IAnalysisSet>();
             foreach (var name in names) {
                 result[name] = GetAnalysisValueFromObjects(container.GetMember(moduleContext, name));
+            }
+            var children = (container as IModule)?.GetChildrenPackages(moduleContext);
+            if (children?.Any() ?? false) {
+                foreach (var child in children) {
+                    IAnalysisSet existing;
+                    if (result.TryGetValue(child.Key, out existing)) {
+                        result[child.Key] = existing.Add(child.Value);
+                    } else {
+                        result[child.Key] = child.Value;
+                    }
+                }
             }
 
             return result;
@@ -901,14 +853,25 @@ namespace Microsoft.PythonTools.Analysis {
             return false;
         }
 
-        internal IAnalysisSet GetConstant(IPythonConstant value) {
-            object key = value ?? _nullKey;
-            return GetCached(key, () => ConstantInfo.Create(this, value) ?? _noneInst) ?? _noneInst;
-        }
-
         internal IAnalysisSet GetConstant(object value) {
             object key = value ?? _nullKey;
-            return GetCached(key, () => ConstantInfo.Create(this, value) ?? _noneInst) ?? _noneInst;
+            return GetCached(key, () => {
+                var constant = value as IPythonConstant;
+                var constantType = constant?.Type;
+                var av = GetAnalysisValueFromObjectsThrowOnNull(constantType ?? GetTypeFromObject(value));
+
+                if (av is ConstantInfo ci) {
+                    return ci;
+                }
+
+                if (av is BuiltinClassInfo bci) {
+                    if (constant == null) {
+                        return new ConstantInfo(bci, value, PythonMemberType.Constant);
+                    }
+                    return bci.Instance;
+                }
+                return _noneInst;
+            }) ?? _noneInst;
         }
 
         private static void Update<K, V>(IDictionary<K, V> dict, IDictionary<K, V> newValues) {
@@ -966,9 +929,9 @@ namespace Microsoft.PythonTools.Analysis {
 
             if (_builtinModule == null) {
                 Debug.Fail("Used analyzer without reloading modules");
-                ReloadModulesAsync().WaitAndUnwrapExceptions();
+                ReloadModulesAsync(cancel).WaitAndUnwrapExceptions();
             }
-            
+
             var ddg = new DDG();
             ddg.Analyze(Queue, cancel, _reportQueueSize, _reportQueueInterval);
             foreach (var entry in ddg.AnalyzedEntries) {
@@ -987,11 +950,7 @@ namespace Microsoft.PythonTools.Analysis {
             _reportQueueInterval = interval;
         }
 
-        public IReadOnlyList<string> GetSearchPaths() {
-            lock (_searchPaths) {
-                return _searchPaths.ToArray();
-            }
-        }
+        public IReadOnlyList<string> GetSearchPaths() => _searchPaths.AsLockedEnumerable().ToArray();
 
         /// <summary>
         /// Sets the search paths for this analyzer, invoking callbacks for any
@@ -1000,7 +959,21 @@ namespace Microsoft.PythonTools.Analysis {
         public void SetSearchPaths(IEnumerable<string> paths) {
             lock (_searchPaths) {
                 _searchPaths.Clear();
-                _searchPaths.AddRange(paths);
+                _searchPaths.AddRange(paths.MaybeEnumerate());
+            }
+            SearchPathsChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        public IReadOnlyList<string> GetTypeStubPaths() => _typeStubPaths.AsLockedEnumerable().ToArray();
+
+        /// <summary>
+        /// Sets the type stub search paths for this analyzer, invoking callbacks for any
+        /// path added or removed.
+        /// </summary>
+        public void SetTypeStubPaths(IEnumerable<string> paths) {
+            lock (_typeStubPaths) {
+                _typeStubPaths.Clear();
+                _typeStubPaths.AddRange(paths.MaybeEnumerate());
             }
             SearchPathsChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -1029,8 +1002,11 @@ namespace Microsoft.PythonTools.Analysis {
                 }
                 // Try and acquire the lock before disposing. This helps avoid
                 // some (non-fatal) exceptions.
-                _reloadLock.Wait(TimeSpan.FromSeconds(10));
-                _reloadLock.Dispose();
+                try {
+                    _reloadLock.Wait(TimeSpan.FromSeconds(10));
+                    _reloadLock.Dispose();
+                } catch (ObjectDisposedException) {
+                }
             }
         }
 

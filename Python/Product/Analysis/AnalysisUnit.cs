@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,6 +20,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using Microsoft.PythonTools.Analysis.Analyzer;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Analysis.Values;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
@@ -35,9 +36,10 @@ namespace Microsoft.PythonTools.Analysis {
     /// AnalysisUnit which is dependent upon the variable.  If the value of a variable changes then all of the dependent
     /// AnalysisUnit's will be re-enqueued.  This proceeds until we reach a fixed point.
     /// </summary>
-    public class AnalysisUnit : ISet<AnalysisUnit>, ILocationResolver {
+    public class AnalysisUnit : ISet<AnalysisUnit>, ILocationResolver, ICanExpire {
         internal InterpreterScope _scope;
         private ModuleInfo _declaringModule;
+        private bool _suppressEnqueue;
 #if DEBUG
         private long _analysisTime;
         private long _analysisCount;
@@ -51,7 +53,7 @@ namespace Microsoft.PythonTools.Analysis {
         internal static AnalysisUnit EvalUnit = new AnalysisUnit(null, null, null, true);
 
         internal AnalysisUnit(ScopeStatement ast, InterpreterScope scope)
-            : this(ast, (ast != null ? ast.GlobalParent : null), scope, false) {
+            : this(ast, ast?.GlobalParent, scope, false) {
         }
 
         internal AnalysisUnit(Node ast, PythonAst tree, InterpreterScope scope, bool forEval) {
@@ -71,6 +73,8 @@ namespace Microsoft.PythonTools.Analysis {
         /// mode we don't track references or re-queue items.
         /// </summary>
         internal readonly bool ForEval;
+
+        public virtual bool IsAlive => _scope?.AnalysisValue?.IsAlive ?? true;
 
         internal virtual ModuleInfo GetDeclaringModule() {
             if (_scope != null) {
@@ -97,7 +101,7 @@ namespace Microsoft.PythonTools.Analysis {
         /// <summary>
         /// Returns the project entry which this analysis unit analyzes.
         /// </summary>
-        public IPythonProjectEntry Project {
+        public IPythonProjectEntry Entry {
             get {
                 return ProjectEntry;
             }
@@ -113,19 +117,23 @@ namespace Microsoft.PythonTools.Analysis {
             get { return DeclaringModule.ProjectEntry; }
         }
 
-        public PythonAnalyzer ProjectState {
+        public PythonAnalyzer State {
             get { return DeclaringModule.ProjectEntry.ProjectState; }
         }
 
-        internal AnalysisUnit CopyForEval() {
+        public AnalysisUnit CopyForEval() {
             return new AnalysisUnit(Ast, Tree, _scope, true);
         }
 
         internal void Enqueue() {
-            if (!ForEval && !IsInQueue) {
-                ProjectState.Queue.Append(this);
-                AnalysisLog.Enqueue(ProjectState.Queue, this);
-                this.IsInQueue = true;
+            if (!ForEval && !IsInQueue && !_suppressEnqueue) {
+                State.Queue.Append(this);
+                AnalysisLog.Enqueue(State.Queue, this);
+                IsInQueue = true;
+
+                if (DeclaringModule?.Scope == Scope) {
+                    DeclaringModule.ModuleDefinition.EnqueueDependents();
+                }
             }
         }
 
@@ -159,8 +167,6 @@ namespace Microsoft.PythonTools.Analysis {
         }
 
         internal virtual void AnalyzeWorker(DDG ddg, CancellationToken cancel) {
-            DeclaringModule.Scope.ClearLinkedVariables();
-
             ddg.SetCurrentUnit(this);
             Ast.Walk(ddg);
 
@@ -168,22 +174,25 @@ namespace Microsoft.PythonTools.Analysis {
 
             foreach (var variableInfo in DeclaringModule.Scope.AllVariables) {
                 variableInfo.Value.ClearOldValues(ProjectEntry);
-                if (variableInfo.Value._dependencies.Count == 0 &&
-                    !variableInfo.Value.HasTypes) {
-                    if (toRemove == null) {
-                        toRemove = new List<KeyValuePair<string, VariableDef>>();
-                    }
+                if (!variableInfo.Value.HasTypes && !variableInfo.Value.IsAssigned && !variableInfo.Value.IsEphemeral) {
+                    toRemove = toRemove ?? new List<KeyValuePair<string, VariableDef>>();
                     toRemove.Add(variableInfo);
                 }
             }
-            if (toRemove != null) {
-                foreach (var nameValue in toRemove) {
-                    DeclaringModule.Scope.RemoveVariable(nameValue.Key);
 
-                    // if anyone read this value it could now be gone (e.g. user 
-                    // deletes a class definition) so anyone dependent upon it
-                    // needs to be updated.
-                    nameValue.Value.EnqueueDependents();
+            if (toRemove != null) {
+                // Do not allow variable removal to re-enqueue our unit
+                _suppressEnqueue = true;
+                try {
+                    foreach (var nameValue in toRemove) {
+                        DeclaringModule.Scope.RemoveVariable(nameValue.Key);
+                        // if anyone read this value it could now be gone (e.g. user 
+                        // deletes a class definition) so anyone dependent upon it
+                        // needs to be updated.
+                        nameValue.Value.EnqueueDependents();
+                    }
+                } finally {
+                    _suppressEnqueue = false;
                 }
             }
         }
@@ -196,13 +205,8 @@ namespace Microsoft.PythonTools.Analysis {
         }
 
         public override string ToString() {
-            return String.Format(
-                "<{3}: Name={0} ({1}), NodeType={2}>",
-                FullName,
-                GetHashCode(),
-                Ast != null ? Ast.GetType().Name : "<unknown>",
-                GetType().Name
-            );
+            return "{0}: Name={1} ({2}), NodeType={3}".FormatInvariant(
+                GetType().Name, FullName, GetHashCode(), Ast?.GetType().Name ?? "<unknown>");
         }
 
         /// <summary>
@@ -341,80 +345,33 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
-            return ProjectState.BuiltinModule.GetMember(node, this, name);
+            return State.BuiltinModule.GetMember(node, this, name);
         }
 
         public LocationInfo ResolveLocation(object location) {
             Node node = (Node)location;
-            MemberExpression me = node as MemberExpression;
-            SourceSpan span;
-            if (me != null) {
-                span = me.GetNameSpan(Tree);
-            } else {
-                span = node.GetSpan(Tree);
-            }
+            var span = (node as MemberExpression)?.GetNameSpan(Tree)
+                ?? (node as Parameter)?.NameExpression?.GetSpan(Tree)
+                ?? node.GetSpan(Tree);
 
-            return new LocationInfo(ProjectEntry.FilePath, span.Start.Line, span.Start.Column);
-        }
-    }
-
-    /// <summary>
-    /// Handles the re-evaluation of a base class when we have a deferred variable lookup.
-    /// 
-    /// For each base class which a class inherits from we create a new ClassBaseAnalysisUnit.  
-    /// 
-    /// We use this AnalysisUnit for the evaulation of the base class.  The ClassBaseAU is setup
-    /// to have the same set of scopes as the classes outer (defining) analysis unit.  We then
-    /// evaluate the base class inside of this unit.  If any of our dependencies change we will 
-    /// then re-evaluate our base class, and we will also re-evaluate our outer unit as well.
-    /// </summary>
-    class ClassBaseAnalysisUnit : AnalysisUnit {
-        private readonly Expression _baseClassNode;
-        private readonly AnalysisUnit _outerUnit;
-        private readonly int _indexInBasesList;
-
-        public ClassBaseAnalysisUnit(ClassDefinition node, InterpreterScope scope, int indexInBasesList, Expression baseClassNode, AnalysisUnit outerUnit)
-            : base(node, scope) {
-            _indexInBasesList = indexInBasesList;
-            _outerUnit = outerUnit;
-            _baseClassNode = baseClassNode;
+            return new LocationInfo(ProjectEntry.FilePath, Entry.DocumentUri, span.Start.Line, span.Start.Column, span.End.Line, span.End.Column);
         }
 
-        internal override void AnalyzeWorker(DDG ddg, CancellationToken cancel) {
-            ddg.SetCurrentUnit(this);
+        internal virtual ILocationResolver AlternateResolver => null;
 
-            InterpreterScope scope;
-            if (!ddg.Scope.TryGetNodeScope(Ast, out scope)) {
-                return;
-            }
-
-            var classInfo = ((ClassScope)scope).Class;
-            var bases = ClassAnalysisUnit.EvaluateBaseClass(
-                ddg,
-                classInfo,
-                _indexInBasesList,
-                _baseClassNode
-            );
-            classInfo.SetBase(_indexInBasesList, bases);
-
-            _outerUnit.Enqueue();
-        }
+        ILocationResolver ILocationResolver.GetAlternateResolver() => AlternateResolver;
     }
 
     class ClassAnalysisUnit : AnalysisUnit {
         private readonly AnalysisUnit _outerUnit;
-        private readonly ClassBaseAnalysisUnit[] _baseEvals;
+        private readonly Dictionary<Node, Expression> _decoratorCalls;
 
         public ClassAnalysisUnit(ClassDefinition node, InterpreterScope declScope, AnalysisUnit outerUnit)
             : base(node, new ClassScope(new ClassInfo(node, outerUnit), node, declScope)) {
 
             ((ClassScope)Scope).Class.SetAnalysisUnit(this);
             _outerUnit = outerUnit;
-
-            _baseEvals = new ClassBaseAnalysisUnit[node.Bases.Count];
-            for (int i = 0; i < node.Bases.Count; i++) {
-                _baseEvals[i] = new ClassBaseAnalysisUnit(node, outerUnit.Scope, i, node.Bases[i].Expression, this);
-            }
+            _decoratorCalls = new Dictionary<Node, Expression>();
 
             AnalysisLog.NewUnit(this);
         }
@@ -431,36 +388,30 @@ namespace Microsoft.PythonTools.Analysis {
                 return;
             }
 
-            var classInfo = ((ClassScope)scope).Class;
+            var classInfo = ((ClassScope)Scope).Class;
             var bases = new List<IAnalysisSet>();
 
-            if (Ast.Bases.Count == 0) {
+            if (Ast.BasesInternal.Length == 0) {
                 if (ddg.ProjectState.LanguageVersion.Is3x()) {
                     // 3.x all classes inherit from object by default
                     bases.Add(ddg.ProjectState.ClassInfos[BuiltinTypeId.Object]);
                 }
             } else {
                 // Process base classes
-                for (int i = 0; i < Ast.Bases.Count; i++) {
-                    var baseClassArg = Ast.Bases[i];
+                for (int i = 0; i < Ast.BasesInternal.Length; i++) {
+                    var baseClassArg = Ast.BasesInternal[i];
 
-                    ddg.SetCurrentUnit(_baseEvals[i]);
+                    if (baseClassArg.Name == null) {
+                        bases.Add(EvaluateBaseClass(ddg, classInfo, i, baseClassArg.Expression));
 
-                    if (baseClassArg.Name != null) {
-                        if (baseClassArg.Name == "metaclass") {
-                            var metaClass = baseClassArg.Expression;
-                            metaClass.Walk(ddg);
-                            var metaClassValue = ddg._eval.Evaluate(metaClass);
-                            if (metaClassValue.Count > 0) {
-                                classInfo.GetOrCreateMetaclassVariable().AddTypes(_outerUnit, metaClassValue);
-                            }
+                    } else if (baseClassArg.Name == "metaclass") {
+                        var metaClass = baseClassArg.Expression;
+                        metaClass.Walk(ddg);
+                        var metaClassValue = ddg._eval.Evaluate(metaClass);
+                        if (metaClassValue.Count > 0) {
+                            classInfo.GetOrCreateMetaclassVariable().AddTypes(_outerUnit, metaClassValue);
                         }
-                        continue;
                     }
-
-                    var baseExpr = baseClassArg.Expression;
-                    var baseSet = EvaluateBaseClass(ddg, classInfo, i, baseExpr);
-                    bases.Add(baseSet);
                 }
             }
 
@@ -472,8 +423,51 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
+
             ddg.SetCurrentUnit(this);
             ddg.WalkBody(Ast.Body, classInfo.AnalysisUnit);
+
+            ddg.SetCurrentUnit(_outerUnit);
+            _outerUnit.Scope.AddLocatedVariable(Ast.Name, Ast.NameExpression, this);
+            _outerUnit.Scope.AssignVariable(Ast.Name, Ast.NameExpression, this, ProcessClassDecorators(ddg, classInfo));
+        }
+
+        private IAnalysisSet ProcessClassDecorators(DDG ddg, ClassInfo classInfo) {
+            var types = classInfo.SelfSet;
+            if (Ast.Decorators != null) {
+                Expression expr = Ast.NameExpression;
+
+                foreach (var d in Ast.Decorators.DecoratorsInternal) {
+                    if (d != null) {
+                        var decorator = ddg._eval.Evaluate(d);
+
+                        Expression nextExpr;
+                        if (!_decoratorCalls.TryGetValue(d, out nextExpr)) {
+                            nextExpr = _decoratorCalls[d] = new CallExpression(d, new[] { new Arg(expr) });
+                            nextExpr.SetLoc(d.IndexSpan);
+                        }
+                        expr = nextExpr;
+                        var decorated = AnalysisSet.Empty;
+                        bool anyResults = false;
+                        foreach (var ns in decorator) {
+                            var fd = ns as FunctionInfo;
+                            if (fd != null && Scope.EnumerateTowardsGlobal.Any(s => s.AnalysisValue == fd)) {
+                                continue;
+                            }
+                            decorated = decorated.Union(ns.Call(expr, this, new[] { types }, ExpressionEvaluator.EmptyNames));
+                            anyResults = true;
+                        }
+
+                        // If processing decorators, update the current
+                        // function type. Otherwise, we are acting as if
+                        // each decorator returns the function unmodified.
+                        if (ddg.ProjectState.Limits.ProcessCustomDecorators && anyResults) {
+                            types = decorated;
+                        }
+                    }
+                }
+            }
+            return types;
         }
 
         internal static IAnalysisSet EvaluateBaseClass(DDG ddg, ClassInfo newClass, int indexInBaseList, Expression baseClass) {
@@ -483,6 +477,9 @@ namespace Microsoft.PythonTools.Analysis {
             foreach (var baseValue in bases) {
                 ClassInfo ci = baseValue as ClassInfo;
                 if (ci != null) {
+                    if (!ci._mro.IsValid) {
+                        ci._mro.Recompute();
+                    }
                     ci.SubClasses.AddTypes(newClass.AnalysisUnit, newClass);
                 }
             }
@@ -525,7 +522,7 @@ namespace Microsoft.PythonTools.Analysis {
             : base(node, parent,
                 new ComprehensionScope(
                     new GeneratorInfo(
-                        outerUnit.ProjectState,
+                        outerUnit.State,
                         outerUnit.ProjectEntry
                     ),
                     node,
@@ -547,7 +544,7 @@ namespace Microsoft.PythonTools.Analysis {
     class SetComprehensionAnalysisUnit : ComprehensionAnalysisUnit {
         public SetComprehensionAnalysisUnit(Comprehension node, PythonAst parent, AnalysisUnit outerUnit, InterpreterScope outerScope)
             : base(node, parent,
-            new ComprehensionScope(new SetInfo(outerUnit.ProjectState, node, outerUnit.ProjectEntry), node, outerScope),
+            new ComprehensionScope(new SetInfo(outerUnit.State, node, outerUnit.ProjectEntry), node, outerScope),
             outerUnit) { }
 
         internal override void AnalyzeWorker(DDG ddg, CancellationToken cancel) {
@@ -583,7 +580,7 @@ namespace Microsoft.PythonTools.Analysis {
             new ComprehensionScope(
                 new ListInfo(
                     VariableDef.EmptyArray,
-                    outerUnit.ProjectState.ClassInfos[BuiltinTypeId.List],
+                    outerUnit.State.ClassInfos[BuiltinTypeId.List],
                     node,
                     outerUnit.ProjectEntry
                 ), node, outerScope),

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -31,10 +31,9 @@ namespace PythonToolsTests {
         [ClassInitialize]
         public static void DoDeployment(TestContext context) {
             AssertListener.Initialize();
-            PythonTestData.Deploy();
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void UpgradeCheckToolsVersion() {
             var factory = new PythonProjectFactory(null);
             var sp = new MockServiceProvider();
@@ -66,7 +65,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void UpgradeToolsVersion() {
             var factory = new PythonProjectFactory(null);
             var sp = new MockServiceProvider();
@@ -87,8 +86,8 @@ namespace PythonToolsTests {
 
                 // Use a copy of the project so we don't interfere with other
                 // tests using them.
-                var origProject = Path.Combine("TestData", "ProjectUpgrade", testCase.Name);
-                var tempProject = Path.Combine(TestData.GetTempPath("ProjectUpgrade", true), testCase.Name);
+                var origProject = TestData.GetPath("TestData", "ProjectUpgrade", testCase.Name);
+                var tempProject = Path.Combine(TestData.GetTempPath(), testCase.Name);
                 File.Copy(origProject, tempProject);
 
                 var hr = upgrade.UpgradeProject(
@@ -119,7 +118,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void UpgradeCheckUserToolsVersion() {
             var factory = new PythonProjectFactory(null);
             var sp = new MockServiceProvider();
@@ -162,7 +161,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void OldWebProjectUpgrade() {
             // PTVS 2.1 Beta 1 shipped with separate .targets files for Bottle
             // and Flask. In PTVS 2.1 Beta 2 these were removed. This test
@@ -184,7 +183,7 @@ namespace PythonToolsTests {
 
                 // Use a copy of the project so we don't interfere with other
                 // tests using them.
-                var project = Path.Combine("TestData", "ProjectUpgrade", testCase.Name);
+                var project = TestData.GetPath("TestData", "ProjectUpgrade", testCase.Name);
                 using (FileUtils.Backup(project)) {
                     var origText = File.ReadAllText(project);
                     var hr = upgrade.UpgradeProject(
@@ -225,7 +224,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void CommonPropsProjectUpgrade() {
             var factory = new PythonProjectFactory(null);
             var sp = new MockServiceProvider();
@@ -262,7 +261,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void CommonTargetsProjectUpgrade() {
             var factory = new PythonProjectFactory(null);
             var sp = new MockServiceProvider();
@@ -308,7 +307,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void PythonTargetsProjectUpgrade() {
             var factory = new PythonProjectFactory(null);
             var sp = new MockServiceProvider();
@@ -354,7 +353,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void InterpreterIdUpgrade() {
             // PTVS 3.0 changed interpreter ID format.
             var factory = new PythonProjectFactory(null);
@@ -408,7 +407,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void InterpreterReferenceUpgrade() {
             // PTVS 3.0 changed interpreter ID format.
             var factory = new PythonProjectFactory(null);
@@ -455,7 +454,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void BaseInterpreterUpgrade() {
             // PTVS 3.0 changed interpreter ID format.
             var factory = new PythonProjectFactory(null);
@@ -498,7 +497,7 @@ namespace PythonToolsTests {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void WebBrowserUrlUpgrade() {
             // PTVS 3.0 changed interpreter ID format.
             var factory = new PythonProjectFactory(null);
@@ -545,5 +544,53 @@ namespace PythonToolsTests {
             }
         }
 
+        [TestMethod, Priority(0)]
+        public void MscorlibReferenceUpgrade() {
+            // IronPython projects typically require mscorlib reference.
+            // We'll add it if there are any other .NET references
+            var factory = new PythonProjectFactory(null);
+            var sp = new MockServiceProvider();
+            sp.Services[typeof(SVsQueryEditQuerySave).GUID] = null;
+            sp.Services[typeof(SVsActivityLog).GUID] = new MockActivityLog();
+            factory.Site = sp;
+
+            var upgrade = (IVsProjectUpgradeViaFactory)factory;
+            foreach (var testCase in new[] {
+                new { Name = "NoNetReferences.pyproj", Expected = 0 },
+                new { Name = "HasMscorlib.pyproj", Expected = 0 },
+                new { Name = "NoMscorlib.pyproj", Expected = 1 },
+            }) {
+                int actual;
+                Guid factoryGuid;
+                string newLocation;
+
+                var project = TestData.GetPath("TestData\\ProjectUpgrade\\" + testCase.Name);
+                using (FileUtils.Backup(project)) {
+
+                    var hr = upgrade.UpgradeProject(
+                        project,
+                        0u,  // no backups
+                        null,
+                        out newLocation,
+                        null,
+                        out actual,
+                        out factoryGuid
+                    );
+
+                    Assert.AreEqual(0, hr, string.Format("Wrong HR for {0}", testCase.Name));
+                    Assert.AreEqual(testCase.Expected, actual, string.Format("Wrong result for {0}", testCase.Name));
+                    Assert.AreEqual(project, newLocation, string.Format("Wrong location for {0}", testCase.Name));
+                    Console.WriteLine(File.ReadAllText(project));
+
+                    if (testCase.Expected != 0) {
+                        AssertUtil.Contains(
+                            File.ReadAllText(project),
+                            "<Reference Include=\"mscorlib"
+                        );
+                    }
+                    Assert.AreEqual(Guid.Empty, factoryGuid);
+                }
+            }
+        }
     }
 }

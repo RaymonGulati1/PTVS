@@ -138,14 +138,11 @@
   <data name="3002" xml:space="preserve">
     <value>Wpf Application</value>
   </data>
-  <data name="3003" xml:space="preserve">
-    <value>IronPython Silverlight Page</value>
-  </data>
   <data name="114" xml:space="preserve">
     <value>Intellisense</value>
   </data>
   <data name="115" xml:space="preserve">
-    <value>Python Tools</value>
+    <value>Python</value>
   </data>
   <data name="116" xml:space="preserve">
     <value>Environment Options</value>
@@ -329,34 +326,40 @@
     <value>A sample for working with the Pyvot library for Excel</value>
   </data>
   <data name="5018" xml:space="preserve">
-    <value>Classifier Project</value>
+    <value>Classifier Project (cookiecutter)</value>
   </data>
   <data name="5019" xml:space="preserve">
     <value>A project for testing scikit-learn classifiers.
 
-This project requires the pandas, numpy, scikit-learn, and matplotlib packages.</value>
+This project requires the pandas, numpy, scikit-learn, and matplotlib packages.
+
+Opens Cookiecutter window where you can create the project from a cookiecutter template available online.</value>
   </data>
   <data name="5020" xml:space="preserve">
-    <value>Clustering Project</value>
+    <value>Clustering Project (cookiecutter)</value>
   </data>
   <data name="5021" xml:space="preserve">
     <value>A project for testing scikit-learn clustering learners.
 
-This project requires the pandas, numpy, scikit-learn, and matplotlib packages.</value>
+This project requires the pandas, numpy, scikit-learn, and matplotlib packages.
+
+Opens Cookiecutter window where you can create the project from a cookiecutter template available online.</value>
   </data>
   <data name="5022" xml:space="preserve">
-    <value>Regression Project</value>
+    <value>Regression Project (cookiecutter)</value>
   </data>
   <data name="5023" xml:space="preserve">
     <value>A project for testing scikit-learn regression learners.
 
-This project requires the pandas, numpy, scikit-learn, and matplotlib packages.</value>
+This project requires the pandas, numpy, scikit-learn, and matplotlib packages.
+
+Opens Cookiecutter window where you can create the project from a cookiecutter template available online.</value>
   </data>
   <data name="5024" xml:space="preserve">
     <value>Python Extension Module</value>
   </data>
   <data name="5025" xml:space="preserve">
-    <value>Implements a native extension module for CPython 3.5 or later</value>
+    <value>Implements a native extension module for CPython 3.6 or later</value>
   </data>
   <data name="5026" xml:space="preserve">
     <value>Bottle Web Role</value>
@@ -539,6 +542,24 @@ This file should normally be deployed in your /static folder. See https://aka.ms
     <value>Python Project Files;*.pyproj</value>
   </data>
   <data name="128" xml:space="preserve">
-    <value>Python Files;*.py,*.pyw</value>
+    <value>Python Files;*.py,*.pyw,*.pyi</value>
+  </data>
+  <data name="129" xml:space="preserve">
+    <value>Diagnostics</value>
+  </data>
+  <data name="130" xml:space="preserve">
+    <value>Experimental</value>
+  </data>
+  <data name="5080" xml:space="preserve">
+    <value>Mypy configuration file</value>
+  </data>
+  <data name="5081" xml:space="preserve">
+    <value>A mypy.ini file for configuring Mypy settings</value>
+  </data>
+  <data name="131" xml:space="preserve">
+    <value>Language Server</value>
+  </data>
+  <data name="132" xml:space="preserve">
+    <value>Conda</value>
   </data>
 </root>

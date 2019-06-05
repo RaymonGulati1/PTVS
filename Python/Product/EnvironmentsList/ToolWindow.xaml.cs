@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,44 +19,29 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
-using Microsoft.PythonTools.Analysis.Analyzer;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Logging;
 using Microsoft.VisualStudio.ComponentModelHost;
 
 namespace Microsoft.PythonTools.EnvironmentsList {
-    public partial class ToolWindow : UserControl, IDisposable {
+    public partial class ToolWindow : UserControl {
         internal readonly ObservableCollection<EnvironmentView> _environments;
         internal readonly ObservableCollection<object> _extensions;
 
         private readonly CollectionViewSource _environmentsView, _extensionsView;
         private IInterpreterRegistryService _interpreters;
-        private IInterpreterOptionsService _service;
+        private IInterpreterOptionsService _options;
         private IServiceProvider _site;
-
-        private EnvironmentView _addNewEnvironmentView;
-        private EnvironmentView _onlineHelpView;
-
-        private AnalyzerStatusListener _listener;
-        private readonly object _listenerLock = new object();
-        private int _listenerTimeToLive;
-        const int _listenerDefaultTimeToLive = 1200;
-
-        // lock(_environments) when accessing _currentlyRefreshing
-        private readonly Dictionary<IPythonInterpreterFactory, AnalysisProgress> _currentlyRefreshing;
-
-        private bool _isDisposed;
 
         public static readonly RoutedCommand UnhandledException = new RoutedCommand();
         private static readonly object[] EmptyObjectArray = new object[0];
@@ -69,10 +54,8 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             _extensionsView.SortDescriptions.Add(new SortDescription("SortPriority", ListSortDirection.Ascending));
             _extensionsView.SortDescriptions.Add(new SortDescription("LocalizedDisplayName", ListSortDirection.Ascending));
             _environmentsView.View.CurrentChanged += EnvironmentsView_CurrentChanged;
-            _currentlyRefreshing = new Dictionary<IPythonInterpreterFactory, AnalysisProgress>();
             DataContext = this;
             InitializeComponent();
-            CreateListener();
             SizeChanged += ToolWindow_SizeChanged;
         }
 
@@ -84,6 +67,7 @@ namespace Microsoft.PythonTools.EnvironmentsList {
                 }
                 return;
             }
+            OnViewSelected(item);
             var oldSelect = _extensionsView.View.CurrentItem?.GetType();
             var newSelect = oldSelect == null ? null :
                 item.Extensions?.FirstOrDefault(ext => ext != null && ext.GetType().IsEquivalentTo(oldSelect));
@@ -108,16 +92,14 @@ namespace Microsoft.PythonTools.EnvironmentsList {
                 _site = value;
                 if (value != null) {
                     var compModel = _site.GetService(typeof(SComponentModel)) as IComponentModel;
-                    Service = compModel.GetService<IInterpreterOptionsService>();
-                    Interpreters = compModel.GetService<IInterpreterRegistryService>();
+                    InitializeEnvironments(compModel.GetService<IInterpreterRegistryService>(), compModel.GetService<IInterpreterOptionsService>());
                 } else {
-                    Service = null;
-                    Interpreters = null;
+                    InitializeEnvironments(null, null);
                 }
             }
         }
 
-        public IPythonToolsLogger TelemetryLogger { get; set; }
+        internal IPythonToolsLogger TelemetryLogger { get; set; }
 
         internal static async void SendUnhandledException(UIElement element, ExceptionDispatchInfo edi) {
             try {
@@ -179,45 +161,6 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             UpdateLayout();
         }
 
-
-        private void CreateListener() {
-            lock (_listenerLock) {
-                var oldListener = _listener;
-                if (oldListener != null) {
-                    oldListener.ThrowPendingExceptions();
-                    oldListener.Dispose();
-                }
-                var newListener = new AnalyzerStatusListener(Listener_ProgressUpdate, TimeSpan.FromMilliseconds(250));
-                newListener.ThrowPendingExceptions();
-                _listener = newListener;
-                _listenerTimeToLive = _listenerDefaultTimeToLive;
-            }
-        }
-
-        public void Dispose() {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        ~ToolWindow() {
-            Dispose(false);
-        }
-
-        protected virtual void Dispose(bool disposing) {
-            if (!_isDisposed) {
-                _isDisposed = true;
-
-                if (disposing) {
-                    lock (_listenerLock) {
-                        if (_listener != null) {
-                            _listener.Dispose();
-                            _listener = null;
-                        }
-                    }
-                }
-            }
-        }
-
         public ICollectionView Environments => _environmentsView.View;
         public ICollectionView Extensions => _extensionsView.View;
 
@@ -227,131 +170,11 @@ namespace Microsoft.PythonTools.EnvironmentsList {
         }
 
         private void MakeGlobalDefault_Executed(object sender, ExecutedRoutedEventArgs e) {
-            _service.DefaultInterpreter = ((EnvironmentView)e.Parameter).Factory;
-        }
-
-        private async void Listener_ProgressUpdate(Dictionary<string, AnalysisProgress> status) {
-            bool anyUpdates = status.Any();
-            if (!anyUpdates) {
-                lock (_environments) {
-                    anyUpdates = _currentlyRefreshing.Count != 0;
-                }
-            }
-
-            if (anyUpdates) {
-                var updates = new List<DispatcherOperation>();
-
-                lock (_environments) {
-                    foreach (var env in _environments) {
-                        if (env.Factory == null) {
-                            continue;
-                        }
-
-                        AnalysisProgress progress;
-                        if (status.TryGetValue(AnalyzerStatusUpdater.GetIdentifier(env.Factory), out progress)) {
-                            _currentlyRefreshing[env.Factory] = progress;
-
-                            updates.Add(env.Dispatcher.InvokeAsync(() => {
-                                if (progress.Maximum > 0) {
-                                    var percent = progress.Progress * 100 / progress.Maximum;
-                                    var current = env.RefreshDBProgress;
-                                    // Filter out small instances of 'reverse'
-                                    // progress, but allow big jumps backwards.
-                                    if (percent > current || percent < current - 25) {
-                                        env.RefreshDBProgress = percent;
-                                    }
-                                    env.IsRefreshDBProgressIndeterminate = false;
-                                } else {
-                                    env.IsRefreshDBProgressIndeterminate = true;
-                                }
-                                env.RefreshDBMessage = progress.Message;
-                                env.IsRefreshingDB = true;
-                            }));
-                        } else if (_currentlyRefreshing.TryGetValue(env.Factory, out progress)) {
-                            _currentlyRefreshing.Remove(env.Factory);
-                            try {
-                                TelemetryLogger?.LogEvent(PythonLogEvent.AnalysisCompleted, new AnalysisInfo {
-                                    InterpreterId = env.Factory.Configuration.Id,
-                                    AnalysisSeconds = progress.Seconds
-                                });
-                            } catch (Exception ex) {
-                                Debug.Fail(ex.ToUnhandledExceptionMessage(GetType()));
-                            }
-                            updates.Add(env.Dispatcher.InvokeAsync(() => {
-                                env.IsRefreshingDB = false;
-                                env.IsRefreshDBProgressIndeterminate = false;
-                                env.RefreshDBMessage = string.Empty;
-                                CommandManager.InvalidateRequerySuggested();
-                            }));
-                        }
-                    }
-                }
-
-                try {
-                    await Task.WhenAll(updates.Select(d => d.Task).ToArray());
-                } catch (OperationCanceledException) {
-                    // Tasks were cancelled, which probably means we are closing.
-                    // In this case, _timer will be disposed before the next update.
-                }
-            }
-
-            if (Interlocked.Decrement(ref _listenerTimeToLive) == 0) {
-                // It's time to reset the listener. We do this periodically in
-                // case the global mutex has become abandoned. By releasing our
-                // handle, it should go away and any errors (which may be caused
-                // by users killing the analyzer) become transient rather than
-                // permanent.
-
-                // Because we are currently on the listener's thread, we need to
-                // recreate on a separate thread so that this one can terminate.
-                Task.Run((Action)CreateListener)
-                    .HandleAllExceptions(Site, GetType())
-                    .DoNotWait();
-            }
-        }
-
-        private void StartRefreshDB_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
-            var view = e.Parameter as EnvironmentView;
-            var factory = view == null ? null : view.Factory as IPythonInterpreterFactoryWithDatabase;
-            e.CanExecute = factory != null &&
-                !view.IsRefreshingDB &&
-                File.Exists(factory.Configuration.InterpreterPath);
-        }
-
-        private async void StartRefreshDB_Executed(object sender, ExecutedRoutedEventArgs e) {
-            var view = (EnvironmentView)e.Parameter;
-            await StartRefreshDBAsync(view)
-                .SilenceException<OperationCanceledException>()
-                .HandleAllExceptions(Site, GetType());
-        }
-
-        private async Task StartRefreshDBAsync(EnvironmentView view) {
-            view.IsRefreshingDB = true;
-            view.IsRefreshDBProgressIndeterminate = true;
-
-            var tcs = new TaskCompletionSource<int>();
-            ((IPythonInterpreterFactoryWithDatabase)view.Factory).GenerateDatabase(
-                Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ?
-                    GenerateDatabaseOptions.None :
-                    GenerateDatabaseOptions.SkipUnchanged,
-                tcs.SetResult
-            );
-            await tcs.Task;
-
-            // Ensure that the factory is added to the list of those currently
-            // being refreshed. This ensures that if the task completes before
-            // an asynchronous update arrives, we will still reset the state.
-            // If an update has arrived, this causes a benign refresh of the
-            // command state.
-            lock (_environments) {
-                if (!_currentlyRefreshing.ContainsKey(view.Factory)) {
-                    _currentlyRefreshing[view.Factory] = default(AnalysisProgress);
-                }
-            }
+            _options.DefaultInterpreter = ((EnvironmentView)e.Parameter).Factory;
         }
 
         private void UpdateEnvironments(string select = null) {
-            if (_service == null) {
+            if (_options == null) {
                 lock (_environments) {
                     _environments.Clear();
                 }
@@ -372,12 +195,6 @@ namespace Microsoft.PythonTools.EnvironmentsList {
                 bool anyMissing = true;
                 for (int retries = 3; retries > 0 && anyMissing; --retries) {
                     var configs = _interpreters.Configurations.Where(f => f.IsUIVisible()).ToList();
-                    if (_onlineHelpView != null) {
-                        configs.Add(_onlineHelpView.Configuration);
-                    }
-                    if (_addNewEnvironmentView != null) {
-                        configs.Add(_addNewEnvironmentView.Configuration);
-                    }
 
                     anyMissing = false;
                     _environments.Merge(
@@ -385,16 +202,11 @@ namespace Microsoft.PythonTools.EnvironmentsList {
                         ev => ev.Configuration,
                         c => c,
                         c => {
-                            if (EnvironmentView.IsAddNewEnvironmentView(c.Id)) {
-                                return _addNewEnvironmentView;
-                            } else if (EnvironmentView.IsOnlineHelpView(c.Id)) {
-                                return _onlineHelpView;
-                            }
                             var fact = _interpreters.FindInterpreter(c.Id);
                             EnvironmentView view = null;
                             try {
                                 if (fact != null) {
-                                    view = new EnvironmentView(_service, _interpreters, fact, null);
+                                    view = new EnvironmentView(_options, _interpreters, fact, null);
                                 }
                             } catch (ArgumentException) {
                             }
@@ -439,44 +251,36 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             ViewCreated?.Invoke(this, new EnvironmentViewEventArgs(view));
         }
 
-        public event EventHandler<EnvironmentViewEventArgs> ViewCreated;
-
-        public IInterpreterRegistryService Interpreters {
-            get {
-                return _interpreters;
-            }
-            set {
-                if (_interpreters != null) {
-                    _interpreters.InterpretersChanged -= Service_InterpretersChanged;
-                }
-                _interpreters = value;
-                if (_service != null) {
-                    _interpreters.InterpretersChanged += Service_InterpretersChanged;
-                }
-                if (_service != null) {
-                    Dispatcher.InvokeAsync(FirstUpdateEnvironments).Task.DoNotWait();
-                }
-            }
+        internal void OnViewSelected(EnvironmentView view) {
+            ViewSelected?.Invoke(this, new EnvironmentViewEventArgs(view));
         }
 
-        public IInterpreterOptionsService Service {
-            get {
-                return _service;
+        public event EventHandler<EnvironmentViewEventArgs> ViewCreated;
+        public event EventHandler<EnvironmentViewEventArgs> ViewSelected;
+
+        internal IInterpreterOptionsService OptionsService => _options;
+
+        public void InitializeEnvironments(IInterpreterRegistryService interpreters, IInterpreterOptionsService options, bool synchronous = false) {
+            if (_interpreters != null) {
+                _interpreters.InterpretersChanged -= Service_InterpretersChanged;
             }
-            set {
-                if (_service != null) {
-                    _service.DefaultInterpreterChanged -= Service_DefaultInterpreterChanged;
-                }
-                _service = value;
-                if (_service != null) {
-                    _service.DefaultInterpreterChanged += Service_DefaultInterpreterChanged;
-                    _addNewEnvironmentView = EnvironmentView.CreateAddNewEnvironmentView(_service);
-                    _onlineHelpView = EnvironmentView.CreateOnlineHelpEnvironmentView();
+            _interpreters = interpreters;
+            if (_interpreters != null) {
+                _interpreters.InterpretersChanged += Service_InterpretersChanged;
+            }
+
+            if (_options != null) {
+                _options.DefaultInterpreterChanged -= Service_DefaultInterpreterChanged;
+            }
+            _options = options;
+            if (_options != null) {
+                _options.DefaultInterpreterChanged += Service_DefaultInterpreterChanged;
+            }
+
+            if (_interpreters != null && _options != null) {
+                if (synchronous) {
+                    Dispatcher.Invoke(FirstUpdateEnvironments);
                 } else {
-                    _addNewEnvironmentView = null;
-                    _onlineHelpView = null;
-                }
-                if (_interpreters != null) {
                     Dispatcher.InvokeAsync(FirstUpdateEnvironments).Task.DoNotWait();
                 }
             }
@@ -490,7 +294,7 @@ namespace Microsoft.PythonTools.EnvironmentsList {
         }
 
         private async void Service_DefaultInterpreterChanged(object sender, EventArgs e) {
-            var newDefault = _service.DefaultInterpreter;
+            var newDefault = _options.DefaultInterpreter;
             try {
                 await Dispatcher.InvokeAsync(() => {
                     lock (_environments) {
@@ -556,7 +360,20 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             }
         }
 
-        class InterpreterConfigurationComparer : IEqualityComparer<InterpreterConfiguration>, IComparer<InterpreterConfiguration> {
+        private void OnlineHelpListItem_GotFocus(object sender, RoutedEventArgs e) {
+            for (var child = sender as DependencyObject;
+                child != null;
+                child = VisualTreeHelper.GetParent(child)
+            ) {
+                var lbi = child as ListBoxItem;
+                if (lbi != null) {
+                    lbi.IsSelected = true;
+                    return;
+                }
+            }
+        }
+
+        private class InterpreterConfigurationComparer : IEqualityComparer<InterpreterConfiguration>, IComparer<InterpreterConfiguration> {
             public static readonly InterpreterConfigurationComparer Instance = new InterpreterConfigurationComparer();
 
             public bool Equals(InterpreterConfiguration x, InterpreterConfiguration y) => x == y;
@@ -569,17 +386,6 @@ namespace Microsoft.PythonTools.EnvironmentsList {
                 if (x == null) {
                     return y == null ? 0 : 1;
                 } else if (y == null) {
-                    return -1;
-                }
-
-                if (EnvironmentView.IsAddNewEnvironmentView(x.Id)) {
-                    return 1;
-                } else if (EnvironmentView.IsAddNewEnvironmentView(y.Id)) {
-                    return -1;
-                }
-                if (EnvironmentView.IsOnlineHelpView(x.Id)) {
-                    return 1;
-                } else if (EnvironmentView.IsOnlineHelpView(y.Id)) {
                     return -1;
                 }
 
@@ -600,6 +406,9 @@ namespace Microsoft.PythonTools.EnvironmentsList {
         }
     }
 
+    /// <summary>
+    /// Contains the newly created view.
+    /// </summary>
     public class EnvironmentViewEventArgs : EventArgs {
         public EnvironmentViewEventArgs(EnvironmentView view) {
             View = view;

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -28,6 +28,7 @@ using IronPython.Modules;
 using IronPython.Runtime;
 using IronPython.Runtime.Operations;
 using IronPython.Runtime.Types;
+using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.Scripting;
 using Microsoft.Scripting.Actions;
@@ -63,6 +64,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
             : this(Python.CreateEngine(new Dictionary<string, object> { { "NoAssemblyResolveHook", true } })) {
         }
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Reliability", "CA2001:AvoidCallingProblematicMethods", MessageId = "System.Reflection.Assembly.LoadFile")]
         public RemoteInterpreter(ScriptEngine engine) {
             AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
 
@@ -81,22 +83,6 @@ namespace Microsoft.IronPythonTools.Interpreter {
 
             AddAssembly(LoadAssemblyInfo(typeof(string).Assembly));
             AddAssembly(LoadAssemblyInfo(typeof(Debug).Assembly));
-            
-            string installDir = GetPythonInstallDir();
-            if (installDir != null) {
-                var dllDir = Path.Combine(installDir, "DLLs");
-                if (Directory.Exists(dllDir)) {
-                    foreach (var assm in Directory.GetFiles(dllDir)) {
-                        try {
-                            var asm = Assembly.LoadFile(Path.Combine(dllDir, assm));
-                            _engine.Runtime.LoadAssembly(asm);
-
-                            AddAssembly(LoadAssemblyInfo(asm));
-                        } catch {
-                        }
-                    }
-                }
-            }
 
             LoadAssemblies();
         }
@@ -171,44 +157,6 @@ namespace Microsoft.IronPythonTools.Interpreter {
         /// </summary>
         private static void LoadAssemblies() {
             GC.KeepAlive(typeof(IronPython.Modules.ArrayModule)); // IronPython.Modules
-        }
-       
-
-        internal static string GetPythonInstallDir() {
-            using (var ipy = Registry.LocalMachine.OpenSubKey("SOFTWARE\\IronPython")) {
-                if (ipy != null) {
-                    using (var twoSeven = ipy.OpenSubKey("2.7")) {
-                        if (twoSeven != null) {
-                            var installPath = twoSeven.OpenSubKey("InstallPath");
-                            if (installPath != null) {
-                                var res = installPath.GetValue("") as string;
-                                if (res != null) {
-                                    return res;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            var paths = Environment.GetEnvironmentVariable("PATH");
-            if (paths != null) {
-                foreach (string dir in paths.Split(Path.PathSeparator)) {
-                    try {
-                        if (IronPythonExistsIn(dir)) {
-                            return dir;
-                        }
-                    } catch {
-                        // ignore
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        private static bool IronPythonExistsIn(string/*!*/ dir) {
-            return File.Exists(Path.Combine(dir, "ipy.exe"));
         }
 
         public ScriptEngine Engine {
@@ -328,6 +276,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
             });
         }
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Reliability", "CA2001:AvoidCallingProblematicMethods", MessageId = "System.Reflection.Assembly.LoadFrom")]
         internal ObjectHandle LoadAssemblyFrom(string path) {
             return CallAndHandle(() => {
                 var res = Assembly.LoadFrom(path);
@@ -339,6 +288,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
         }
 
         private void AddAssembly(KeyValuePair<Assembly, TopNamespaceTracker> assembly) {
+            _engine.Runtime.LoadAssembly(assembly.Key);
             _namespaceTracker.LoadAssembly(assembly.Key);
         }
 
@@ -351,6 +301,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
 
         private bool AddAssembly(Assembly asm) {
             if (asm != null && !_namespaceTracker.PackageAssemblies.Contains(asm)) {
+                _engine.Runtime.LoadAssembly(asm);
                 return _namespaceTracker.LoadAssembly(asm);
             }
             return false;
@@ -613,7 +564,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
 
                 var clrType = value.__clrtype__();
 
-                switch (Type.GetTypeCode(value.__clrtype__())) {
+                switch (Type.GetTypeCode(clrType)) {
                     case TypeCode.Boolean: return BuiltinTypeId.Bool;
                     case TypeCode.Int32: return BuiltinTypeId.Int;
                     case TypeCode.String: return BuiltinTypeId.Unicode;
@@ -646,7 +597,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
                         } else if (clrType == typeof(Bytes)) {
                             return BuiltinTypeId.Bytes;
                         }
-                        break;
+                        return BuiltinTypeId.Type;
                 }
                 return BuiltinTypeId.Unknown;
             }, BuiltinTypeId.Unknown);
@@ -868,7 +819,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
                     BuiltinFunction overload = (ov as BuiltinFunction);
                     if (overload.Overloads.Targets[0].DeclaringType.IsAssignableFrom(func.DeclaringType) ||
                         (overload.Overloads.Targets[0].DeclaringType.FullName != null &&
-                        overload.Overloads.Targets[0].DeclaringType.FullName.StartsWith("IronPython.Runtime.Operations."))) {
+                        overload.Overloads.Targets[0].DeclaringType.FullName.StartsWithOrdinal("IronPython.Runtime.Operations."))) {
                         result.Add(MakeHandle(overload.Targets[0]));
                     }
                 }
@@ -1447,6 +1398,19 @@ namespace Microsoft.IronPythonTools.Interpreter {
                     _referencedAssemblies[asm.FullName] = asm;
                     _referencedAssemblies[new AssemblyName(asm.FullName).Name] = asm;
                     _referencedAssemblies[assembly] = asm;
+                    return true;
+                }
+            } catch {
+            }
+            return false;
+        }
+
+        internal bool LoadAssemblyReferenceByName(string assemblyName) {
+            try {
+                var asm = Assembly.Load(assemblyName);
+                if (asm != null) {
+                    _referencedAssemblies[asm.FullName] = asm;
+                    _referencedAssemblies[new AssemblyName(asm.FullName).Name] = asm;
                     return true;
                 }
             } catch {

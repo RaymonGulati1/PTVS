@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,125 +18,99 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Text;
+using Microsoft.PythonTools.Analysis.Analyzer;
+using Microsoft.PythonTools.Analysis.Infrastructure;
+using Microsoft.PythonTools.Analysis.LanguageServer;
 using Microsoft.PythonTools.Analysis.Values;
 using Microsoft.PythonTools.Interpreter;
 
 namespace Microsoft.PythonTools.Analysis {
     public struct MemberResult {
-        private readonly string _name;
-        private string _completion;
-        private readonly Func<IEnumerable<AnalysisValue>> _vars;
-        private readonly Func<PythonMemberType> _type;
+        private readonly Lazy<IEnumerable<AnalysisValue>> _vars;
+        private readonly Lazy<PythonMemberType> _type;
 
+        private static readonly Lazy<PythonMemberType> UnknownType =
+            new Lazy<PythonMemberType>(() => PythonMemberType.Unknown);
+        private static readonly Lazy<IEnumerable<AnalysisValue>> EmptyValues =
+            new Lazy<IEnumerable<AnalysisValue>>(Enumerable.Empty<AnalysisValue>);
+
+        #region Constructors
         internal MemberResult(string name, IEnumerable<AnalysisValue> vars) {
-            _name = _completion = name;
-            _vars = () => vars ?? Empty;
-            _type = null;
-            _type = GetMemberType;
+            Name = Completion = name;
+            Scope = null;
+            _vars = new Lazy<IEnumerable<AnalysisValue>>(() => vars.MaybeEnumerate());
+            _type = UnknownType;
+            _type = new Lazy<PythonMemberType>(GetMemberType);
         }
 
         public MemberResult(string name, PythonMemberType type) {
-            _name = _completion = name;
-            _type = () => type;
-            _vars = () => Empty;
+            Name = Completion = name;
+            Scope = null;
+            _type = new Lazy<PythonMemberType>(() => type);
+            _vars = EmptyValues;
         }
 
-        public MemberResult(string name, string completion, IEnumerable<AnalysisValue> vars, PythonMemberType? type) {
-            _name = name;
-            _vars = () => vars ?? Empty;
-            _completion = completion;
+        public MemberResult(string name, string completion, IEnumerable<AnalysisValue> vars, PythonMemberType? type) :
+            this(name, completion, null, vars, type) { }
+
+        internal MemberResult(string name, string completion, InterpreterScope scope, IEnumerable<AnalysisValue> vars, PythonMemberType? type) {
+            Name = name;
+            _vars = new Lazy<IEnumerable<AnalysisValue>>(() => vars.MaybeEnumerate());
+            Completion = completion;
+            Scope = scope;
+            _type = UnknownType;
             if (type != null) {
-                _type = () => type.Value;
+                _type = new Lazy<PythonMemberType>(() => type.Value);
             } else {
-                _type = null;
-                _type = GetMemberType;
+                _type = new Lazy<PythonMemberType>(GetMemberType);
             }
         }
 
         internal MemberResult(string name, Func<IEnumerable<AnalysisValue>> vars, Func<PythonMemberType> type) {
-            _name = _completion = name;
-            Func<IEnumerable<AnalysisValue>> empty = () => Empty;
-            _vars = vars ?? empty;
-            _type = type;
+            Name = Completion = name;
+            Scope = null;
+            _vars = vars == null ? EmptyValues : new Lazy<IEnumerable<AnalysisValue>>(vars);
+            _type = type == null ? UnknownType : new Lazy<PythonMemberType>(type);
         }
+        #endregion
 
-        public MemberResult FilterCompletion(string completion) {
-            return new MemberResult(Name, completion, Values, MemberType);
-        }
+        public MemberResult FilterCompletion(string completion) => new MemberResult(Name, completion, Values, MemberType);
 
-        private static AnalysisValue[] Empty = new AnalysisValue[0];
+        public string Name { get; }
+        public string Completion { get; }
+        internal InterpreterScope Scope { get; }
 
-        public string Name {
-            get { return _name; }
-        }
+        /// <summary>
+        /// Gets the location(s) for the member(s) if they are available.
+        /// 
+        /// New in 1.5.
+        /// </summary>
+        public IEnumerable<LocationInfo> Locations => Values.SelectMany(ns => ns.Locations);
 
-        public string Completion {
-            get { return _completion; }
-        }
+        internal IEnumerable<AnalysisValue> Values => _vars.Value;
 
-        public string Documentation {
-            get {
-                var docSeen = new HashSet<string>();
-                var typeSeen = new HashSet<string>();
-                var docs = new List<string>();
-                var types = new List<string>();
+        public string Documentation
+            => DocumentationBuilder.Create(null).GetDocumentation(SeparateMultipleMembers(Values), string.Empty);
 
-                var doc = new StringBuilder();
-
-                foreach (var ns in _vars()) {
-                    var docString = ns.Description ?? string.Empty;
-                    if (docSeen.Add(docString)) {
-                        docs.Add(docString);
+        private static IEnumerable<AnalysisValue> SeparateMultipleMembers(IEnumerable<AnalysisValue> values) {
+            foreach (var v in values) {
+                if (v is MultipleMemberInfo mm) {
+                    foreach (var m in mm.Members) {
+                        yield return m;
                     }
-                    var typeString = ns.ShortDescription ?? string.Empty;
-                    if (typeSeen.Add(typeString)) {
-                        types.Add(typeString);
-                    }
+                } else {
+                    yield return v;
                 }
-
-                var mt = MemberType;
-                if (mt == PythonMemberType.Instance || mt == PythonMemberType.Constant) {
-                    switch (mt) {
-                        case PythonMemberType.Instance:
-                            doc.Append("Instance of ");
-                            break;
-                        case PythonMemberType.Constant:
-                            doc.Append("Constant ");
-                            break;
-                        default:
-                            doc.Append("Value of ");
-                            break;
-                    }
-                    if (types.Count == 0) {
-                        doc.AppendLine("unknown type");
-                    } else if (types.Count == 1) {
-                        doc.AppendLine(types[0]);
-                    } else {
-                        var orStr = types.Count == 2 ? " or " : ", or ";
-                        doc.AppendLine(string.Join(", ", types.Take(types.Count - 1)) + orStr + types.Last());
-                    }
-                    doc.AppendLine();
-                }
-                foreach (var str in docs.OrderBy(s => s)) {
-                    doc.AppendLine(str);
-                    doc.AppendLine();
-                }
-                return Utils.CleanDocumentation(doc.ToString());
             }
         }
 
-        public PythonMemberType MemberType {
-            get {
-                return _type();
-            }
-        }
+        public PythonMemberType MemberType => _type.Value;
 
         private PythonMemberType GetMemberType() {
-            bool includesNone = false;
-            PythonMemberType result = PythonMemberType.Unknown;
+            var includesNone = false;
+            var result = PythonMemberType.Unknown;
 
-            var allVars = _vars().SelectMany(ns => {
+            var allVars = Values.SelectMany(ns => {
                 var mmi = ns as MultipleMemberInfo;
                 if (mmi != null) {
                     return mmi.Members;
@@ -145,7 +119,7 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             });
 
-            foreach (var ns in allVars) {
+            foreach (var ns in allVars.MaybeEnumerate()) {
                 if (ns == null) {
                     Debug.Fail("Unexpected null AnalysisValue");
                     continue;
@@ -159,6 +133,8 @@ namespace Microsoft.PythonTools.Analysis {
                         nsType = PythonMemberType.Function;
                     } else if (ci.ClassInfo == ci.ProjectState.ClassInfos[BuiltinTypeId.Type]) {
                         nsType = PythonMemberType.Class;
+                    } else if (ci.ClassInfo == ci.ProjectState.ClassInfos[BuiltinTypeId.Module]) {
+                        nsType = PythonMemberType.Module;
                     }
                 }
 
@@ -171,6 +147,8 @@ namespace Microsoft.PythonTools.Analysis {
                 } else if (result == PythonMemberType.Constant && nsType == PythonMemberType.Instance) {
                     // Promote from Constant to Instance
                     result = PythonMemberType.Instance;
+                } else if (nsType == PythonMemberType.Unknown) {
+                    // No change
                 } else {
                     return PythonMemberType.Multiple;
                 }
@@ -181,45 +159,15 @@ namespace Microsoft.PythonTools.Analysis {
             return result;
         }
 
-        internal IEnumerable<AnalysisValue> Values {
-            get {
-                return _vars();
-            }
-        }
-
-        /// <summary>
-        /// Gets the location(s) for the member(s) if they are available.
-        /// 
-        /// New in 1.5.
-        /// </summary>
-        public IEnumerable<LocationInfo> Locations {
-            get {
-                foreach (var ns in _vars()) {
-                    foreach (var location in ns.Locations) {
-                        yield return location;
-                    }
-                }
-            }
-        }
-
         public override bool Equals(object obj) {
             if (!(obj is MemberResult)) {
                 return false;
             }
-
             return Name == ((MemberResult)obj).Name;
         }
 
-        public static bool operator ==(MemberResult x, MemberResult y) {
-            return x.Name == y.Name;
-        }
-
-        public static bool operator !=(MemberResult x, MemberResult y) {
-            return x.Name != y.Name;
-        }
-
-        public override int GetHashCode() {
-            return Name.GetHashCode();
-        }
+        public static bool operator ==(MemberResult x, MemberResult y) => x.Name == y.Name;
+        public static bool operator !=(MemberResult x, MemberResult y) => x.Name != y.Name;
+        public override int GetHashCode() => Name.GetHashCode();
     }
 }

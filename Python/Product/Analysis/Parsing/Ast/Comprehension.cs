@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -30,7 +30,7 @@ namespace Microsoft.PythonTools.Parsing.Ast {
 
         internal void AppendCodeString(StringBuilder res, PythonAst ast, CodeFormattingOptions format, string start, string end, Expression item) {
             if (!String.IsNullOrEmpty(start)) {
-                format.ReflowComment(res, this.GetProceedingWhiteSpace(ast));
+                format.ReflowComment(res, this.GetPreceedingWhiteSpace(ast));
                 res.Append(start);
             }
 

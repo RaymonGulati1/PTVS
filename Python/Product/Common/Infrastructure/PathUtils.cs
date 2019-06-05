@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -22,7 +22,7 @@ using System.Linq;
 using System.Text;
 
 namespace Microsoft.PythonTools.Infrastructure {
-    public static class PathUtils {
+    static class PathUtils {
         private static readonly char[] InvalidPathChars = GetInvalidPathChars();
 
         private static readonly char[] DirectorySeparators = new[] {
@@ -60,6 +60,9 @@ namespace Microsoft.PythonTools.Infrastructure {
         /// <summary>
         /// Normalizes and returns the provided path.
         /// </summary>
+        /// <exception cref="ArgumentException">
+        /// If the provided path contains invalid characters.
+        /// </exception>
         public static string NormalizePath(string path) {
             if (string.IsNullOrEmpty(path)) {
                 return string.Empty;
@@ -179,7 +182,7 @@ namespace Microsoft.PythonTools.Infrastructure {
         /// root or a subdirectory of root.
         /// </summary>
         public static bool IsSubpathOf(string root, string path) {
-            if (HasEndSeparator(root) && !path.Contains("..") && path.StartsWith(root, StringComparison.Ordinal)) {
+            if (HasEndSeparator(root) && !path.Contains("..") && path.StartsWithOrdinal(root)) {
                 // Quick return, but only where the paths are already normalized and
                 // have matching case.
                 return true;
@@ -580,26 +583,21 @@ namespace Microsoft.PythonTools.Infrastructure {
 
             // Do a BFS of the filesystem to ensure we find the match closest to
             // the root directory.
-            var dirQueue = new Queue<string>();
-            dirQueue.Enqueue(root);
-            dirQueue.Enqueue("<EOD>");
+            var dirQueue = new Queue<KeyValuePair<string, int>>();
+            dirQueue.Enqueue(new KeyValuePair<string, int>(root, 0));
             while (dirQueue.Any()) {
-                var dir = dirQueue.Dequeue();
-                if (dir == "<EOD>") {
-                    depthLimit -= 1;
-                    if (depthLimit <= 0) {
-                        return null;
-                    }
-                    continue;
-                }
+                var dirDepth = dirQueue.Dequeue();
+                string dir = dirDepth.Key;
                 var result = EnumerateFiles(dir, file, recurse: false).FirstOrDefault();
                 if (result != null) {
                     return result;
                 }
-                foreach (var subDir in EnumerateDirectories(dir, recurse: false)) {
-                    dirQueue.Enqueue(subDir);
+                int depth = dirDepth.Value;
+                if (depth < depthLimit) {
+                    foreach (var subDir in EnumerateDirectories(dir, recurse: false)) {
+                        dirQueue.Enqueue(new KeyValuePair<string, int>(subDir, depth + 1));
+                    }
                 }
-                dirQueue.Enqueue("<EOD>");
             }
             return null;
         }
@@ -645,14 +643,14 @@ namespace Microsoft.PythonTools.Infrastructure {
             bool fullPaths = true
         ) {
             var queue = new Queue<string>();
-            if (!root.EndsWith("\\")) {
+            if (!root.EndsWithOrdinal("\\")) {
                 root += "\\";
             }
             queue.Enqueue(root);
 
             while (queue.Any()) {
                 var path = queue.Dequeue();
-                if (!path.EndsWith("\\")) {
+                if (!path.EndsWithOrdinal("\\")) {
                     path += "\\";
                 }
 
@@ -667,7 +665,7 @@ namespace Microsoft.PythonTools.Infrastructure {
                 }
 
                 foreach (var d in dirs) {
-                    if (!fullPaths && !d.StartsWith(root, StringComparison.OrdinalIgnoreCase)) {
+                    if (!fullPaths && !d.StartsWithOrdinal(root, ignoreCase: true)) {
                         continue;
                     }
                     if (recurse) {
@@ -703,7 +701,7 @@ namespace Microsoft.PythonTools.Infrastructure {
             bool recurse = true,
             bool fullPaths = true
         ) {
-            if (!root.EndsWith("\\")) {
+            if (!root.EndsWithOrdinal("\\")) {
                 root += "\\";
             }
 
@@ -812,5 +810,17 @@ namespace Microsoft.PythonTools.Infrastructure {
             }
             return sb.ToString();
         }
+
+        public static bool HasExtension(string filePath, string ext) {
+            int i = (filePath ?? throw new ArgumentNullException(nameof(filePath))).LastIndexOf('.');
+            if (i < 0) {
+                return string.IsNullOrEmpty(ext);
+            }
+            if (string.IsNullOrEmpty(ext)) {
+                return false;
+            }
+            return string.Compare(filePath, i + 1, ext, (ext[0] == '.' ? 1 : 0), int.MaxValue, StringComparison.OrdinalIgnoreCase) == 0;
+        }
+
     }
 }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -78,9 +78,7 @@ namespace Microsoft.PythonTools.Analysis {
                 yield return "await";
             }
             yield return "else";
-            if (version.IsNone() || version.Is3x()) {
-                yield return "False";
-            }
+            yield return "False";   // Not technically a keyword in Python 2.x, but may as well be
             yield return "for";
             if (version.IsNone() || version >= PythonLanguageVersion.V33) {
                 yield return "from";
@@ -92,9 +90,7 @@ namespace Microsoft.PythonTools.Analysis {
             yield return "None";
             yield return "not";
             yield return "or";
-            if (version.IsNone() || version.Is3x()) {
-                yield return "True";
-            }
+            yield return "True";    // Not technically a keyword in Python 2.x, but may as well be
             yield return "yield";
         }
 

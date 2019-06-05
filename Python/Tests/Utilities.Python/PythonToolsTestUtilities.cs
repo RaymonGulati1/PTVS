@@ -9,17 +9,22 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using System.ComponentModel.Composition;
 using System.ComponentModel.Design;
+using System.Linq;
+using System.Reflection;
 using Microsoft.PythonTools;
+using Microsoft.PythonTools.Editor;
 using Microsoft.PythonTools.Intellisense;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Options;
+using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.InteractiveWindow.Commands;
 using Microsoft.VisualStudio.Text.Adornments;
 using Microsoft.VisualStudio.Utilities;
@@ -56,34 +61,38 @@ namespace TestUtilities.Python {
         /// VS but is suitable for simple test cases which need just some base functionality.
         /// </summary>
         public static MockServiceProvider CreateMockServiceProvider(
-            bool suppressTaskProvider = false
+            bool suppressTaskProvider = true
         ) {
-            var serviceProvider = new MockServiceProvider();
+            var componentModel = new MockComponentModel();
+            var serviceProvider = new MockServiceProvider(componentModel);
 
-            serviceProvider.ComponentModel.AddExtension(
+            componentModel.AddExtension(
                 typeof(IErrorProviderFactory),
                 () => new MockErrorProviderFactory()
             );
-            serviceProvider.ComponentModel.AddExtension(
+            componentModel.AddExtension(
                 typeof(IContentTypeRegistryService),
                 CreateContentTypeRegistryService
             );
 
-            serviceProvider.ComponentModel.AddExtension(
+            componentModel.AddExtension(
                 typeof(IInteractiveWindowCommandsFactory),
                 () => new MockInteractiveWindowCommandsFactory()
             );
 
             var optService = new Lazy<MockInterpreterOptionsService>(() => new MockInterpreterOptionsService());
-            serviceProvider.ComponentModel.AddExtension<IInterpreterRegistryService>(() => optService.Value);
-            serviceProvider.ComponentModel.AddExtension<IInterpreterOptionsService>(() => optService.Value);
+            componentModel.AddExtension<IInterpreterRegistryService>(() => optService.Value);
+            componentModel.AddExtension<IInterpreterOptionsService>(() => optService.Value);
+
+            var editorServices = CreatePythonEditorServices(serviceProvider, componentModel);
+            componentModel.AddExtension(() => editorServices);
 
             if (suppressTaskProvider) {
                 serviceProvider.AddService(typeof(ErrorTaskProvider), null, true);
                 serviceProvider.AddService(typeof(CommentTaskProvider), null, true);
             } else {
-                serviceProvider.AddService(typeof(ErrorTaskProvider), CreateTaskProviderService, true);
-                serviceProvider.AddService(typeof(CommentTaskProvider), CreateTaskProviderService, true);
+                serviceProvider.AddService(typeof(ErrorTaskProvider), ErrorTaskProvider.CreateService, true);
+                serviceProvider.AddService(typeof(CommentTaskProvider), CommentTaskProvider.CreateService, true);
             }
             serviceProvider.AddService(typeof(UIThreadBase), new MockUIThread());
             var optionsService = new MockPythonToolsOptionsService();
@@ -94,16 +103,32 @@ namespace TestUtilities.Python {
             return serviceProvider;
         }
 
-        private static object CreateTaskProviderService(IServiceContainer container, Type type) {
-            var errorProvider = container.GetComponentModel().GetService<IErrorProviderFactory>();
-            if (type == typeof(ErrorTaskProvider)) {
-                return new ErrorTaskProvider(container, null, errorProvider);
-            } else if (type == typeof(CommentTaskProvider)) {
-                return new CommentTaskProvider(container, null, errorProvider);
-            } else {
-                return null;
-            }
+        class LazyComponentGetter<T> : Lazy<T> {
+            public LazyComponentGetter(MockComponentModel model) : base(() => (T)model.GetService(typeof(T))) { }
         }
 
+        private static PythonEditorServices CreatePythonEditorServices(IServiceContainer site, MockComponentModel model) {
+            var services = new PythonEditorServices(site);
+
+            // We don't have a full composition service availabe, to this code emulates
+            // ComponentModel.DefaultCompositionService.SatisfyImportsOnce(services)
+            // *just* enough for PythonEditorServices.
+            foreach (var field in services.GetType().GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)) {
+                if (!field.GetCustomAttributes().OfType<ImportAttribute>().Any()) {
+                    continue;
+                }
+                if (!field.FieldType.IsGenericType || field.FieldType.GetGenericTypeDefinition() != typeof(Lazy<>)) {
+                    field.SetValue(services, model.GetService(field.FieldType));
+                } else {
+                    var svcType = field.FieldType.GetGenericArguments()[0];
+                    var svc = model.GetService(svcType);
+                    field.SetValue(
+                        services,
+                        Activator.CreateInstance(typeof(LazyComponentGetter<>).MakeGenericType(svcType), model)
+                    );
+                }
+            }
+            return services;
+        }
     }
 }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -28,7 +28,7 @@ namespace Microsoft.PythonTools.Django.Analysis {
             }
 
             foreach (var value in values) {
-                var module = value.DeclaringModule ?? unit.Project;
+                var module = value.DeclaringModule ?? unit.Entry;
                 ValuesAndVersion valsAndVersion;
                 if (!entryMappedValues.TryGetValue(module, out valsAndVersion) || valsAndVersion.DeclaringVersion != module.AnalysisVersion) {
                     entryMappedValues[module] = valsAndVersion = new ValuesAndVersion(module.AnalysisVersion);

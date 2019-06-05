@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,9 +18,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Contracts;
-using System.Text;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.PythonTools.Editor;
+using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Intellisense;
-using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
@@ -29,44 +31,27 @@ namespace Microsoft.PythonTools {
     /// <summary>
     /// Provides classification based upon the DLR TokenCategory enum.
     /// </summary>
-    internal sealed class PythonClassifier : IClassifier {
-        private readonly TokenCache _tokenCache;
+    internal sealed class PythonClassifier : IClassifier, IPythonTextBufferInfoEventSink {
         private readonly PythonClassifierProvider _provider;
-        private readonly ITextBuffer _buffer;
-        private PythonLanguageVersion _version;
 
-        [ThreadStatic]
-        private static Dictionary<PythonLanguageVersion, Tokenizer> _tokenizers;    // tokenizer for each version, shared between all buffers
-
-        internal PythonClassifier(PythonClassifierProvider provider, ITextBuffer buffer) {
-            buffer.Changed += BufferChanged;
-            buffer.ContentTypeChanged += BufferContentTypeChanged;
-
-            _tokenCache = new TokenCache();
+        internal PythonClassifier(PythonClassifierProvider provider) {
             _provider = provider;
-            _buffer = buffer;
-
-            _buffer.RegisterForNewAnalysisEntry(NewAnalysisEntry);
-
-            _version = _buffer.GetLanguageVersion(_provider._serviceProvider);
         }
 
-        private void NewAnalysisEntry(AnalysisEntry entry) {
-            var analyzer = entry.Analyzer;
-            var newVersion = _version;
-            if (newVersion != _version) {
-                _tokenCache.Clear();
-
-                Debug.Assert(analyzer != null);
-                _version = analyzer.InterpreterFactory.GetLanguageVersion();
-
-                var changed = ClassificationChanged;
-                if (changed != null) {
-                    var snapshot = _buffer.CurrentSnapshot;
-
-                    changed(this, new ClassificationChangedEventArgs(new SnapshotSpan(snapshot, 0, snapshot.Length)));
-                }
+        private Task OnNewAnalysisEntryAsync(PythonTextBufferInfo sender, AnalysisEntry entry) {
+            var analyzer = entry?.Analyzer;
+            if (analyzer == null) {
+                Debug.Assert(entry == null, "Should not have new analysis entry without an analyzer");
+                return Task.CompletedTask;
             }
+
+            var snapshot = sender.CurrentSnapshot;
+            ClassificationChanged?.Invoke(
+                this,
+                new ClassificationChangedEventArgs(new SnapshotSpan(snapshot, 0, snapshot.Length))
+            );
+
+            return Task.CompletedTask;
         }
 
         #region IDlrClassifier
@@ -78,28 +63,14 @@ namespace Microsoft.PythonTools {
         /// This method classifies the given snapshot span.
         /// </summary>
         public IList<ClassificationSpan> GetClassificationSpans(SnapshotSpan span) {
-            var classifications = new List<ClassificationSpan>();
             var snapshot = span.Snapshot;
+            var bi = _provider.Services.GetBufferInfo(snapshot.TextBuffer);
 
-            if (span.Length > 0) {
-                // don't add classifications for REPL commands.
-                if (!span.Snapshot.IsReplBufferWithCommand()) {
-                    AddClassifications(GetTokenizer(), classifications, span);
-                }
+            if (span.Length <= 0 || bi == null || snapshot.IsReplBufferWithCommand()) {
+                return Array.Empty<ClassificationSpan>();
             }
 
-            return classifications;
-        }
-
-        private Tokenizer GetTokenizer() {
-            if (_tokenizers == null) {
-                _tokenizers = new Dictionary<PythonLanguageVersion, Tokenizer>();
-            }
-            Tokenizer res;
-            if (!_tokenizers.TryGetValue(_version, out res)) {
-                _tokenizers[_version] = res = new Tokenizer(_version, options: TokenizerOptions.Verbatim | TokenizerOptions.VerbatimCommentsAndLineJoins);
-            }
-            return res;
+            return bi.GetTrackingTokens(span).Select(kv => ClassifyToken(span, kv)).Where(c => c != null).ToList();
         }
 
         public PythonClassifierProvider Provider {
@@ -112,234 +83,62 @@ namespace Microsoft.PythonTools {
 
         #region Private Members
 
-        private Dictionary<TokenCategory, IClassificationType> CategoryMap {
-            get {
-                return _provider.CategoryMap;
+        private async Task OnTextContentChangedAsync(PythonTextBufferInfo sender, TextContentChangedEventArgs e) {
+            // NOTE: Runs on background thread
+            if (e == null) {
+                Debug.Fail("Invalid type passed to event");
             }
-        }
 
-        private void BufferContentTypeChanged(object sender, ContentTypeChangedEventArgs e) {
-            _tokenCache.Clear();
-            _buffer.Changed -= BufferChanged;
-            _buffer.ContentTypeChanged -= BufferContentTypeChanged;
-            _buffer.Properties.RemoveProperty(typeof(PythonClassifier));
-            _buffer.UnregisterForNewAnalysisEntry(NewAnalysisEntry);
-        }
-
-        private void BufferChanged(object sender, TextContentChangedEventArgs e) {
             var snapshot = e.After;
 
-            if (!snapshot.IsReplBufferWithCommand()) {
-                _tokenCache.EnsureCapacity(snapshot.LineCount);
-
-                var tokenizer = GetTokenizer();
-                foreach (var change in e.Changes) {
-                    if (change.LineCountDelta > 0) {
-                        _tokenCache.InsertLines(snapshot.GetLineNumberFromPosition(change.NewEnd) + 1 - change.LineCountDelta, change.LineCountDelta);
-                    } else if (change.LineCountDelta < 0) {
-                        _tokenCache.DeleteLines(snapshot.GetLineNumberFromPosition(change.NewEnd) + 1, -change.LineCountDelta);
-                    }
-
-                    ApplyChange(tokenizer, snapshot, change.NewSpan);
-                }
+            if (snapshot.IsReplBufferWithCommand()) {
+                return;
             }
-        }
 
-        /// <summary>
-        /// Adds classification spans to the given collection.
-        /// Scans a contiguous sub-<paramref name="span"/> of a larger code span which starts at <paramref name="codeStartLine"/>.
-        /// </summary>
-        private void AddClassifications(Tokenizer tokenizer, List<ClassificationSpan> classifications, SnapshotSpan span) {
-            Debug.Assert(span.Length > 0);
-
-            var snapshot = span.Snapshot;
-            int firstLine = snapshot.GetLineNumberFromPosition(span.Start);
-            int lastLine = snapshot.GetLineNumberFromPosition(span.End - 1);
-
-            Contract.Assert(firstLine >= 0);
-
-            _tokenCache.EnsureCapacity(snapshot.LineCount);
-
-            // find the closest line preceding firstLine for which we know categorizer state, stop at the codeStartLine:
-            LineTokenization lineTokenization;
-            int currentLine = _tokenCache.IndexOfPreviousTokenization(firstLine, 0, out lineTokenization) + 1;
-            object state = lineTokenization.State;
-
-            while (currentLine <= lastLine) {
-                if (!_tokenCache.TryGetTokenization(currentLine, out lineTokenization)) {
-                    lineTokenization = TokenizeLine(tokenizer, snapshot, state, currentLine);
-                    _tokenCache[currentLine] = lineTokenization;
-                }
-
-                state = lineTokenization.State;
-
-                for (int i = 0; i < lineTokenization.Tokens.Length; i++) {
-                    var token = lineTokenization.Tokens[i];
-                    if (token.Category == TokenCategory.IncompleteMultiLineStringLiteral) {
-                        // we need to walk backwards to find the start of this multi-line string...
-
-                        TokenInfo startToken = token;
-                        int validPrevLine;
-                        int length = startToken.SourceSpan.Length;
-                        if (i == 0) {
-                            length += GetLeadingMultiLineStrings(tokenizer, snapshot, firstLine, currentLine, out validPrevLine, ref startToken);
-                        } else {
-                            validPrevLine = currentLine;
-                        }
-
-                        if (i == lineTokenization.Tokens.Length - 1) {
-                            length += GetTrailingMultiLineStrings(tokenizer, snapshot, currentLine, state);
-                        }
-
-                        var multiStrSpan = new Span(SnapshotSpanToSpan(snapshot, startToken, validPrevLine).Start, length);
-                        classifications.Add(
-                            new ClassificationSpan(
-                                new SnapshotSpan(snapshot, multiStrSpan),
-                                _provider.StringLiteral
-                            )
-                        );
+            int firstLine = int.MaxValue, lastLine = int.MinValue;
+            foreach (var change in e.Changes) {
+                if (change.LineCountDelta > 0) {
+                    firstLine = Math.Min(firstLine, snapshot.GetLineNumberFromPosition(change.NewPosition));
+                    lastLine = Math.Max(lastLine, snapshot.GetLineNumberFromPosition(change.NewEnd));
+                } else if (change.LineCountDelta < 0) {
+                    firstLine = Math.Min(firstLine, snapshot.GetLineNumberFromPosition(change.NewPosition));
+                    if (change.OldEnd < snapshot.Length) {
+                        lastLine = Math.Max(lastLine, snapshot.GetLineNumberFromPosition(change.OldEnd));
                     } else {
-                        var classification = ClassifyToken(span, token, currentLine);
-
-                        if (classification != null) {
-                            classifications.Add(classification);
-                        }
+                        lastLine = snapshot.LineCount - 1;
                     }
+                } else {
+                    int line = snapshot.GetLineNumberFromPosition(change.NewPosition);
+                    firstLine = Math.Min(firstLine, line);
+                    lastLine = Math.Max(lastLine, line);
                 }
-
-                currentLine++;
             }
-        }
-
-        private int GetLeadingMultiLineStrings(Tokenizer tokenizer, ITextSnapshot snapshot, int firstLine, int currentLine, out int validPrevLine, ref TokenInfo startToken) {
-            validPrevLine = currentLine;
-            int prevLine = currentLine - 1;
-            int length = 0;
-
-            while (prevLine >= 0) {
-                LineTokenization prevLineTokenization;
-                if (!_tokenCache.TryGetTokenization(prevLine, out prevLineTokenization)) {
-                    LineTokenization lineTokenizationTemp;
-                    int currentLineTemp = _tokenCache.IndexOfPreviousTokenization(firstLine, 0, out lineTokenizationTemp) + 1;
-                    object stateTemp = lineTokenizationTemp.State;
-
-                    while (currentLineTemp <= snapshot.LineCount) {
-                        if (!_tokenCache.TryGetTokenization(currentLineTemp, out lineTokenizationTemp)) {
-                            lineTokenizationTemp = TokenizeLine(tokenizer, snapshot, stateTemp, currentLineTemp);
-                            _tokenCache[currentLineTemp] = lineTokenizationTemp;
-                        }
-
-                        stateTemp = lineTokenizationTemp.State;
+            if (lastLine >= firstLine) {
+                SnapshotSpan changedSpan;
+                try {
+                    if (lastLine == firstLine) {
+                        changedSpan = snapshot.GetLineFromLineNumber(firstLine).ExtentIncludingLineBreak;
+                    } else {
+                        changedSpan = new SnapshotSpan(
+                            snapshot.GetLineFromLineNumber(firstLine).Start,
+                            snapshot.GetLineFromLineNumber(lastLine).EndIncludingLineBreak
+                        );
                     }
-
-                    prevLineTokenization = TokenizeLine(tokenizer, snapshot, stateTemp, prevLine);
-                    _tokenCache[prevLine] = prevLineTokenization;
+                } catch (ArgumentException ex) {
+                    Debug.Fail(ex.ToUnhandledExceptionMessage(GetType()));
+                    return;
                 }
 
-                if (prevLineTokenization.Tokens.Length != 0) {
-                    if (prevLineTokenization.Tokens[prevLineTokenization.Tokens.Length - 1].Category != TokenCategory.IncompleteMultiLineStringLiteral) {
-                        break;
-                    }
+                await Task.Yield();
 
-                    startToken = prevLineTokenization.Tokens[prevLineTokenization.Tokens.Length - 1];
-                    length += startToken.SourceSpan.Length;
-                }
-
-                validPrevLine = prevLine;
-                prevLine--;
-
-                if (prevLineTokenization.Tokens.Length > 1) {
-                    // http://pytools.codeplex.com/workitem/749
-                    // if there are multiple tokens on this line then our multi-line string
-                    // is terminated.
-                    break;
-                }
-            }
-            return length;
-        }
-
-        private int GetTrailingMultiLineStrings(Tokenizer tokenizer, ITextSnapshot snapshot, int currentLine, object state) {
-            int nextLine = currentLine + 1;
-            var prevState = state;
-            int length = 0;
-            while (nextLine < snapshot.LineCount) {
-                LineTokenization nextLineTokenization;
-                if (!_tokenCache.TryGetTokenization(nextLine, out nextLineTokenization)) {
-                    nextLineTokenization = TokenizeLine(tokenizer, snapshot, prevState, nextLine);
-                    prevState = nextLineTokenization.State;
-                    _tokenCache[nextLine] = nextLineTokenization;
-                }
-
-                if (nextLineTokenization.Tokens.Length != 0) {
-                    if (nextLineTokenization.Tokens[0].Category != TokenCategory.IncompleteMultiLineStringLiteral) {
-                        break;
-                    }
-
-                    length += nextLineTokenization.Tokens[0].SourceSpan.Length;
-                }
-                nextLine++;
-            }
-            return length;
-        }
-
-        /// <summary>
-        /// Rescans the part of the buffer affected by a change. 
-        /// Scans a contiguous sub-<paramref name="span"/> of a larger code span which starts at <paramref name="codeStartLine"/>.
-        /// </summary>
-        private void ApplyChange(Tokenizer tokenizer, ITextSnapshot snapshot, Span span) {
-            int firstLine = snapshot.GetLineNumberFromPosition(span.Start);
-            int lastLine = snapshot.GetLineNumberFromPosition(span.Length > 0 ? span.End - 1 : span.End);
-
-            Contract.Assert(firstLine >= 0);
-
-            // find the closest line preceding firstLine for which we know categorizer state, stop at the codeStartLine:
-            LineTokenization lineTokenization;
-            firstLine = _tokenCache.IndexOfPreviousTokenization(firstLine, 0, out lineTokenization) + 1;
-            object state = lineTokenization.State;
-
-            int currentLine = firstLine;
-            object previousState;
-            while (currentLine < snapshot.LineCount) {
-                previousState = _tokenCache.TryGetTokenization(currentLine, out lineTokenization) ? lineTokenization.State : null;
-                _tokenCache[currentLine] = lineTokenization = TokenizeLine(tokenizer, snapshot, state, currentLine);
-                state = lineTokenization.State;
-
-                // stop if we visted all affected lines and the current line has no tokenization state or its previous state is the same as the new state:
-                if (currentLine > lastLine && (previousState == null || previousState.Equals(state))) {
-                    break;
-                }
-
-                currentLine++;
-            }
-
-            // classification spans might have changed between the start of the first and end of the last visited line:
-            int changeStart = snapshot.GetLineFromLineNumber(firstLine).Start;
-            int changeEnd = (currentLine < snapshot.LineCount) ? snapshot.GetLineFromLineNumber(currentLine).End : snapshot.Length;
-            if (changeStart < changeEnd) {
-                var classificationChanged = ClassificationChanged;
-                if (classificationChanged != null) {
-                    var args = new ClassificationChangedEventArgs(new SnapshotSpan(snapshot, new Span(changeStart, changeEnd - changeStart)));
-                    classificationChanged(this, args);
-                }
+                ClassificationChanged?.Invoke(
+                    this,
+                    new ClassificationChangedEventArgs(changedSpan)
+                );
             }
         }
 
-        private LineTokenization TokenizeLine(Tokenizer tokenizer, ITextSnapshot snapshot, object previousLineState, int lineNo) {
-            ITextSnapshotLine line = snapshot.GetLineFromLineNumber(lineNo);
-            SnapshotSpan lineSpan = new SnapshotSpan(snapshot, line.Start, line.LengthIncludingLineBreak);
-
-            var tcp = new SnapshotSpanSourceCodeReader(lineSpan);
-
-            tokenizer.Initialize(previousLineState, tcp, new SourceLocation(line.Start.Position, lineNo + 1, 1));
-            try {
-                var tokens = tokenizer.ReadTokens(lineSpan.Length).ToArray();
-                return new LineTokenization(tokens, tokenizer.CurrentState);
-            } finally {
-                tokenizer.Uninitialize();
-            }
-        }
-
-        private ClassificationSpan ClassifyToken(SnapshotSpan span, TokenInfo token, int lineNumber) {
+        private ClassificationSpan ClassifyToken(SnapshotSpan span, TrackingTokenInfo token) {
             IClassificationType classification = null;
 
             if (token.Category == TokenCategory.Operator) {
@@ -357,11 +156,11 @@ namespace Microsoft.PythonTools {
             }
 
             if (classification == null) {
-                CategoryMap.TryGetValue(token.Category, out classification);
+                _provider.CategoryMap.TryGetValue(token.Category, out classification);
             }
 
             if (classification != null) {
-                var tokenSpan = SnapshotSpanToSpan(span.Snapshot, token, lineNumber);
+                var tokenSpan = token.ToSnapshotSpan(span.Snapshot);
                 var intersection = span.Intersection(tokenSpan);
 
                 if (intersection != null && intersection.Value.Length > 0 ||
@@ -373,11 +172,18 @@ namespace Microsoft.PythonTools {
             return null;
         }
 
-        private static Span SnapshotSpanToSpan(ITextSnapshot snapshot, TokenInfo token, int lineNumber) {
-            var line = snapshot.GetLineFromLineNumber(lineNumber);
-            var index = line.Start.Position + token.SourceSpan.Start.Column - 1;
-            var tokenSpan = new Span(index, token.SourceSpan.Length);
-            return tokenSpan;
+        Task IPythonTextBufferInfoEventSink.PythonTextBufferEventAsync(PythonTextBufferInfo sender, PythonTextBufferInfoEventArgs e) {
+            if (e.Event == PythonTextBufferInfoEvents.NewAnalysisEntry) {
+                return OnNewAnalysisEntryAsync(sender, e.AnalysisEntry);
+            } else if (e.Event == PythonTextBufferInfoEvents.TextContentChangedOnBackgroundThread) {
+                return OnTextContentChangedAsync(sender, (e as PythonTextBufferInfoNestedEventArgs)?.NestedEventArgs as TextContentChangedEventArgs);
+            } else if (e.Event == PythonTextBufferInfoEvents.NewTextBufferInfo) {
+                var entry = sender.AnalysisEntry;
+                if (entry != null) {
+                    return OnNewAnalysisEntryAsync(sender, entry);
+                }
+            }
+            return Task.CompletedTask;
         }
 
         #endregion
@@ -385,11 +191,13 @@ namespace Microsoft.PythonTools {
 
     internal static partial class ClassifierExtensions {
         public static PythonClassifier GetPythonClassifier(this ITextBuffer buffer) {
-            PythonClassifier res;
-            if (buffer.Properties.TryGetProperty<PythonClassifier>(typeof(PythonClassifier), out res)) {
-                return res;
+            var bi = PythonTextBufferInfo.TryGetForBuffer(buffer);
+            if (bi == null) {
+                return null;
             }
-            return null;
+
+            var provider = bi.Services.ComponentModel.GetService<PythonClassifierProvider>();
+            return provider.GetClassifier(buffer) as PythonClassifier;
         }
     }
 }

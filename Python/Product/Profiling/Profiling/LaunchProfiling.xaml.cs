@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -26,7 +26,7 @@ namespace Microsoft.PythonTools.Profiling {
         readonly ProfilingTargetView _viewModel;
         private readonly IServiceProvider _serviceProvider;
 
-        public LaunchProfiling(IServiceProvider serviceProvider, ProfilingTargetView viewModel) {
+        internal LaunchProfiling(IServiceProvider serviceProvider, ProfilingTargetView viewModel) {
             _serviceProvider = serviceProvider;
             _viewModel = viewModel;
             DataContext = _viewModel;
@@ -57,6 +57,9 @@ namespace Microsoft.PythonTools.Profiling {
                 );
                 if (File.Exists(path)) {
                     standalone.ScriptPath = path;
+                    if (!Directory.Exists(standalone.WorkingDirectory)) {
+                        standalone.WorkingDirectory = Path.GetDirectoryName(path);
+                    }
                 }
             }
         }

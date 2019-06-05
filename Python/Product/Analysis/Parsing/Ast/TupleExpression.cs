@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -78,20 +78,12 @@ namespace Microsoft.PythonTools.Parsing.Ast {
             } else {
                 if (Items.Count == 0 && 
                     format.SpaceWithinEmptyTupleExpression != null) {
-                    format.ReflowComment(res, this.GetProceedingWhiteSpace(ast));
+                    format.ReflowComment(res, this.GetPreceedingWhiteSpace(ast));
                     res.Append('(');
-                    if (String.IsNullOrWhiteSpace(this.GetSecondWhiteSpace(ast))) {
-                        res.Append(format.SpaceWithinEmptyTupleExpression.Value ? " " : "");
-                    } else {
-                        format.ReflowComment(res, this.GetSecondWhiteSpace(ast));
-                    }
+                    format.Append(res, format.SpaceWithinEmptyTupleExpression, " ", "", this.GetSecondWhiteSpaceDefaultNull(ast));
                     res.Append(')');
                 } else {
-                    string delimWs =
-                     format.SpacesWithinParenthesisedTupleExpression != null ?
-                     format.SpacesWithinParenthesisedTupleExpression.Value ? " " : "" : null;
-
-                    ListExpression.AppendItems(res, ast, format, "(", this.IsMissingCloseGrouping(ast) ? "" : ")", this, Items, delimWs);
+                    ListExpression.AppendItems(res, ast, format, "(", this.IsMissingCloseGrouping(ast) ? "" : ")", this, Items, format.SpacesWithinParenthesisedTupleExpression);
                 } 
             }
         }

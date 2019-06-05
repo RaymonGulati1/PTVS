@@ -9,11 +9,12 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
+using System;
 using Microsoft.VisualStudio.Text;
 
 namespace Microsoft.PythonTools.Intellisense {
@@ -21,7 +22,9 @@ namespace Microsoft.PythonTools.Intellisense {
         public readonly string Name;
         public readonly SnapshotSpan Span;
         public readonly NavigationInfo[] Children;
-        public readonly NavigationKind Kind;        
+        public readonly NavigationKind Kind;
+
+        public static readonly NavigationInfo Empty = new NavigationInfo(null, NavigationKind.None, new SnapshotSpan(), Array.Empty<NavigationInfo>());
 
         public NavigationInfo(string name, NavigationKind kind, SnapshotSpan span, NavigationInfo[] children) {
             Name = name;
@@ -31,7 +34,7 @@ namespace Microsoft.PythonTools.Intellisense {
         }
     }
 
-    public enum NavigationKind {
+    enum NavigationKind {
         None,
         Class,
         Function,

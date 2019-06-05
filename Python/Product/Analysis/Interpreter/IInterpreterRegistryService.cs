@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -82,34 +82,20 @@ namespace Microsoft.PythonTools.Interpreter {
         void EndSuppressInterpretersChangedEvent();
 
         /// <summary>
-        /// Marks the factory as locked. Future calls to LockInterpreterAsync
-        /// with the same moniker will block until
-        /// <see cref="UnlockInterpreter"/> is called. Each call
-        /// to LockInterpreterAsync must have a matching call to
-        /// <see cref="UnlockInterpreter"/>.
+        /// Returns the serialization information for a given factory, allowing
+        /// it to be reconstructed in another AppDomain or process without requiring
+        /// rediscovery. Factories must implement <see cref="ICustomInterpreterSerialization"/>
+        /// to override the values - otherwise, sufficient defaults will be provided
+        /// for very basic analysis.
         /// </summary>
-        /// <returns>
-        /// A cookie representing the current lock. This must be passed to
-        /// <see cref="UnlockInterpreter"/>.
-        /// </returns>
-        /// <remarks>New in 2.1</remarks>
-        Task<object> LockInterpreterAsync(IPythonInterpreterFactory factory, object moniker, TimeSpan timeout);
-
-        /// <summary>
-        /// Returns true if the factory is locked.
-        /// </summary>
-        /// <remarks>New in 2.1</remarks>
-        bool IsInterpreterLocked(IPythonInterpreterFactory factory, object moniker);
-
-        /// <summary>
-        /// Unlocks the factory.
-        /// </summary>
-        /// <returns>
-        /// <c>True</c> if there is nobody waiting on the same moniker and
-        /// factory.
-        /// </returns>
-        /// <remarks>New in 2.1</remarks>
-        bool UnlockInterpreter(object cookie);
+        /// <param name="factory">The factory to get information for.</param>
+        /// <param name="assembly">The assembly containing the factory type.</param>
+        /// <param name="typeName">The factory type to load.</param>
+        /// <param name="properties">The only argument to pass to the factory type's constructor.</param>
+        /// <exception cref="InvalidOperationException">
+        /// The factory cannot be serialized, even using the default behavior.
+        /// </exception>
+        void GetSerializationInfo(IPythonInterpreterFactory factory, out string assembly, out string typeName, out Dictionary<string, object> properties);
     }
 
 }

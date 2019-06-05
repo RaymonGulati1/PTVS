@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -26,32 +26,38 @@ namespace Microsoft.PythonTools.Analysis.Values {
         private readonly IAnalysisSet[] _args;
         private readonly NameExpression[] _keywordArgNames;
         private readonly IPythonProjectEntry _declProjEntry;
+        private readonly int _declVersion;
         private IAnalysisSet _argsTuple;
         private IAnalysisSet _keywordsDict;
 
         public PartialFunctionInfo(ProjectEntry declProjEntry, IAnalysisSet function, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             _declProjEntry = declProjEntry;
+            _declVersion = _declProjEntry.AnalysisVersion;
             _function = function;
             _args = args;
             _keywordArgNames = keywordArgNames;
         }
 
-        public override IPythonProjectEntry DeclaringModule {
-            get {
-                return _declProjEntry;
-            }
-        }
+        public override IPythonProjectEntry DeclaringModule => _declProjEntry;
+        public override int DeclaringVersion => _declVersion;
 
         public override IAnalysisSet Call(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
-            var newArgs = _args.Take(_args.Length - _keywordArgNames.Length)
-                .Concat(args.Take(args.Length - keywordArgNames.Length))
-                .Concat(_args.Skip(_args.Length - _keywordArgNames.Length))
-                .Concat(args.Skip(args.Length - keywordArgNames.Length))
-                .ToArray();
+            if (Push()) {
+                try {
+                    var newArgs = _args.Take(_args.Length - _keywordArgNames.Length)
+                        .Concat(args.Take(args.Length - keywordArgNames.Length))
+                        .Concat(_args.Skip(_args.Length - _keywordArgNames.Length))
+                        .Concat(args.Skip(args.Length - keywordArgNames.Length))
+                        .ToArray();
 
-            var newKwArgs = _keywordArgNames.Concat(keywordArgNames).ToArray();
+                    var newKwArgs = _keywordArgNames.Concat(keywordArgNames).ToArray();
 
-            return _function.Call(node, unit, newArgs, newKwArgs);
+                    return _function.Call(node, unit, newArgs, newKwArgs);
+                } finally {
+                    Pop();
+                }
+            }
+            return AnalysisSet.Empty;
         }
 
         public override IEnumerable<OverloadResult> Overloads {
@@ -124,7 +130,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                             vd.AddTypes(unit, v, false, DeclaringModule);
                             return vd;
                         }).ToArray(),
-                        unit.ProjectState.ClassInfos[BuiltinTypeId.Tuple],
+                        unit.State.ClassInfos[BuiltinTypeId.Tuple],
                         node,
                         unit.ProjectEntry
                     );
@@ -140,7 +146,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                         if (j >= 0 && j < _args.Length) {
                             dict._keysAndValues.AddTypes(
                                 unit,
-                                unit.ProjectState.GetConstant(_keywordArgNames[i].Name),
+                                unit.State.GetConstant(_keywordArgNames[i].Name),
                                 _args[j],
                                 false
                             );

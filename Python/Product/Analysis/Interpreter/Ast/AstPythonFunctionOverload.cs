@@ -9,33 +9,41 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.PythonTools.Analysis;
 
 namespace Microsoft.PythonTools.Interpreter.Ast {
-    class AstPythonFunctionOverload : IPythonFunctionOverload {
+    class AstPythonFunctionOverload : IPythonFunctionOverload, ILocatedMember {
         private readonly IReadOnlyList<IParameterInfo> _parameters;
 
         public AstPythonFunctionOverload(
-            string doc,
-            string returnDoc,
             IEnumerable<IParameterInfo> parameters,
-            IEnumerable<IPythonType> returns
+            LocationInfo loc
         ) {
-            Documentation = doc;
-            ReturnDocumentation = returnDoc;
-            _parameters = parameters.ToArray();
-            ReturnType = returns.ToList();
+            _parameters = parameters?.ToArray() ?? throw new ArgumentNullException(nameof(parameters));
+            Locations = loc != null ? new[] { loc } : Array.Empty<LocationInfo>();
         }
 
-        public string Documentation { get; }
+        internal void SetDocumentation(string doc) {
+            if (Documentation != null) {
+                throw new InvalidOperationException("cannot set Documentation twice");
+            }
+            Documentation = doc;
+        }
+
+        internal List<IPythonType> ReturnTypes { get; } = new List<IPythonType>();
+
+        public string Documentation { get; private set; }
         public string ReturnDocumentation { get; }
         public IParameterInfo[] GetParameters() => _parameters.ToArray();
-        public IList<IPythonType> ReturnType { get; }
+        public IList<IPythonType> ReturnType => ReturnTypes.Where(v => v.TypeId != BuiltinTypeId.Unknown).ToArray();
+        public IEnumerable<LocationInfo> Locations { get; }
     }
 }

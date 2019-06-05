@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -24,11 +24,11 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using Microsoft.PythonTools.Editor;
 using Microsoft.PythonTools.Editor.Core;
+using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Parsing.Ast;
 using Microsoft.PythonTools.Projects;
 using Microsoft.VisualStudio;
-using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.InteractiveWindow;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Language.StandardClassification;
@@ -38,44 +38,43 @@ using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Text.IncrementalSearch;
 using Microsoft.VisualStudio.Text.Operations;
 using Microsoft.VisualStudio.TextManager.Interop;
-using IServiceProvider = System.IServiceProvider;
 using VSConstants = Microsoft.VisualStudio.VSConstants;
 
 namespace Microsoft.PythonTools.Intellisense {
 
-    internal sealed class IntellisenseController : IIntellisenseController, IOleCommandTarget {
+    internal sealed class IntellisenseController : IIntellisenseController, IOleCommandTarget, IPythonTextBufferInfoEventSink {
+        private readonly PythonEditorServices _services;
         private readonly ITextView _textView;
         private readonly IntellisenseControllerProvider _provider;
         private readonly IIncrementalSearch _incSearch;
         private readonly ExpansionClient _expansionClient;
-        private readonly IServiceProvider _serviceProvider;
         private readonly IVsExpansionManager _expansionMgr;
         private ICompletionSession _activeSession;
         private ISignatureHelpSession _sigHelpSession;
-        private IQuickInfoSession _quickInfoSession;
+        private IAsyncQuickInfoSession _quickInfoSession;
         internal IOleCommandTarget _oldTarget;
         private IEditorOperations _editOps;
-        private readonly HashSet<ITextBuffer> _subjectBuffers = new HashSet<ITextBuffer>();
         private static readonly string[] _allStandardSnippetTypes = { ExpansionClient.Expansion, ExpansionClient.SurroundsWith };
         private static readonly string[] _surroundsWithSnippetTypes = { ExpansionClient.SurroundsWith, ExpansionClient.SurroundsWithStatement };
 
         public static readonly object SuppressErrorLists = new object();
+        public static readonly object FollowDefaultEnvironment = new object();
 
         /// <summary>
         /// Attaches events for invoking Statement completion 
         /// </summary>
-        public IntellisenseController(IntellisenseControllerProvider provider, ITextView textView, IServiceProvider serviceProvider) {
+        public IntellisenseController(IntellisenseControllerProvider provider, ITextView textView) {
             _textView = textView;
             _provider = provider;
-            _editOps = provider._EditOperationsFactory.GetEditorOperations(textView);
-            _incSearch = provider._IncrementalSearch.GetIncrementalSearch(textView);
+            _services = _provider.Services;
+            _editOps = _services.EditOperationsFactory.GetEditorOperations(textView);
+            _incSearch = _services.IncrementalSearch.GetIncrementalSearch(textView);
             _textView.MouseHover += TextViewMouseHover;
-            _serviceProvider = serviceProvider;
+            _services.Python.InterpreterOptionsService.DefaultInterpreterChanged += InterpreterOptionsService_DefaultInterpreterChanged;
             if (textView.TextBuffer.IsPythonContent()) {
                 try {
-                    _expansionClient = new ExpansionClient(textView, provider._adaptersFactory, provider._ServiceProvider);
-                    var textMgr = (IVsTextManager2)_serviceProvider.GetService(typeof(SVsTextManager));
-                    textMgr.GetExpansionManager(out _expansionMgr);
+                    _expansionClient = new ExpansionClient(textView, _services);
+                    _services.VsTextManager2.GetExpansionManager(out _expansionMgr);
                 } catch (ArgumentException) {
                     // No expansion client for this buffer, but we can continue without it
                 }
@@ -93,110 +92,239 @@ namespace Microsoft.PythonTools.Intellisense {
             _textView.MouseHover -= TextViewMouseHover;
             _textView.Closed -= TextView_Closed;
             _textView.Properties.RemoveProperty(typeof(IntellisenseController));
+            _services.Python.InterpreterOptionsService.DefaultInterpreterChanged -= InterpreterOptionsService_DefaultInterpreterChanged;
+            // Do not disconnect subject buffers here - VS will handle that for us
+        }
 
-            foreach (var buffer in _subjectBuffers.ToArray()) {
-                DisconnectSubjectBuffer(buffer);
+        private void TextViewMouseHover(object sender, MouseHoverEventArgs e) {
+            TextViewMouseHoverWorker(e)
+                .HandleAllExceptions(_services.Site, GetType())
+                .DoNotWait();
+        }
+
+        private static async Task DismissQuickInfo(IAsyncQuickInfoSession session) {
+            if (session != null && session.State != QuickInfoSessionState.Dismissed) {
+                await session.DismissAsync();
             }
         }
 
-        private async void TextViewMouseHover(object sender, MouseHoverEventArgs e) {
-            if (_quickInfoSession != null && !_quickInfoSession.IsDismissed) {
-                _quickInfoSession.Dismiss();
-            }
-
+        private async Task TextViewMouseHoverWorker(MouseHoverEventArgs e) {
             var pt = e.TextPosition.GetPoint(EditorExtensions.IsPythonContent, PositionAffinity.Successor);
-            if (pt != null) {
-                if (_textView.TextBuffer.GetInteractiveWindow() != null &&
-                    pt.Value.Snapshot.Length > 1 &&
-                    pt.Value.Snapshot[0] == '$') {
-                    // don't provide quick info on help, the content type doesn't switch until we have
-                    // a complete command otherwise we shouldn't need to do this.
-                    return;
-                }
+            if (pt == null) {
+                return;
+            }
 
-                AnalysisEntry entry;
-                if (!_provider._EntryService.TryGetAnalysisEntry(_textView, pt.Value.Snapshot.TextBuffer, out entry)) {
-                    return;
-                }
-                var t = entry.Analyzer.GetQuickInfoAsync(entry, _textView, pt.Value);
-                var quickInfo = await Task.Run(() => entry.Analyzer.WaitForRequest(t, "GetQuickInfo", null, 2));
+            if (_textView.TextBuffer.GetInteractiveWindow() != null &&
+                pt.Value.Snapshot.Length > 1 &&
+                pt.Value.Snapshot[0] == '$') {
+                // don't provide quick info on help, the content type doesn't switch until we have
+                // a complete command otherwise we shouldn't need to do this.
+                await DismissQuickInfo(Interlocked.Exchange(ref _quickInfoSession, null));
+                return;
+            }
 
-                QuickInfoSource.AddQuickInfo(_textView, quickInfo);
+            var entry = await e.View.TextBuffer.GetAnalysisEntryAsync(_services);
+            if (entry == null) {
+                await DismissQuickInfo(Interlocked.Exchange(ref _quickInfoSession, null));
+                return;
+            }
 
-                if (quickInfo != null) {
-                    var viewPoint = _textView.BufferGraph.MapUpToBuffer(
-                        pt.Value,
-                        PointTrackingMode.Positive,
-                        PositionAffinity.Successor,
-                        _textView.TextBuffer
-                    );
-
-                    if (viewPoint != null) {
-                        _quickInfoSession = _provider._QuickInfoBroker.TriggerQuickInfo(
-                            _textView,
-                            viewPoint.Value.Snapshot.CreateTrackingPoint(viewPoint.Value, PointTrackingMode.Positive),
-                            true
-                        );
+            var session = _quickInfoSession;
+            if (session != null) {
+                try {
+                    var span = session.ApplicableToSpan?.GetSpan(pt.Value.Snapshot);
+                    if (span != null && span.Value.Contains(pt.Value)) {
+                        return;
                     }
+                } catch (ArgumentException) {
                 }
+            }
+
+            var t = entry.Analyzer.GetQuickInfoAsync(entry, _textView, pt.Value);
+            var quickInfo = await Task.Run(() => entry.Analyzer.WaitForRequest(t, "GetQuickInfo", null, 2));
+
+            AsyncQuickInfoSource.AddQuickInfo(_textView, quickInfo);
+
+            if (quickInfo == null) {
+                await DismissQuickInfo(Interlocked.Exchange(ref _quickInfoSession, null));
+                return;
+            }
+
+            var viewPoint = _textView.BufferGraph.MapUpToBuffer(
+                pt.Value,
+                PointTrackingMode.Positive,
+                PositionAffinity.Successor,
+                _textView.TextBuffer
+            );
+
+            if (viewPoint != null) {
+                _quickInfoSession = await _services.QuickInfoBroker.TriggerQuickInfoAsync(
+                    _textView,
+                    viewPoint.Value.Snapshot.CreateTrackingPoint(viewPoint.Value, PointTrackingMode.Positive),
+                    QuickInfoSessionOptions.TrackMouse
+                );
             }
         }
 
-        internal void TriggerQuickInfo() {
-            if (_quickInfoSession != null && !_quickInfoSession.IsDismissed) {
-                _quickInfoSession.Dismiss();
+        internal async Task TriggerQuickInfoAsync() {
+            if (_quickInfoSession != null && _quickInfoSession.State != QuickInfoSessionState.Dismissed) {
+                await _quickInfoSession.DismissAsync();
             }
-            _quickInfoSession = _provider._QuickInfoBroker.TriggerQuickInfo(_textView);
+
+            _quickInfoSession = await _services.QuickInfoBroker.TriggerQuickInfoAsync(_textView);
         }
 
         private static object _intellisenseAnalysisEntry = new object();
 
-        public void ConnectSubjectBuffer(ITextBuffer subjectBuffer) {
-            _subjectBuffers.Add(subjectBuffer);
+        public async void ConnectSubjectBuffer(ITextBuffer subjectBuffer) {
+            var buffer = _services.GetBufferInfo(subjectBuffer);
+            for (int retries = 5; retries > 0; --retries) {
+                try {
+                    await ConnectSubjectBufferAsync(buffer);
+                    return;
+                } catch (InvalidOperationException) {
+                    // Analysis entry changed, so we should retry
+                }
+            }
+            Debug.Fail("Failed to connect subject buffer after multiple retries");
+        }
 
+        private static async Task<AnalysisEntry> AnalyzeBufferAsync(ITextView textView, PythonTextBufferInfo bufferInfo) {
             ProjectAnalyzer analyzer;
-            string filename;
-            bool isTemporaryFile = false;
-            if (!_provider._EntryService.TryGetAnalyzer(subjectBuffer, out analyzer, out filename)) {
+            var services = bufferInfo.Services;
+
+            bool isTemporaryFile = false, followDefaultEnvironment = false;
+            analyzer = await services.Site.FindAnalyzerAsync(bufferInfo);
+            if (analyzer == null) {
                 // there's no analyzer for this file, but we can analyze it against either
                 // the default analyzer or some other analyzer (e.g. if it's a diff view, we want
                 // to analyze against the project we're diffing from).  But in either case this
                 // is just a temporary file which should be closed when the view is closed.
                 isTemporaryFile = true;
-                if (!_provider._EntryService.TryGetAnalyzer(_textView, out analyzer, out filename)) {
-                    analyzer = _provider._EntryService.DefaultAnalyzer;
+                analyzer = await services.Site.FindAnalyzerAsync(textView);
+                if (analyzer == null) {
+                    var pytoolsSvc = services.Python;
+                    if (pytoolsSvc != null) {
+                        analyzer = await pytoolsSvc.GetSharedAnalyzerAsync();
+                    }
+                    followDefaultEnvironment = true;
                 }
             }
 
             var vsAnalyzer = analyzer as VsProjectAnalyzer;
-            if (vsAnalyzer != null) {
-                bool suppressErrorList = _textView.Properties.ContainsProperty(SuppressErrorLists);
+            if (vsAnalyzer == null) {
+                return null;
+            }
 
-                vsAnalyzer.MonitorTextBufferAsync(subjectBuffer, isTemporaryFile, suppressErrorList).ContinueWith(task => {
-                    var newParser = task.Result;
+            bool suppressErrorList = textView.Properties.ContainsProperty(SuppressErrorLists);
+            var entry = await vsAnalyzer.AnalyzeFileAsync(bufferInfo.DocumentUri, bufferInfo.Filename, isTemporaryFile, suppressErrorList);
+            if (entry != null && followDefaultEnvironment) {
+                entry.Properties[FollowDefaultEnvironment] = true;
+            }
+            return entry;
+        }
 
-                    if (newParser != null) {
-                        // store the analysis entry so that we can detach it (the file path is lost
-                        // when we close the view)
-                        subjectBuffer.Properties[_intellisenseAnalysisEntry] = newParser.AnalysisEntry;
+        private async Task ConnectSubjectBufferAsync(PythonTextBufferInfo buffer) {
+            buffer.AddSink(this, this);
+            // Cannot analyze buffers without a URI
+            if (buffer.DocumentUri == null) {
+                return;
+            }
 
-                        lock(newParser) {
-                            newParser.AttachedViews++;
-                        }
-                    }
-                });
+            var entry = buffer.AnalysisEntry;
+
+            if (entry == null) {
+                for (int retries = 3; retries > 0 && entry == null; --retries) {
+                    // Likely in the process of changing analyzer, so we'll delay slightly and retry.
+                    await Task.Delay(100);
+                    entry = await AnalyzeBufferAsync(_textView, buffer);
+                }
+
+                if (entry == null) {
+                    Debug.Fail($"Failed to analyze {buffer.DocumentUri}");
+                    return;
+                }
+
+                entry = buffer.TrySetAnalysisEntry(entry, null);
+
+                if (entry == null) {
+                    Debug.Fail("Analysis entry should never be null here");
+                    return;
+                }
+            }
+
+            var parser = entry.GetOrCreateBufferParser(_services);
+
+            // This may raise InvalidOperationException if we have raced with
+            // an analyzer being closed. Our caller will retry in this case.
+            parser.AddBuffer(buffer.Buffer);
+
+            await parser.EnsureCodeSyncedAsync(buffer.Buffer);
+
+            // AnalysisEntry will be cleared automatically if the analyzer closes
+            if (buffer.AnalysisEntry == null) {
+                throw new InvalidOperationException("Analyzer was closed");
             }
         }
 
         public void DisconnectSubjectBuffer(ITextBuffer subjectBuffer) {
-            if (_subjectBuffers.Remove(subjectBuffer)) {
-                AnalysisEntry analysis;
-                if (subjectBuffer.Properties.TryGetProperty(_intellisenseAnalysisEntry, out analysis)) {
-                    analysis.Analyzer.BufferDetached(analysis, subjectBuffer);
-                    subjectBuffer.Properties.RemoveProperty(_intellisenseAnalysisEntry);
+            var bi = PythonTextBufferInfo.TryGetForBuffer(subjectBuffer);
+            bi?.RemoveSink(this);
+            bi?.AnalysisEntry?.TryGetBufferParser()?.RemoveBuffer(subjectBuffer);
+        }
+
+        private void InterpreterOptionsService_DefaultInterpreterChanged(object sender, EventArgs e) {
+            DefaultInterpreterChanged().HandleAllExceptions(_services.Site, GetType()).DoNotWait();
+        }
+
+        private async Task DefaultInterpreterChanged() {
+            VsProjectAnalyzer analyzer = null;
+
+            foreach (var bi in PythonTextBufferInfo.GetAllFromView(_textView)) {
+                var currentEntry = bi.AnalysisEntry;
+                if (currentEntry != null && currentEntry.Properties.ContainsKey(FollowDefaultEnvironment)) {
+                    var oldAnalyzer = currentEntry.Analyzer;
+
+                    if (analyzer == null) {
+                        analyzer = await _services.Python.GetSharedAnalyzerAsync();
+                    }
+
+                    if (analyzer == oldAnalyzer) {
+                        continue;
+                    }
+
+                    if (bi.TrySetAnalysisEntry(null, currentEntry) != null) {
+                        continue;
+                    }
+                    if (oldAnalyzer.RemoveUser()) {
+                        oldAnalyzer.Dispose();
+                    }
+
+                    var newEntry = await analyzer.AnalyzeFileAsync(bi.DocumentUri, bi.Filename, true, bi.Buffer.Properties.ContainsProperty(SuppressErrorLists));
+                    newEntry.Properties[FollowDefaultEnvironment] = true;
+                    bi.TrySetAnalysisEntry(newEntry, null);
                 }
             }
         }
+
+
+        public async Task PythonTextBufferEventAsync(PythonTextBufferInfo sender, PythonTextBufferInfoEventArgs e) {
+            if (e.Event == PythonTextBufferInfoEvents.AnalyzerExpired) {
+                // Analysis entry has been cleared. Allow a short pause before
+                // trying to create a new one.
+                await Task.Delay(500);
+                if (sender.AnalysisEntry == null) {
+                    for (int retries = 3; retries > 0; --retries) {
+                        try {
+                            await ConnectSubjectBufferAsync(sender);
+                            break;
+                        } catch (InvalidOperationException) {
+                        }
+                    }
+                }
+            }
+        }
+
 
         /// <summary>
         /// Detaches the events
@@ -215,24 +343,7 @@ namespace Microsoft.PythonTools.Intellisense {
 
             DetachKeyboardFilter();
         }
-
-        /// <summary>
-        /// Triggers Statement completion when appropriate keys are pressed
-        /// The key combination is CTRL-J or "."
-        /// The intellisense window is dismissed when one presses ESC key
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void OnPreprocessKeyDown(object sender, TextCompositionEventArgs e) {
-            // We should only receive pre-process events from our text view
-            Debug.Assert(sender == _textView);
-
-            string text = e.Text;
-            if (text.Length == 1) {
-                HandleChar(text[0]);
-            }
-        }
-
+        
         private string GetTextBeforeCaret(int includeCharsAfter = 0) {
             var maybePt = _textView.Caret.Position.Point.GetPoint(_textView.TextBuffer, PositionAffinity.Predecessor);
             if (!maybePt.HasValue) {
@@ -252,7 +363,7 @@ namespace Microsoft.PythonTools.Intellisense {
             // we receive a "," and we close sig help when we receive a ")".
 
             if (!_incSearch.IsActive) {
-                var prefs = _provider.PythonService.LangPrefs;
+                var prefs = _services.Python.LangPrefs;
 
                 var session = Volatile.Read(ref _activeSession);
                 var sigHelpSession = Volatile.Read(ref _sigHelpSession);
@@ -274,7 +385,7 @@ namespace Microsoft.PythonTools.Intellisense {
                     case '.':
                     case ' ':
                         if (prefs.AutoListMembers && GetStringLiteralSpan() == null) {
-                            TriggerCompletionSession(false);
+                            TriggerCompletionSession(false, ch).DoNotWait();
                         }
                         break;
                     case '(':
@@ -303,11 +414,12 @@ namespace Microsoft.PythonTools.Intellisense {
                         }
                         break;
                     default:
+                        // Note: Don't call CompletionSets property if session is dismissed to avoid NRE
                         if (Tokenizer.IsIdentifierStartChar(ch) &&
-                            ((session?.CompletionSets.Count ?? 0) == 0)) {
+                            ((session?.IsDismissed ?? false ? 0 : session?.CompletionSets.Count ?? 0) == 0)) {
                             bool commitByDefault;
                             if (ShouldTriggerIdentifierCompletionSession(out commitByDefault)) {
-                                TriggerCompletionSession(false, commitByDefault);
+                                TriggerCompletionSession(false, ch, commitByDefault).DoNotWait();
                             }
                         }
                         break;
@@ -331,19 +443,11 @@ namespace Microsoft.PythonTools.Intellisense {
             return token.Span;
         }
 
-        private bool ShouldTriggerStringCompletionSession(LanguagePreferences prefs, SnapshotSpan span) {
-            if (!prefs.AutoListMembers) {
-                return false;
-            }
-
-            return StringLiteralCompletionList.CanComplete(span.GetText());
-        }
-
         private bool ShouldTriggerIdentifierCompletionSession(out bool commitByDefault) {
             commitByDefault = true;
 
-            if (!_provider.PythonService.AdvancedOptions.AutoListIdentifiers ||
-                !_provider.PythonService.AdvancedOptions.AutoListMembers) {
+            if (!_services.Python.AdvancedOptions.AutoListIdentifiers ||
+                !_services.Python.AdvancedOptions.AutoListMembers) {
                 return false;
             }
 
@@ -368,16 +472,14 @@ namespace Microsoft.PythonTools.Intellisense {
                 return false;
             }
 
-            AnalysisEntry entry;
-            if (!_provider._EntryService.TryGetAnalysisEntry(_textView, snapshot.TextBuffer, out entry)) {
+            var entry = snapshot.TextBuffer.TryGetAnalysisEntry();
+            if (entry == null) {
                 return false;
             }
 
             var languageVersion = entry.Analyzer.LanguageVersion;
-            PythonAst ast;
-            using (var parser = Parser.CreateParser(new StringReader(text), languageVersion, new ParserOptions { Verbatim = true })) {
-                ast = parser.ParseSingleStatement();
-            }
+            var parser = Parser.CreateParser(new StringReader(text), languageVersion, new ParserOptions());
+            var ast = parser.ParseSingleStatement();
 
             var walker = new ExpressionCompletionWalker(caretPoint.Value.Position - statement.Value.Start.Position);
             ast.Walk(walker);
@@ -685,7 +787,7 @@ namespace Microsoft.PythonTools.Intellisense {
                         caretPoint.Value.Snapshot.TextBuffer.Delete(new Span(caretPoint.Value.Position - 1, 1));
 
                         // Pop to an outer nesting of signature help
-                        if (_provider.PythonService.LangPrefs.AutoListParams) {
+                        if (_services.Python.LangPrefs.AutoListParams) {
                             TriggerSignatureHelp();
                         }
 
@@ -744,7 +846,10 @@ namespace Microsoft.PythonTools.Intellisense {
             }
 
             var span = targetPt.Value.Snapshot.CreateTrackingSpan(targetPt.Value.Position, 0, SpanTrackingMode.EdgeInclusive);
-            var sigs = _provider.PythonService.GetSignatures(_textView, targetPt.Value.Snapshot, span);
+            var sigs = _services.Python.GetSignatures(_textView, targetPt.Value.Snapshot, span);
+            if (sigs == null) {
+                return;
+            }
 
             bool retrigger = false;
             if (sigs.Signatures.Count == sigHelpSession.Signatures.Count) {
@@ -791,41 +896,28 @@ namespace Microsoft.PythonTools.Intellisense {
             // pick the best signature when the signature includes types.
             var bestSig = sigHelpSession.SelectedSignature as PythonSignature;
             if (bestSig != null) {
-                for (int i = 0; i < bestSig.Parameters.Count; ++i) {
-                    if (bestSig.Parameters[i].Name == lastKeywordArg ||
-                        lastKeywordArg == null && (i == curParam || PythonSignature.IsParamArray(bestSig.Parameters[i].Name))
-                    ) {
-                        bestSig.SetCurrentParameter(bestSig.Parameters[i]);
-                        sigHelpSession.SelectedSignature = bestSig;
-                        return;
-                    }
+                if (bestSig.SelectBestParameter(curParam, lastKeywordArg) >= 0) {
+                    sigHelpSession.SelectedSignature = bestSig;
+                    return;
                 }
             }
 
             PythonSignature fallback = null;
             foreach (var sig in sigHelpSession.Signatures.OfType<PythonSignature>().OrderBy(s => s.Parameters.Count)) {
                 fallback = sig;
-                for (int i = 0; i < sig.Parameters.Count; ++i) {
-                    if (sig.Parameters[i].Name == lastKeywordArg ||
-                        lastKeywordArg == null && (i == curParam || PythonSignature.IsParamArray(sig.Parameters[i].Name))
-                    ) {
-                        sig.SetCurrentParameter(sig.Parameters[i]);
-                        sigHelpSession.SelectedSignature = sig;
-                        return;
-                    }
+                if (sig.SelectBestParameter(curParam, lastKeywordArg) >= 0) {
+                    sigHelpSession.SelectedSignature = sig;
+                    return;
                 }
             }
 
             if (fallback != null) {
-                fallback.SetCurrentParameter(null);
+                fallback.ClearParameter();
                 sigHelpSession.SelectedSignature = fallback;
             } else {
                 sigHelpSession.Dismiss();
             }
         }
-
-        [ThreadStatic]
-        internal static bool ForceCompletions;
 
         private bool SelectSingleBestCompletion(ICompletionSession session) {
             if (session.CompletionSets.Count != 1) {
@@ -835,7 +927,6 @@ namespace Microsoft.PythonTools.Intellisense {
             if (set == null) {
                 return false;
             }
-            set.Filter();
             if (set.SelectSingleBest()) {
                 session.Commit();
                 return true;
@@ -843,32 +934,63 @@ namespace Microsoft.PythonTools.Intellisense {
             return false;
         }
 
-        internal void TriggerCompletionSession(bool completeWord, bool? commitByDefault = null) {
-            Dismiss();
-
-            var session = CompletionBroker.TriggerCompletion(_textView);
-
-            if (session == null) {
-                Volatile.Write(ref _activeSession, null);
-            } else if (completeWord && SelectSingleBestCompletion(session)) {
-                session.Commit();
-            } else {
-                if (commitByDefault.HasValue) {
-                    foreach (var s in session.CompletionSets.OfType<FuzzyCompletionSet>()) {
-                        s.CommitByDefault = commitByDefault.GetValueOrDefault();
-                    }
-                }
-                session.Filter();
-                session.Dismissed += OnCompletionSessionDismissedOrCommitted;
-                session.Committed += OnCompletionSessionDismissedOrCommitted;
-                Volatile.Write(ref _activeSession, session);
+        internal async Task TriggerCompletionSession(bool completeWord, char triggerChar, bool? commitByDefault = null) {
+            var caretPoint = _textView.TextBuffer.CurrentSnapshot.CreateTrackingPoint(_textView.Caret.Position.BufferPosition, PointTrackingMode.Positive);
+            var session = _services.CompletionBroker.CreateCompletionSession(_textView, caretPoint, true);
+            session.SetTriggerCharacter(triggerChar);
+            if (completeWord) {
+                session.SetCompleteWordMode();
             }
+
+            var oldSession = Interlocked.Exchange(ref _activeSession, session);
+            if (oldSession != null && !oldSession.IsDismissed) {
+                oldSession.Dismiss();
+            }
+
+            if (triggerChar == ' ' || triggerChar == '.') {
+                var bi = _textView.TextBuffer.TryGetInfo();
+                if (bi == null) {
+                    bi = _textView.MapDownToPythonBuffer(_textView.Caret.Position.BufferPosition)?.Snapshot.TextBuffer.TryGetInfo();
+                }
+                var bp = bi?.AnalysisEntry?.TryGetBufferParser();
+                if (bp != null) {
+                    await bp.EnsureCodeSyncedAsync(bi.Buffer);
+                }
+            }
+
+            if (session.IsStarted || session.IsDismissed) {
+                return;
+            }
+
+            session.Start();
+            if (!session.IsStarted) {
+                Volatile.Write(ref _activeSession, null);
+                return;
+            }
+
+            if (completeWord && SelectSingleBestCompletion(session)) {
+                session.Commit();
+                return;
+            }
+
+            if (commitByDefault.HasValue) {
+                foreach (var s in session.CompletionSets.OfType<FuzzyCompletionSet>()) {
+                    s.CommitByDefault = commitByDefault.GetValueOrDefault();
+                }
+            }
+            session.Filter();
+            session.Dismissed += OnCompletionSessionDismissedOrCommitted;
+            session.Committed += OnCompletionSessionDismissedOrCommitted;
         }
 
         internal void TriggerSignatureHelp() {
             Volatile.Read(ref _sigHelpSession)?.Dismiss();
 
-            var sigHelpSession = SignatureBroker.TriggerSignatureHelp(_textView);
+            ISignatureHelpSession sigHelpSession = null;
+            try {
+                sigHelpSession = _services.SignatureHelpBroker.TriggerSignatureHelp(_textView);
+            } catch (ObjectDisposedException) {
+            }
 
             if (sigHelpSession != null) {
                 sigHelpSession.Dismissed += OnSignatureSessionDismissed;
@@ -876,11 +998,6 @@ namespace Microsoft.PythonTools.Intellisense {
                 ISignature sig;
                 if (sigHelpSession.Properties.TryGetProperty(typeof(PythonSignature), out sig)) {
                     sigHelpSession.SelectedSignature = sig;
-
-                    IParameter param;
-                    if (sigHelpSession.Properties.TryGetProperty(typeof(PythonParameter), out param)) {
-                        ((PythonSignature)sig).SetCurrentParameter(param);
-                    }
                 }
 
                 _sigHelpSession = sigHelpSession;
@@ -916,28 +1033,13 @@ namespace Microsoft.PythonTools.Intellisense {
             }
         }
 
-        private void Dismiss() {
-            if (_activeSession != null) {
-                _activeSession.Dismiss();
+        internal bool DismissCompletionSession() {
+            var session = Interlocked.Exchange(ref _activeSession, null);
+            if (session != null && !session.IsDismissed) {
+                session.Dismiss();
+                return true;
             }
-        }
-
-        internal ICompletionBroker CompletionBroker {
-            get {
-                return _provider._CompletionBroker;
-            }
-        }
-
-        internal IVsEditorAdaptersFactoryService AdaptersFactory {
-            get {
-                return _provider._adaptersFactory;
-            }
-        }
-
-        internal ISignatureHelpBroker SignatureBroker {
-            get {
-                return _provider._SigBroker;
-            }
+            return false;
         }
 
         #region IOleCommandTarget Members
@@ -947,7 +1049,7 @@ namespace Microsoft.PythonTools.Intellisense {
 
         internal void AttachKeyboardFilter() {
             if (_oldTarget == null) {
-                var viewAdapter = AdaptersFactory.GetViewAdapter(_textView);
+                var viewAdapter = _services.EditorAdaptersFactoryService.GetViewAdapter(_textView);
                 if (viewAdapter != null) {
                     ErrorHandler.ThrowOnFailure(viewAdapter.AddCommandFilter(this, out _oldTarget));
                 }
@@ -956,7 +1058,7 @@ namespace Microsoft.PythonTools.Intellisense {
 
         private void DetachKeyboardFilter() {
             if (_oldTarget != null) {
-                ErrorHandler.ThrowOnFailure(AdaptersFactory.GetViewAdapter(_textView).RemoveCommandFilter(this));
+                ErrorHandler.ThrowOnFailure(_services.EditorAdaptersFactoryService.GetViewAdapter(_textView).RemoveCommandFilter(this));
                 _oldTarget = null;
             }
         }
@@ -967,11 +1069,12 @@ namespace Microsoft.PythonTools.Intellisense {
 
             if (pguidCmdGroup == VSConstants.VSStd2K && nCmdID == (int)VSConstants.VSStd2KCmdID.TYPECHAR) {
                 var ch = (char)(ushort)System.Runtime.InteropServices.Marshal.GetObjectForNativeVariant(pvaIn);
+                bool suppressChar = false;
 
                 if (session != null && !session.IsDismissed) {
                     if (session.SelectedCompletionSet != null &&
                         session.SelectedCompletionSet.SelectionStatus.IsSelected &&
-                        _provider.PythonService.AdvancedOptions.CompletionCommittedBy.IndexOf(ch) != -1) {
+                        _services.Python.AdvancedOptions.CompletionCommittedBy.IndexOf(ch) != -1) {
 
                         if ((ch == '\\' || ch == '/') && session.SelectedCompletionSet.Moniker == "PythonFilenames") {
                             // We want to dismiss filename completions on slashes
@@ -979,6 +1082,9 @@ namespace Microsoft.PythonTools.Intellisense {
                             // be retriggered after the slash is inserted.
                             session.Dismiss();
                         } else {
+                            if (ch == session.SelectedCompletionSet.SelectionStatus.Completion.InsertionText.LastOrDefault()) {
+                                suppressChar = true;
+                            }
                             session.Commit();
                         }
                     } else if (!Tokenizer.IsIdentifierChar(ch)) {
@@ -986,12 +1092,15 @@ namespace Microsoft.PythonTools.Intellisense {
                     }
                 }
 
-                int res = _oldTarget != null ? _oldTarget.Exec(ref pguidCmdGroup, nCmdID, nCmdexecopt, pvaIn, pvaOut) : VSConstants.S_OK;
+                int res = VSConstants.S_OK;
+                if (!suppressChar) {
+                    res = _oldTarget != null ? _oldTarget.Exec(ref pguidCmdGroup, nCmdID, nCmdexecopt, pvaIn, pvaOut) : VSConstants.S_OK;
 
-                HandleChar((char)(ushort)System.Runtime.InteropServices.Marshal.GetObjectForNativeVariant(pvaIn));
+                    HandleChar(ch);
 
-                if (session != null && !session.IsDismissed) {
-                    session.Filter();
+                    if (session != null && session.IsStarted && !session.IsDismissed) {
+                        session.Filter();
+                    }
                 }
 
                 return res;
@@ -1001,16 +1110,16 @@ namespace Microsoft.PythonTools.Intellisense {
                 if (pguidCmdGroup == VSConstants.VSStd2K) {
                     switch ((VSConstants.VSStd2KCmdID)nCmdID) {
                         case VSConstants.VSStd2KCmdID.RETURN:
-                            if (_provider.PythonService.AdvancedOptions.EnterCommitsIntellisense &&
+                            if (_services.Python.AdvancedOptions.EnterCommitsIntellisense &&
                                 !session.IsDismissed &&
-                                session.SelectedCompletionSet.SelectionStatus.IsSelected) {
+                                (session.SelectedCompletionSet?.SelectionStatus.IsSelected ?? false)) {
 
                                 // If the user has typed all of the characters as the completion and presses
                                 // enter we should dismiss & let the text editor receive the enter.  For example 
                                 // when typing "import sys[ENTER]" completion starts after the space.  After typing
                                 // sys the user wants a new line and doesn't want to type enter twice.
 
-                                bool enterOnComplete = _provider.PythonService.AdvancedOptions.AddNewLineAtEndOfFullyTypedWord &&
+                                bool enterOnComplete = _services.Python.AdvancedOptions.AddNewLineAtEndOfFullyTypedWord &&
                                         EnterOnCompleteText(session);
 
                                 session.Commit();
@@ -1035,7 +1144,7 @@ namespace Microsoft.PythonTools.Intellisense {
                         case VSConstants.VSStd2KCmdID.DELETEWORDLEFT:
                         case VSConstants.VSStd2KCmdID.DELETEWORDRIGHT:
                             int res = _oldTarget != null ? _oldTarget.Exec(ref pguidCmdGroup, nCmdID, nCmdexecopt, pvaIn, pvaOut) : VSConstants.S_OK;
-                            if (session != null && !session.IsDismissed) {
+                            if (session != null && session.IsStarted && !session.IsDismissed) {
                                 session.Filter();
                             }
                             return res;
@@ -1177,14 +1286,18 @@ namespace Microsoft.PythonTools.Intellisense {
         }
 
         private IVsTextView GetViewAdapter() {
-            return _provider._adaptersFactory.GetViewAdapter(_textView);
+            return _services.EditorAdaptersFactoryService.GetViewAdapter(_textView);
         }
 
 
         private bool EnterOnCompleteText(ICompletionSession session) {
             var selectionStatus = session.SelectedCompletionSet.SelectionStatus;
-            var caret = _textView.Caret.Position.BufferPosition;
-            var span = session.GetApplicableSpan(_textView.TextBuffer).GetSpan(caret.Snapshot);
+            var mcaret = session.TextView.MapDownToPythonBuffer(session.TextView.Caret.Position.BufferPosition);
+            if (!mcaret.HasValue) {
+                return false;
+            }
+            var caret = mcaret.Value;
+            var span = session.SelectedCompletionSet.ApplicableTo.GetSpan(caret.Snapshot);
 
             return caret == span.End &&
                 span.Length == selectionStatus.Completion?.InsertionText.Length &&

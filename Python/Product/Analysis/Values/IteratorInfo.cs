@@ -9,11 +9,12 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
+using System.Diagnostics;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Parsing.Ast;
@@ -34,17 +35,17 @@ namespace Microsoft.PythonTools.Analysis.Values {
         internal static BuiltinClassInfo GetIteratorTypeFromType(BuiltinClassInfo klass, AnalysisUnit unit) {
             switch (klass.PythonType.TypeId) {
                 case BuiltinTypeId.List:
-                    return unit.ProjectState.ClassInfos[BuiltinTypeId.ListIterator];
+                    return unit.State.ClassInfos[BuiltinTypeId.ListIterator];
                 case BuiltinTypeId.Tuple:
-                    return unit.ProjectState.ClassInfos[BuiltinTypeId.TupleIterator];
+                    return unit.State.ClassInfos[BuiltinTypeId.TupleIterator];
                 case BuiltinTypeId.Set:
-                    return unit.ProjectState.ClassInfos[BuiltinTypeId.SetIterator];
+                    return unit.State.ClassInfos[BuiltinTypeId.SetIterator];
                 case BuiltinTypeId.Str:
-                    return unit.ProjectState.ClassInfos[BuiltinTypeId.StrIterator];
+                    return unit.State.ClassInfos[BuiltinTypeId.StrIterator];
                 case BuiltinTypeId.Unicode:
-                    return unit.ProjectState.ClassInfos[BuiltinTypeId.UnicodeIterator];
+                    return unit.State.ClassInfos[BuiltinTypeId.UnicodeIterator];
                 case BuiltinTypeId.Bytes:
-                    return unit.ProjectState.ClassInfos[BuiltinTypeId.BytesIterator];
+                    return unit.State.ClassInfos[BuiltinTypeId.BytesIterator];
                 case BuiltinTypeId.Generator:
                 case BuiltinTypeId.DictKeys:
                 case BuiltinTypeId.DictValues:
@@ -58,6 +59,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 case BuiltinTypeId.CallableIterator:
                     return klass;
                 default:
+                    Debug.Fail($"No iterator type for {klass.PythonType} ({klass.PythonType.Name}::{klass.PythonType.TypeId}");
                     return null;
             }
         }
@@ -67,8 +69,8 @@ namespace Microsoft.PythonTools.Analysis.Values {
         }
 
         public override IAnalysisSet GetMember(Node node, AnalysisUnit unit, string name) {
-            if (unit.ProjectState.LanguageVersion.Is2x() && name == "next" ||
-                unit.ProjectState.LanguageVersion.Is3x() && name == "__next__") {
+            if (unit.State.LanguageVersion.Is2x() && name == "next" ||
+                unit.State.LanguageVersion.Is3x() && name == "__next__") {
                 return _next = _next ?? new SpecializedCallable(
                     null,
                     IteratorNext,
@@ -115,11 +117,13 @@ namespace Microsoft.PythonTools.Analysis.Values {
     internal class SingleIteratorValue : BaseIteratorValue {
         internal readonly VariableDef _indexTypes;
         private readonly IPythonProjectEntry _declModule;
+        private readonly int _declVersion;
 
         public SingleIteratorValue(VariableDef indexTypes, BuiltinClassInfo iterType, IPythonProjectEntry declModule)
             : base(iterType) {
             _indexTypes = indexTypes;
             _declModule = declModule;
+            _declVersion = _declModule.AnalysisVersion;
         }
 
         public override IPythonProjectEntry DeclaringModule {
@@ -127,6 +131,8 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 return _declModule;
             }
         }
+
+        public override int DeclaringVersion => _declVersion;
 
         protected override IAnalysisSet IteratorNext(Node node, Analysis.AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             return _indexTypes.GetTypesNoCopy(unit, DeclaringModule);

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -24,10 +24,11 @@ using System.Reflection;
 using System.Runtime.Remoting;
 using System.Threading;
 using System.Threading.Tasks;
-using IronPython.Runtime;
 using Microsoft.PythonTools.Analysis;
+using Microsoft.PythonTools.Analysis.Values;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
+using Microsoft.PythonTools.Interpreter.Ast;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Parsing.Ast;
 
@@ -39,25 +40,31 @@ namespace Microsoft.IronPythonTools.Interpreter {
         IDisposable
     {
         private readonly Dictionary<ObjectIdentityHandle, IMember> _members = new Dictionary<ObjectIdentityHandle, IMember>();
-        private readonly ConcurrentDictionary<string, IronPythonModule> _modules = new ConcurrentDictionary<string, IronPythonModule>();
+        private readonly ConcurrentDictionary<string, IPythonModule> _modules = new ConcurrentDictionary<string, IPythonModule>();
         private readonly ConcurrentBag<string> _assemblyLoadSet = new ConcurrentBag<string>();
         private readonly HashSet<ProjectReference> _projectReferenceSet = new HashSet<ProjectReference>();
+        private readonly ConcurrentDictionary<string, XamlProjectEntry> _xamlByFilename = new ConcurrentDictionary<string, XamlProjectEntry>();
         private RemoteInterpreterProxy _remote;
         private DomainUnloader _unloader;
         private PythonAnalyzer _state;
-        private readonly PythonInterpreterFactoryWithDatabase _factory;
-        private PythonTypeDatabase _typeDb;
+        private readonly IPythonInterpreterFactory _factory;
+        private readonly IronPythonBuiltinModule _builtinModule;
 #if DEBUG
         private int _id;
         private static int _interpreterCount;
 #endif
 
-        public IronPythonInterpreter(PythonInterpreterFactoryWithDatabase factory) {
+        public IronPythonInterpreter(IPythonInterpreterFactory factory) {
 #if DEBUG
             _id = Interlocked.Increment(ref _interpreterCount);
-            Debug.WriteLine(String.Format("IronPython Interpreter Created {0}", _id));
-            Debug.WriteLine(new StackTrace(true).ToString());
+            Debug.WriteLine(String.Format("IronPython Interpreter {0} created from {1}", _id, factory.GetType().FullName));
+            try {
+                Debug.WriteLine(new StackTrace(true).ToString());
+            } catch (System.Security.SecurityException) {
+            }
 #endif
+
+            _factory = factory;
 
             AppDomain.CurrentDomain.AssemblyResolve += AssemblyResolver.Instance.CurrentDomain_AssemblyResolve;
 
@@ -71,19 +78,9 @@ namespace Microsoft.IronPythonTools.Interpreter {
 
             var mod = Remote.ImportBuiltinModule("__builtin__");
             var newMod = new IronPythonBuiltinModule(this, mod, "__builtin__");
-            _modules[newMod.Name] = newMod;
-
-            _factory = factory;
-            _typeDb = _factory.GetCurrentDatabase().CloneWithNewBuiltins(newMod);
-            _factory.NewDatabaseAvailable += OnNewDatabaseAvailable;
+            _modules[newMod.Name] = _builtinModule = newMod;
 
             LoadModules();
-        }
-
-        void OnNewDatabaseAvailable(object sender, EventArgs e) {
-            var mod = _modules["__builtin__"] as IBuiltinPythonModule;
-            _typeDb = _factory.GetCurrentDatabase().CloneWithNewBuiltins(mod);
-            RaiseModuleNamesChanged();
         }
 
         private void InitializeRemoteDomain() {
@@ -107,9 +104,11 @@ namespace Microsoft.IronPythonTools.Interpreter {
                                    Path.GetDirectoryName(typeof(IPythonFunction).Assembly.Location);
 
             setup.PrivateBinPathProbe = "";
-
+            if (Directory.Exists(_factory.Configuration.PrefixPath)) {
+                setup.AppDomainInitializer = IronPythonResolver.Initialize;
+                setup.AppDomainInitializerArguments = new[] { _factory.Configuration.PrefixPath };
+            }
             var domain = AppDomain.CreateDomain("IronPythonAnalysisDomain", null, setup);
-            domain.AssemblyResolve += IronPythonResolver.domain_AssemblyResolve;
 
             remoteInterpreter = (RemoteInterpreterProxy)domain.CreateInstanceAndUnwrap(
                 typeof(RemoteInterpreterProxy).Assembly.FullName,
@@ -160,6 +159,22 @@ namespace Microsoft.IronPythonTools.Interpreter {
         }
 
         private void LoadModules() {
+            if (!string.IsNullOrEmpty(_factory.Configuration.PrefixPath)) {
+                var dlls = PathUtils.GetAbsoluteDirectoryPath(_factory.Configuration.PrefixPath, "DLLs");
+                if (Directory.Exists(dlls)) {
+                    foreach (var dll in PathUtils.EnumerateFiles(dlls, "*.dll", recurse: false)) {
+                        try {
+                            var assem = Remote.LoadAssemblyFromFileWithPath(dll);
+                            if (assem != null) {
+                                Remote.AddAssembly(assem);
+                            }
+                        } catch (Exception ex) {
+                            Debug.Fail(ex.ToString());
+                        }
+                    }
+                }
+            }
+
             foreach (string modName in Remote.GetBuiltinModuleNames()) {
                 try {
                     var mod = Remote.ImportBuiltinModule(modName);
@@ -189,11 +204,103 @@ namespace Microsoft.IronPythonTools.Interpreter {
         }
 
         private void SpecializeClrFunctions() {
+            // cached for quick checks to see if we're a call to clr.AddReference
+            _state.SpecializeFunction("wpf", "LoadComponent", LoadComponent);
             _state.SpecializeFunction("clr", "AddReference", (n, u, p, kw) => AddReference(n, null), true);
             _state.SpecializeFunction("clr", "AddReferenceByPartialName", (n, u, p, kw) => AddReference(n, LoadAssemblyByPartialName), true);
             _state.SpecializeFunction("clr", "AddReferenceByName", (n, u, p, kw) => AddReference(n, null), true);
             _state.SpecializeFunction("clr", "AddReferenceToFile", (n, u, p, kw) => AddReference(n, LoadAssemblyFromFile), true);
             _state.SpecializeFunction("clr", "AddReferenceToFileAndPath", (n, u, p, kw) => AddReference(n, LoadAssemblyFromFileWithPath), true);
+        }
+
+        private IAnalysisSet LoadComponent(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+            if (args.Length != 2 || !(unit.State.Interpreter is IDotNetPythonInterpreter interpreter)) {
+                return AnalysisSet.Empty;
+            }
+
+            var self = args[0];
+            var xaml = args[1];
+
+            foreach (var arg in xaml) {
+                var strConst = arg.GetConstantValueAsString();
+                if (string.IsNullOrEmpty(strConst)) {
+                    continue;
+                }
+
+                // process xaml file, add attributes to self
+                string xamlPath = Path.Combine(Path.GetDirectoryName(unit.Entry.FilePath), strConst);
+                if (_xamlByFilename.TryGetValue(xamlPath, out var xamlProject)) {
+                    // TODO: Get existing analysis if it hasn't changed.
+                    var analysis = xamlProject.Analysis;
+
+                    if (analysis == null) {
+                        xamlProject.Analyze(CancellationToken.None);
+                        analysis = xamlProject.Analysis;
+                        if (analysis == null) {
+                            return self;
+                        }
+                    }
+
+                    xamlProject.AddDependency(unit.Entry);
+
+                    var evalUnit = unit.CopyForEval();
+
+                    // add named objects to instance
+                    foreach (var keyValue in analysis.NamedObjects) {
+                        var type = keyValue.Value;
+                        if (type.Type.UnderlyingType != null) {
+
+                            var ns = (IAnalysisValue)unit.State.GetAnalysisValueFromObjects(interpreter.GetBuiltinType(type.Type.UnderlyingType));
+                            if (ns is IBuiltinClassInfo bci) {
+                                ns = bci.Instance;
+                            }
+                            self.SetMember(node, evalUnit, keyValue.Key, ns.SelfSet);
+                        }
+
+                        // TODO: Better would be if SetMember took something other than a node, then we'd
+                        // track references w/o this extra effort.
+                        foreach (var inst in self) {
+                            if (inst is IInstanceInfo instInfo && instInfo.InstanceAttributes != null) {
+                                if (instInfo.InstanceAttributes.TryGetValue(keyValue.Key, out var def)) {
+                                    def.AddAssignment(
+                                        new EncodedLocation(
+                                            new LocationInfo(xamlProject.FilePath, xamlProject.DocumentUri, type.LineNumber, type.LineOffset),
+                                            null
+                                        ),
+                                        xamlProject
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    // add references to event handlers
+                    foreach (var keyValue in analysis.EventHandlers) {
+                        // add reference to methods...
+                        var member = keyValue.Value;
+
+                        // TODO: Better would be if SetMember took something other than a node, then we'd
+                        // track references w/o this extra effort.
+                        foreach (var inst in self) {
+                            if (inst is IInstanceInfo instInfo) {
+                                var ci = instInfo.ClassInfo;
+
+                                if (ci.Scope.TryGetVariable(keyValue.Key, out var def)) {
+                                    def.AddReference(
+                                        new EncodedLocation(
+                                            new LocationInfo(xamlProject.FilePath, xamlProject.DocumentUri, member.LineNumber, member.LineOffset),
+                                            null
+                                        ),
+                                        xamlProject
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // load component returns self
+            return self;
         }
 
         private void PythonAnalyzer_SearchPathsChanged(object sender, EventArgs e) {
@@ -219,7 +326,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
         }
 
         private void ReloadRemoteDomain() {
-            var oldUnloader = _unloader;
+            var oldUnloaded = _unloader;
 
             var evt = UnloadingDomain;
             if (evt != null) {
@@ -238,7 +345,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
 
             RaiseModuleNamesChanged();
 
-            oldUnloader.Dispose();
+            oldUnloaded.Dispose();
         }
 
         public event EventHandler UnloadingDomain;
@@ -282,7 +389,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
                 return AnalysisSet.Empty;
             }
             foreach (var arg in callExpr.Args) {
-                var cexpr = arg.Expression as Microsoft.PythonTools.Parsing.Ast.ConstantExpression;
+                var cexpr = arg.Expression as ConstantExpression;
                 if (cexpr == null || !(cexpr.Value is string || cexpr.Value is AsciiString)) {
                     // can't process this add reference
                     continue;
@@ -361,19 +468,13 @@ namespace Microsoft.IronPythonTools.Interpreter {
 
             res.AddRange(Remote.GetModuleNames());
 
-            if (_typeDb != null) {
-                foreach (var name in _typeDb.GetModuleNames()) {
-                    res.Add(name);
-                }
-            }
-
             return res;
         }
 
 
         public event EventHandler ModuleNamesChanged;
 
-        public IronPythonModule GetModule(string name) {
+        public IPythonModule GetModule(string name) {
             return _modules[name];
         }
 
@@ -382,37 +483,88 @@ namespace Microsoft.IronPythonTools.Interpreter {
                 return null;
             }
 
-            // clr module needs to be an IronPythonModule, not a CPythonModule, so we can track when it's imported
-            // and make clr completions available.
-            if (_typeDb != null && name != "clr") {
-                var res = _typeDb.GetModule(name);
-                if (res != null) {
-                    return res;
-                }
+            if (name == _builtinModule?.Name) {
+                return _builtinModule;
             }
 
-            IronPythonModule mod;
+            IPythonModule mod;
+
             if (_modules.TryGetValue(name, out mod)) {
                 return mod;
             }
 
             var handle = Remote.LookupNamespace(name);
             if (!handle.IsNull) {
-                return MakeObject(handle) as IPythonModule;
+                mod = MakeObject(handle) as IPythonModule;
+                if (mod != null) {
+                    return _modules.GetOrAdd(name, mod);
+                }
+            }
+
+            if (_factory is AstPythonInterpreterFactory apf) {
+                var ctxt = new AstPythonInterpreterFactory.TryImportModuleContext {
+                    Interpreter = this,
+                    BuiltinModule = _builtinModule,
+                    ModuleCache = _modules
+                };
+                for (int retries = 5; retries > 0; --retries) {
+                    // The call should be cancelled by the cancellation token, but since we
+                    // are blocking here we wait for slightly longer. Timeouts are handled
+                    // gracefully by TryImportModuleAsync(), so we want those to trigger if
+                    // possible, but if all else fails then we'll abort and treat it as an
+                    // error.
+                    // (And if we've got a debugger attached, don't time out at all.)
+                    Task<AstPythonInterpreterFactory.TryImportModuleResult> impTask;
+#if DEBUG
+                    if (Debugger.IsAttached) {
+                        impTask = apf.TryImportModuleAsync(name, ctxt, CancellationToken.None);
+                    } else {
+#endif
+                        var cts = new CancellationTokenSource(5000);
+                        impTask = apf.TryImportModuleAsync(name, ctxt, cts.Token);
+                        try {
+                            if (!impTask.Wait(10000)) {
+                                throw new OperationCanceledException();
+                            }
+                        } catch (OperationCanceledException) {
+                            Debug.Fail("Import timeout");
+                            return null;
+                        }
+#if DEBUG
+                    }
+#endif
+                    var result = impTask.Result;
+                    mod = result.Module;
+                    switch (result.Status) {
+                        case AstPythonInterpreterFactory.TryImportModuleResultCode.Success:
+                            if (mod == null) {
+                                _modules.TryRemove(name, out _);
+                                break;
+                            }
+                            return mod;
+                        case AstPythonInterpreterFactory.TryImportModuleResultCode.ModuleNotFound:
+                            retries = 0;
+                            _modules.TryRemove(name, out _);
+                            break;
+                        case AstPythonInterpreterFactory.TryImportModuleResultCode.NotSupported:
+                            retries = 0;
+                            break;
+                        case AstPythonInterpreterFactory.TryImportModuleResultCode.NeedRetry:
+                        case AstPythonInterpreterFactory.TryImportModuleResultCode.Timeout:
+                            break;
+                    }
+                }
             }
 
             var nameParts = name.Split('.');
-            IPythonModule pythonMod;
-            if (nameParts.Length > 1 && (pythonMod = ImportModule(nameParts[0])) != null) {
-                for (int i = 1; i < nameParts.Length && pythonMod != null; ++i) {
-                    pythonMod = pythonMod.GetMember(IronPythonModuleContext.ShowClrInstance, nameParts[i]) as IPythonModule;
-                }
-                if (pythonMod != null) {
-                    return pythonMod;
+            mod = null;
+            if (nameParts.Length > 1 && (mod = ImportModule(nameParts[0])) != null) {
+                for (int i = 1; i < nameParts.Length && mod != null; ++i) {
+                    mod = mod.GetMember(IronPythonModuleContext.ShowClrInstance, nameParts[i]) as IPythonModule;
                 }
             }
 
-            return null;
+            return _modules.GetOrAdd(name, mod);
         }
 
         public IModuleContext CreateModuleContext() {
@@ -425,8 +577,15 @@ namespace Microsoft.IronPythonTools.Interpreter {
                     var asmRef = (ProjectAssemblyReference)reference;
 
                     return Task.Factory.StartNew(() => {
-                        if (!Remote.LoadAssemblyReference(asmRef.Name)) {
-                            throw new Exception("Failed to load assembly: " + asmRef.Name);
+                        if (File.Exists(asmRef.Name)) {
+                            if (!Remote.LoadAssemblyReference(asmRef.Name)) {
+                                throw new Exception("Failed to load assembly: " + asmRef.Name);
+                            }
+                        } else {
+                            if (!Remote.LoadAssemblyReferenceByName(asmRef.AssemblyName.FullName) &&
+                                !Remote.LoadAssemblyReferenceByName(asmRef.AssemblyName.Name)) {
+                                throw new Exception("Failed to load assembly: " + asmRef.AssemblyName.FullName);
+                            }
                         }
 
                         lock (_projectReferenceSet) {
@@ -461,6 +620,12 @@ namespace Microsoft.IronPythonTools.Interpreter {
                         }
                     }
                     break;
+            }
+        }
+
+        public IEnumerable<ProjectReference> GetReferences() {
+            lock (_projectReferenceSet) {
+                return _projectReferenceSet.ToArray();
             }
         }
 
@@ -523,6 +688,12 @@ namespace Microsoft.IronPythonTools.Interpreter {
             return GetTypeFromType(Remote.GetBuiltinTypeFromType(type));
         }
 
+        public IProjectEntry AddXamlEntry(string filePath, Uri documentUri) {
+            var entry = new XamlProjectEntry(filePath, documentUri);
+            _xamlByFilename[filePath] = entry;
+            return entry;
+        }
+
         #endregion
 
         class DomainUnloader : IDisposable {
@@ -570,10 +741,6 @@ namespace Microsoft.IronPythonTools.Interpreter {
                 evt(this, EventArgs.Empty);
             }
 
-            if (_factory != null) {
-                _factory.NewDatabaseAvailable -= OnNewDatabaseAvailable;
-            }
-            _typeDb = null;
             AppDomain.CurrentDomain.AssemblyResolve -= AssemblyResolver.Instance.CurrentDomain_AssemblyResolve;
             _unloader.Dispose();
 #if DEBUG

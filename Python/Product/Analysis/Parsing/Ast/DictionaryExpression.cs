@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -49,6 +49,34 @@ namespace Microsoft.PythonTools.Parsing.Ast {
 
         internal override void AppendCodeString(StringBuilder res, PythonAst ast, CodeFormattingOptions format) {
             ListExpression.AppendItems(res, ast, format, "{", this.IsMissingCloseGrouping(ast) ? "" : "}", this, Items);
+        }
+    }
+
+    /// <summary>
+    /// Subclass of SliceExpression for an entry in a dict that only has a key.
+    /// These are typically parser errors.
+    /// </summary>
+    public class DictKeyOnlyExpression : SliceExpression {
+        public DictKeyOnlyExpression(Expression expr) : base(expr, null, null, false) { }
+
+        public Expression Key => SliceStart;
+
+        internal override void AppendCodeString(StringBuilder res, PythonAst ast, CodeFormattingOptions format) {
+            Key?.AppendCodeString(res, ast, format);
+        }
+    }
+
+    /// <summary>
+    /// Subclass of SliceExpression for an entry in a dict that only has a value.
+    /// These are typically StarExpressions for unpacking.
+    /// </summary>
+    public class DictValueOnlyExpression : SliceExpression {
+        public DictValueOnlyExpression(Expression expr) : base(null, expr, null, false) { }
+
+        public Expression Value => SliceStop;
+
+        internal override void AppendCodeString(StringBuilder res, PythonAst ast, CodeFormattingOptions format) {
+            Value?.AppendCodeString(res, ast, format);
         }
     }
 }

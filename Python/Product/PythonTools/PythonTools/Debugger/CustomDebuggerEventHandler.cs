@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,16 +19,15 @@ using System.ComponentModel.Design;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Windows;
+using Microsoft.PythonTools.Debugger;
 using Microsoft.PythonTools.Debugger.DebugEngine;
-using Microsoft.PythonTools.DkmDebugger;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Debugger.Interop;
 
 namespace Microsoft.PythonTools.Debugger {
     [Guid(Guids.CustomDebuggerEventHandlerId)]
-    public class CustomDebuggerEventHandler : IVsCustomDebuggerEventHandler110 {
+    class CustomDebuggerEventHandler : IVsCustomDebuggerEventHandler110 {
         private readonly IServiceProvider _serviceProvider;
         
         public CustomDebuggerEventHandler(IServiceProvider serviceProvider) {
@@ -72,7 +71,9 @@ namespace Microsoft.PythonTools.Debugger {
                 _serviceProvider.GlobalInvoke(cmdId,  "1F5E080F-CBD2-459C-8267-39fd83032166");
             } else if (dialog.SelectedButton == downloadSymbols) {
                 PythonToolsPackage.OpenWebBrowser(
-                    string.Format("http://go.microsoft.com/fwlink/?LinkId=308954&clcid=0x{0:X}", CultureInfo.CurrentCulture.LCID));
+                    _serviceProvider,
+                    string.Format("https://go.microsoft.com/fwlink/?LinkId=308954&clcid=0x{0:X}", CultureInfo.CurrentCulture.LCID)
+                );
             }
         }
 
@@ -103,6 +104,9 @@ namespace Microsoft.PythonTools.Debugger {
             }
             if (pyService.DebuggerOptions.DebugStdLib) {
                 options.Append(";" + AD7Engine.DebugStdLib + "=True");
+            }
+            if (pyService.DebuggerOptions.ShowFunctionReturnValue) {
+                options.Append(";" + AD7Engine.ShowReturnValue + "=True");
             }
 
             engine.SetMetric(AD7Engine.DebugOptionsMetric, options.ToString());

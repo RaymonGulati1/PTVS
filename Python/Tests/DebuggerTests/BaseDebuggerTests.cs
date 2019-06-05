@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -23,17 +23,36 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.PythonTools.Debugger;
+using Microsoft.PythonTools.Debugger.Remote;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using TestUtilities;
-using TestUtilities.Python;
 
 namespace DebuggerTests {
-    public class BaseDebuggerTests {
+    public abstract class BaseDebuggerTests {
         static BaseDebuggerTests() {
             AssertListener.Initialize();
-            PythonTestData.Deploy();
         }
+
+        public TestContext TestContext { get; set; }
+
+        // Change this to null to avoid capturing debug log, and print directly to Debug.Write
+        protected StringWriter DebugLog = new StringWriter();
+
+        [TestInitialize]
+        public void Initialize() {
+            DebugConnectionListener.DebugLog = DebugLog;
+            PythonRemoteDebugPortSupplier.DebugLog = DebugLog;
+        }
+
+        [TestCleanup]
+        public void TearDown() {
+            if (TestContext.CurrentTestOutcome != UnitTestOutcome.Passed && DebugLog != null) {
+                Debug.WriteLine("Debug log:");
+                Debug.WriteLine(DebugLog.ToString());
+            }
+        }
+
 
         protected const int DefaultWaitForExitTimeout = 20000;
 
@@ -181,8 +200,8 @@ namespace DebuggerTests {
             }
         }
 
-        internal PythonProcess DebugProcess(PythonDebugger debugger, string filename, Action<PythonProcess, PythonThread> onLoaded = null, bool resumeOnProcessLoaded = true, string interpreterOptions = null, PythonDebugOptions debugOptions = PythonDebugOptions.RedirectOutput, string cwd = null, string arguments = "") {
-            return debugger.DebugProcess(Version, filename, onLoaded, resumeOnProcessLoaded, interpreterOptions, debugOptions, cwd, arguments);
+        internal PythonProcess DebugProcess(PythonDebugger debugger, string filename, Func<PythonProcess, PythonThread, Task> onLoaded = null, bool resumeOnProcessLoaded = true, string interpreterOptions = null, PythonDebugOptions debugOptions = PythonDebugOptions.RedirectOutput, string cwd = null, string arguments = "") {
+            return debugger.DebugProcess(Version, filename, DebugLog, onLoaded, resumeOnProcessLoaded, interpreterOptions, debugOptions, cwd, arguments);
         }
 
         internal class BreakpointTest {
@@ -267,8 +286,10 @@ namespace DebuggerTests {
                                     }
                                 }
 
-                                await breakpoint.AddAsync(TimeoutToken());
+                                // Bind failed and succeeded events expect to find the breakpoint
+                                // in the dictionary, so update it before sending the add request.
                                 bps.Add(breakpoint, bp);
+                                await breakpoint.AddAsync(TimeoutToken());
                             }
 
                             OnProcessLoaded?.Invoke(newproc);
@@ -545,7 +566,7 @@ namespace DebuggerTests {
 
             string fullPath = Path.GetFullPath(filename);
             string dir = Path.GetDirectoryName(filename);
-            var process = debugger.CreateProcess(Version.Version, Version.InterpreterPath, "\"" + fullPath + "\" " + (arguments ?? ""), dir, "", null, options);
+            var process = debugger.CreateProcess(Version.Version, Version.InterpreterPath, "\"" + fullPath + "\" " + (arguments ?? ""), dir, "", null, options, DebugLog);
             try {
                 PythonThread thread = null;
                 process.ThreadCreated += (sender, args) => {
@@ -645,14 +666,18 @@ namespace DebuggerTests {
             }
         }
 
-        internal async Task StartAndWaitForExitAsync(PythonProcess process) {
+        internal async Task StartAndWaitForExitAsync(PythonProcessRunInfo processRunInfo) {
             bool exited = false;
             try {
-                await process.StartAsync();
-                exited = process.WaitForExit(DefaultWaitForExitTimeout);
+                await processRunInfo.Process.StartAsync();
+
+                AssertWaited(processRunInfo.ProcessLoaded);
+                processRunInfo.ProcessLoadedException?.Throw();
+
+                exited = processRunInfo.Process.WaitForExit(DefaultWaitForExitTimeout);
             } finally {
-                if (!exited && !process.HasExited) {
-                    process.Terminate();
+                if (!exited && !processRunInfo.Process.HasExited) {
+                    processRunInfo.Process.Terminate();
                     Assert.Fail("Timeout while waiting for Python process to exit.");
                 }
             }
@@ -668,11 +693,17 @@ namespace DebuggerTests {
         }
 
         internal void TerminateProcess(PythonProcess p) {
+            // Killing the process will cause multiple ObjectDisposedException
+            // which are normal, since the communication stream is forcibly closed.
+            // Disable their logging to reduce the noise.
+            AssertListener.LogObjectDisposedExceptions = false;
             try {
                 p.Terminate();
             } catch (Exception ex) {
                 Console.WriteLine("Failed to detach process");
                 Console.WriteLine(ex);
+            } finally {
+                AssertListener.LogObjectDisposedExceptions = true;
             }
         }
 
@@ -681,11 +712,36 @@ namespace DebuggerTests {
                 if (!p.HasExited) {
                     p.Kill();
                 }
+
+                // Process.StandardOutput/Error can only be used if BeginOutput/ErrorReadLine was
+                // not called on that Process object; otherwise it throws InvalidOperationException.
+                // If that happens, presumably there's some other redirector that already traced
+                // the output, so there's nothing for us to do here.
+
                 if (p.StartInfo.RedirectStandardOutput) {
-                    ForEachLine(p.StandardOutput, s => Trace.TraceInformation("STDOUT: {0}", s));
+                    StreamReader stdout;
+                    try {
+                        stdout = p.StandardOutput;
+                    } catch (InvalidOperationException) {
+                        stdout = null;
+                    }
+
+                    if (stdout != null) {
+                        ForEachLine(stdout, s => Trace.TraceInformation("STDOUT: {0}", s));
+                    }
                 }
+
                 if (p.StartInfo.RedirectStandardError) {
-                    ForEachLine(p.StandardError, s => Trace.TraceWarning("STDERR: {0}", s));
+                    StreamReader stderr;
+                    try {
+                        stderr = p.StandardError;
+                    } catch (InvalidOperationException) {
+                        stderr = null;
+                    }
+
+                    if (stderr != null) {
+                        ForEachLine(stderr, s => Trace.TraceWarning("STDERR: {0}", s));
+                    }
                 }
             } catch (Exception ex) {
                 Console.WriteLine("Failed to kill process");
@@ -694,12 +750,14 @@ namespace DebuggerTests {
             p.Dispose();
         }
 
-        internal object DebugProcess(PythonDebugger debugger, string runFileName, string cwd, string arguments, bool resumeOnProcessLoaded, object onLoaded, string interpreterOptions) {
-            throw new NotImplementedException();
-        }
-
         protected static CancellationToken TimeoutToken() {
             return CancellationTokens.After5s;
         }
+    }
+
+    class PythonProcessRunInfo {
+        public PythonProcess Process;
+        public ExceptionDispatchInfo ProcessLoadedException;
+        public AutoResetEvent ProcessLoaded = new AutoResetEvent(false);
     }
 }

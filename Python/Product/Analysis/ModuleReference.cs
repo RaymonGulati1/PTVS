@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -24,10 +24,14 @@ namespace Microsoft.PythonTools.Analysis {
         public IModule Module;
 
         private readonly Lazy<HashSet<ModuleInfo>> _references = new Lazy<HashSet<ModuleInfo>>();
+        private string _name;
 
-        public ModuleReference(IModule module = null) {
+        public ModuleReference(IModule module = null, string name = null) {
             Module = module;
+            _name = name;
         }
+
+        public string Name => (_name ?? AnalysisModule?.Name) ?? string.Empty;
 
         public AnalysisValue AnalysisModule {
             get {
@@ -39,15 +43,9 @@ namespace Microsoft.PythonTools.Analysis {
             return _references.Value.Add(module);
         }
 
-        public bool RemoveReference(ModuleInfo module) {
-            return _references.IsValueCreated && _references.Value.Remove(module);
-        }
+        public bool RemoveReference(ModuleInfo module) => _references.IsValueCreated && _references.Value.Remove(module);
 
-        public bool HasReferences {
-            get {
-                return _references.IsValueCreated && _references.Value.Any();
-            }
-        }
+        public bool HasReferences => _references.IsValueCreated && _references.Value.Any();
 
         public IEnumerable<ModuleInfo> References {
             get {

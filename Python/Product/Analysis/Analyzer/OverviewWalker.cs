@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -71,7 +71,9 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
                 var classScope = (ClassScope)unit.Scope;
 
                 var classVar = declScope.AddLocatedVariable(node.Name, node.NameExpression, unit);
-                classVar.AddTypes(unit, classScope.Class.SelfSet);
+                if (node.Decorators == null || node.Decorators.DecoratorsInternal.Length == 0) {
+                    classVar.AddTypes(unit, classScope.Class.SelfSet);
+                }
 
                 declScope.Children.Add(classScope);
                 declScope.AddNodeScope(node, classScope);
@@ -132,18 +134,26 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
             return false;
         }
 
-        private VariableDef CreateVariableInDeclaredScope(NameExpression name) {
+        private VariableDef CreateVariableInDeclaredScope(NameExpression name, bool isLocated = false) {
             var reference = name.GetVariableReference(_tree);
+
+            InterpreterScope declScope = null;
 
             if (reference != null && reference.Variable != null) {
                 var declNode = reference.Variable.Scope;
-                var declScope = _scope.EnumerateTowardsGlobal.FirstOrDefault(s => s.Node == declNode);
-                if (declScope != null) {
-                    return declScope.CreateVariable(name, _curUnit, name.Name, false);
+                if (_scope.Node == declNode) {
+                    declScope = _scope;
+                } else {
+                    declScope = _scope.EnumerateTowardsGlobal.FirstOrDefault(s => s.Node == declNode);
+                    declScope = declScope?.OriginalScope ?? declScope;
                 }
             }
 
-            return _scope.CreateVariable(name, _curUnit, name.Name, false);
+            if (isLocated) {
+                return (declScope ?? _scope).CreateLocatedVariable(name, _curUnit, name.Name, false);
+            }
+
+            return (declScope ?? _scope).CreateVariable(name, _curUnit, name.Name, false);
         }
 
         internal FunctionInfo AddFunction(FunctionDefinition node, AnalysisUnit outerUnit) {
@@ -160,18 +170,15 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
                 var func = new FunctionInfo(node, outerUnit, prevScope);
                 var unit = func.AnalysisUnit;
                 scope = unit.Scope;
+                (unit as FunctionAnalysisUnit)?.EnsureParameters();
 
                 prevScope.Children.Add(scope);
                 prevScope.AddNodeScope(node, scope);
 
                 if (!node.IsLambda && node.Name != "<genexpr>") {
-                    // lambdas don't have their names published
-
-                    var funcVar = prevScope.AddLocatedVariable(node.Name, node.NameExpression, unit);
-                    // Decorated functions don't have their type set yet
-                    if (node.Decorators == null) {
-                        funcVar.AddTypes(unit, func.SelfSet);
-                    }
+                    // Create the variable (except for lambdas) but do not add any
+                    // values yet. (This happens in FunctionAnalysisUnit.)
+                    prevScope.AddLocatedVariable(node.Name, node.NameExpression, unit);
                 }
 
                 unit.Enqueue();
@@ -197,7 +204,7 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
             // List comprehension runs in a new scope in 3.x, runs in the same
             // scope in 2.x.  But these don't get their own analysis units
             // because they are still just expressions.
-            if (_curUnit.ProjectState.LanguageVersion.Is3x()) {
+            if (_curUnit.State.LanguageVersion.Is3x()) {
                 EnsureComprehensionScope(node, MakeListComprehensionScope);
             }
 
@@ -205,7 +212,7 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
         }
 
         public override void PostWalk(ListComprehension node) {
-            if (_curUnit.ProjectState.LanguageVersion.Is3x()) {
+            if (_curUnit.State.LanguageVersion.Is3x()) {
                 Debug.Assert(_scope is ComprehensionScope);
                 _scope = _scope.OuterScope;
             }
@@ -367,7 +374,9 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
         public override bool Walk(AssignmentStatement node) {
             UpdateChildRanges(node);
             foreach (var nameExpr in node.Left.OfType<NameExpression>()) {
-                _scope.AddVariable(nameExpr.Name, CreateVariableInDeclaredScope(nameExpr));
+                var v = CreateVariableInDeclaredScope(nameExpr);
+                _scope.AddVariable(nameExpr.Name, v);
+                v.AddAssignment(nameExpr, _curUnit);
             }
             return base.Walk(node);
         }
@@ -414,6 +423,11 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
 
         public override bool Walk(ForStatement node) {
             UpdateChildRanges(node);
+
+            if (node.Left is NameExpression ne) {
+                var v = _scope.CreateVariable(ne, _curUnit, ne.Name, false);
+                v.AddAssignment(ne, _curUnit);
+            }
             return base.Walk(node);
         }
 
@@ -428,7 +442,9 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
                     if (nameNode.Name == "*") {
                         _scope.ContainsImportStar = true;
                     } else {
-                        CreateVariableInDeclaredScope(nameNode);
+                        var v = CreateVariableInDeclaredScope(nameNode, isLocated: false);
+                        v.IsAlwaysAssigned = true;
+                        v.AddReference(nameNode, _curUnit);
                     }
                 }
             }
@@ -437,8 +453,8 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
 
         public override bool Walk(IfStatement node) {
             UpdateChildRanges(node);
-            if (node.Tests != null) {
-                foreach (var test in node.Tests) {
+            if (node.TestsInternal != null) {
+                foreach (var test in node.TestsInternal) {
                     var isInstanceNames = GetIsInstanceNamesAndExpressions(test.Test);
                     if (isInstanceNames != null) {
                         if (test.Test != null) {
@@ -473,7 +489,7 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
                 }
 
                 if (name != null) {
-                    CreateVariableInDeclaredScope(name);
+                    CreateVariableInDeclaredScope(name, isLocated: false);
                 }
             }
 
@@ -511,7 +527,9 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
             foreach (var item in node.Items) {
                 var assignTo = item.Variable as NameExpression;
                 if (assignTo != null) {
-                    _scope.AddVariable(assignTo.Name, CreateVariableInDeclaredScope(assignTo));
+                    var v = CreateVariableInDeclaredScope(assignTo);
+                    _scope.AddVariable(assignTo.Name, v);
+                    v.AddAssignment(assignTo, _curUnit);
                 }
             }
             return base.Walk(node);

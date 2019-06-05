@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,12 +20,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Microsoft.PythonTools.Analysis.Analyzer;
-using Microsoft.PythonTools.Infrastructure;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing.Ast;
 
 namespace Microsoft.PythonTools.Analysis.Values {
-    internal class ClassInfo : AnalysisValue, IReferenceableContainer, IHasRichDescription {
+    internal class ClassInfo : AnalysisValue, IClassInfo, IReferenceableContainer, IHasRichDescription, IHasQualifiedName {
         private AnalysisUnit _analysisUnit;
         private readonly List<IAnalysisSet> _bases;
         internal Mro _mro;
@@ -42,7 +42,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
             _instanceInfo = new InstanceInfo(this);
             _bases = new List<IAnalysisSet>();
             _declVersion = outerUnit.ProjectEntry.AnalysisVersion;
-            _projectState = outerUnit.ProjectState;
+            _projectState = outerUnit.State;
             _mro = new Mro(this);
         }
 
@@ -80,10 +80,10 @@ namespace Microsoft.PythonTools.Analysis.Values {
             var newResult = AnalysisSet.Empty;
             bool anyCustom = false;
             foreach (var newFunc in n) {
-                if (!(newFunc is BuiltinFunctionInfo)) {
+                if (!(newFunc is BuiltinFunctionInfo) && !(newFunc is SpecializedCallable)) {
                     anyCustom = true;
                 }
-                newResult = newResult.Union(newFunc.Call(node, unit, newArgs, keywordArgNames));
+                newResult = newResult.Union(newFunc.Call(node, unit, newArgs, keywordArgNames).Resolve(unit));
             }
 
             if (anyCustom) {
@@ -92,7 +92,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
             
 
-            if (newResult.Count == 0 || newResult.All(ns => ns.IsOfType(unit.ProjectState.ClassInfos[BuiltinTypeId.Object]))) {
+            if (newResult.Count == 0 || newResult.All(ns => ns.IsOfType(unit.State.ClassInfos[BuiltinTypeId.Object]))) {
                 if (_baseSpecialization != null && _baseSpecialization.Count != 0) {
                     var specializedInstances = _baseSpecialization.Call(
                         node, unit, args, keywordArgNames
@@ -136,12 +136,12 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
         public IEnumerable<KeyValuePair<string, string>> GetRichDescription() {
             yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Misc, "class ");
-            yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Name, FullName);
+            yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Name, FullyQualifiedName);
             
-            if (ClassDefinition.Bases.Count > 0) {
+            if (ClassDefinition.BasesInternal.Length > 0) {
                 yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Misc, "(");
                 bool comma = false;
-                foreach (var baseClass in ClassDefinition.Bases) {
+                foreach (var baseClass in ClassDefinition.BasesInternal) {
                     if (comma) {
                         yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Comma, ", ");
                     }
@@ -155,28 +155,40 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 }
                 yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Misc, ")");
             }
-
-            var doc = Documentation;
-            if (!string.IsNullOrWhiteSpace(doc)) {
-                yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.EndOfDeclaration, "\r\n");
-                yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Misc, doc);
-            }
         }
 
-        private string FullName {
+        public string FullyQualifiedName {
             get {
                 var name = ClassDefinition.Name;
                 for (var stmt = ClassDefinition.Parent; stmt != null; stmt = stmt.Parent) {
                     if (stmt.IsGlobal) {
-                        name = DeclaringModule.ModuleName + "." + name;
-                        break;
-                    } else if (!string.IsNullOrEmpty(stmt.Name)) {
+                        return DeclaringModule.ModuleName + "." + name;
+                    }
+                    if (!string.IsNullOrEmpty(stmt.Name)) {
                         name = stmt.Name + "." + name;
                     }
                 }
                 return name;
             }
         }
+
+        public KeyValuePair<string, string> FullyQualifiedNamePair {
+            get {
+                var name = ClassDefinition.Name;
+                for (var stmt = ClassDefinition.Parent; stmt != null; stmt = stmt.Parent) {
+                    if (stmt.IsGlobal) {
+                        return new KeyValuePair<string, string>(DeclaringModule.ModuleName, name);
+                    }
+                    if (stmt is ClassDefinition) {
+                        name = stmt.Name + "." + name;
+                    } else {
+                        break;
+                    }
+                }
+                throw new NotSupportedException();
+            }
+        }
+
 
         public override string ShortDescription {
             get {
@@ -224,9 +236,9 @@ namespace Microsoft.PythonTools.Analysis.Values {
         public override IEnumerable<LocationInfo> Locations {
             get {
                 if (_declVersion == DeclaringModule.AnalysisVersion) {
-                    var start = ClassDefinition.NameExpression.GetStart(ClassDefinition.GlobalParent);
+                    var start = ClassDefinition.GetStart(ClassDefinition.GlobalParent);
                     var end = ClassDefinition.GetEnd(ClassDefinition.GlobalParent);
-                    return new[] { new LocationInfo(DeclaringModule.FilePath, start.Line, start.Column, end.Line, end.Column) };
+                    return new[] { new LocationInfo(DeclaringModule.FilePath, DeclaringModule.DocumentUri, start.Line, start.Column, end.Line, end.Column) };
                 }
                 return LocationInfo.Empty;
             }
@@ -292,10 +304,11 @@ namespace Microsoft.PythonTools.Analysis.Values {
                                 try {
                                     foreach (var overload in ns.Overloads) {
                                         result.Add(
-                                            new SimpleOverloadResult(
+                                            new OverloadResult(
                                                 overload.Parameters,
                                                 ClassDefinition.Name,
-                                                overload.Documentation
+                                                overload.Documentation,
+                                                overload.ReturnType
                                             )
                                         );
                                     }
@@ -309,7 +322,12 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
                 if (result.Count == 0) {
                     // Old style class?
-                    result.Add(new SimpleOverloadResult(new ParameterResult[0], ClassDefinition.Name, ClassDefinition.Body.Documentation.TrimDocumentation()));
+                    result.Add(new OverloadResult(
+                        new ParameterResult[0],
+                        ClassDefinition.Name,
+                        ClassDefinition.Body.Documentation.TrimDocumentation(),
+                        new[] { ShortDescription }
+                    ));
                 }
 
                 // TODO: Filter out duplicates?
@@ -317,21 +335,23 @@ namespace Microsoft.PythonTools.Analysis.Values {
             }
         }
 
-        private SimpleOverloadResult GetNewOverloadResult(OverloadResult overload) {
+        private OverloadResult GetNewOverloadResult(OverloadResult overload) {
             var doc = overload.Documentation;
-            return new SimpleOverloadResult(
+            return new OverloadResult(
                 overload.Parameters.RemoveFirst(),
                 ClassDefinition.Name,
-                String.IsNullOrEmpty(doc) ? Documentation : doc
+                String.IsNullOrEmpty(doc) ? Documentation : doc,
+                overload.ReturnType
             );
         }
 
-        private SimpleOverloadResult GetInitOverloadResult(OverloadResult overload) {
+        private OverloadResult GetInitOverloadResult(OverloadResult overload) {
             var doc = overload.Documentation;
-            return new SimpleOverloadResult(
+            return new OverloadResult(
                 overload.Parameters.RemoveFirst(),
                 ClassDefinition.Name,
-                String.IsNullOrEmpty(doc) ? Documentation : doc
+                String.IsNullOrEmpty(doc) ? Documentation : doc,
+                overload.ReturnType
             );
         }
 
@@ -397,7 +417,9 @@ namespace Microsoft.PythonTools.Analysis.Values {
             var result = new Dictionary<string, IAnalysisSet>(Scope.VariableCount);
 
             foreach (var v in Scope.AllVariables) {
-                v.Value.ClearOldValues();
+                if (!options.ForEval()) {
+                    v.Value.ClearOldValues();
+                }
                 if (v.Value.VariableStillExists) {
                     result[v.Key] = v.Value.Types;
                 }
@@ -440,7 +462,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
         }
 
         private AnalysisValue GetObjectMember(IModuleContext moduleContext, string name) {
-            return _analysisUnit.ProjectState.GetAnalysisValueFromObjects(_analysisUnit.ProjectState.Types[BuiltinTypeId.Object].GetMember(moduleContext, name));
+            return _analysisUnit.State.GetAnalysisValueFromObjects(_analysisUnit.State.Types[BuiltinTypeId.Object].GetMember(moduleContext, name));
         }
 
         internal override void AddReference(Node node, AnalysisUnit unit) {
@@ -453,7 +475,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
         }
 
         public override IAnalysisSet GetTypeMember(Node node, AnalysisUnit unit, string name) {
-            return GetMemberNoReferences(node, unit, name).GetDescriptor(node, unit.ProjectState._noneInst, this, unit);
+            return GetMemberNoReferences(node, unit, name).GetDescriptor(node, unit.State._noneInst, this, unit);
         }
 
         /// <summary>
@@ -559,36 +581,74 @@ namespace Microsoft.PythonTools.Analysis.Values {
         /// defined with the same name at the same character index in two
         /// different files and with problematic MROs.
         /// </remarks>
-        private static bool IsFirstForMroUnion(ClassDefinition cd1, ClassDefinition cd2) {
-            if (cd1.StartIndex != cd2.StartIndex) {
-                return cd1.StartIndex > cd2.StartIndex;
+        internal static bool IsFirstForMroUnion(AnalysisValue ns1, AnalysisValue ns2) {
+            var ci1 = ns1 as ClassInfo;
+            var ci2 = ns2 as ClassInfo;
+
+            if (ci1 == null && ci2 != null) {
+                return true;
+            } else if (ci1 != null && ci2 == null) {
+                return false;
+            } else if (ci1 != null && ci2 != null) {
+                return ci1.ClassDefinition.StartIndex > ci2.ClassDefinition.StartIndex;
             }
-            return cd1.NameExpression.Name.CompareTo(cd2.NameExpression.Name) > 0;
+
+            return string.CompareOrdinal(ns1.Name, ns2.Name) > 0;
+        }
+
+        internal static AnalysisValue GetFirstCommonBase(PythonAnalyzer state, AnalysisValue ns1, AnalysisValue ns2) {
+            if (ns1.MemberType != PythonMemberType.Class || ns2.MemberType != PythonMemberType.Class) {
+                return null;
+            }
+
+            (ns1.Mro as Mro)?.RecomputeIfNecessary();
+            (ns2.Mro as Mro)?.RecomputeIfNecessary();
+
+            var mro1 = ns1.Mro.SelectMany().ToArray();
+            var mro2 = ns2.Mro.SelectMany().ToArray();
+
+            if (!IsFirstForMroUnion(ns1, ns2)) {
+                var tmp = mro1;
+                mro1 = mro2;
+                mro2 = tmp;
+            }
+
+            var mro2Set = new HashSet<AnalysisValue>(mro2.MaybeEnumerate().SelectMany(), ObjectComparer.Instance);
+            var commonBase = mro1.MaybeEnumerate().SelectMany().Where(v => v is ClassInfo || v is BuiltinClassInfo).FirstOrDefault(mro2Set.Contains);
+            if (commonBase == null || commonBase.TypeId == BuiltinTypeId.Object || commonBase.TypeId == BuiltinTypeId.Type) {
+                return null;
+            }
+            if (commonBase.Push()) {
+                try {
+#if FULL_VALIDATION
+                    Validation.Assert(GetFirstCommonBase(state, ns1, commonBase) != null, $"No common base between {ns1} and {commonBase}");
+                    Validation.Assert(GetFirstCommonBase(state, ns2, commonBase) != null, $"No common base between {ns2} and {commonBase}");
+#endif
+                    if (GetFirstCommonBase(state, ns1, commonBase) == null || GetFirstCommonBase(state, ns2, commonBase) == null) {
+                        return null;
+                    }
+                } finally {
+                    commonBase.Pop();
+                }
+            }
+            return commonBase;
         }
 
         internal override AnalysisValue UnionMergeTypes(AnalysisValue ns, int strength) {
             if (strength >= MergeStrength.ToObject) {
+                AnalysisValue type;
+                if (TypeId == ns.TypeId && (type = _projectState.ClassInfos[TypeId]) != null) {
+                    return type;
+                }
                 return _projectState.ClassInfos[BuiltinTypeId.Type];
 
             } else if (strength >= MergeStrength.ToBaseClass) {
-                var ci = ns as ClassInfo;
-                if (ci != null) {
-                    IEnumerable<AnalysisValue> mro1;
-                    AnalysisValue[] mro2;
-                    if (IsFirstForMroUnion(ClassDefinition, ci.ClassDefinition)) {
-                        mro1 = Mro.SelectMany().Except(_projectState.DoNotUnionInMro.AsEnumerable());
-                        mro2 = ci.Mro.SelectMany().Except(_projectState.DoNotUnionInMro.AsEnumerable()).ToArray();
-                    } else {
-                        mro1 = ci.Mro.SelectMany().Except(_projectState.DoNotUnionInMro.AsEnumerable());
-                        mro2 = Mro.SelectMany().Except(_projectState.DoNotUnionInMro.AsEnumerable()).ToArray();
-                    }
-                    return mro1.FirstOrDefault(cls => mro2.Contains(cls)) ?? _projectState.ClassInfos[BuiltinTypeId.Object];
+                var commonBase = GetFirstCommonBase(_projectState, this, ns);
+                if (commonBase != null) {
+                    return commonBase;
                 }
 
-                var bci = ns as BuiltinClassInfo;
-                if (bci != null) {
-                    return bci;
-                }
+                return _projectState.ClassInfos[BuiltinTypeId.Object];
             }
 
             return base.UnionMergeTypes(ns, strength);
@@ -600,26 +660,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 return ns is ClassInfo || ns is BuiltinClassInfo || ns == type || ns == type.Instance;
 
             } else if (strength >= MergeStrength.ToBaseClass) {
-                var ci = ns as ClassInfo;
-                if (ci != null) {
-                    IEnumerable<AnalysisValue> mro1;
-                    AnalysisValue[] mro2;
-                    if (IsFirstForMroUnion(ClassDefinition, ci.ClassDefinition)) {
-                        mro1 = Mro.SelectMany().Except(_projectState.DoNotUnionInMro.AsEnumerable());
-                        mro2 = ci.Mro.SelectMany().Except(_projectState.DoNotUnionInMro.AsEnumerable()).ToArray();
-                    } else {
-                        mro1 = ci.Mro.SelectMany().Except(_projectState.DoNotUnionInMro.AsEnumerable());
-                        mro2 = Mro.SelectMany().Except(_projectState.DoNotUnionInMro.AsEnumerable()).ToArray();
-                    }
-                    return mro1.Any(cls => mro2.Contains(cls));
-                }
-
-                var bci = ns as BuiltinClassInfo;
-                if (bci != null &&
-                    !_projectState.DoNotUnionInMro.Contains(this) &&
-                    !_projectState.DoNotUnionInMro.Contains(bci)) {
-                    return Mro.Any(m => m.Contains(bci));
-                }
+                return GetFirstCommonBase(_projectState, this, ns) != null;
             }
 
             return base.UnionEquals(ns, strength);
@@ -680,6 +721,8 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 return new LocationInfo[0];
             }
         }
+
+        IClassScope IClassInfo.Scope => Scope;
 
         #endregion
     }
@@ -839,6 +882,9 @@ namespace Microsoft.PythonTools.Analysis.Values {
         }
 
         public IAnalysisSet GetMemberNoReferences(Node node, AnalysisUnit unit, string name, bool addRef = true) {
+            if (addRef) {
+                AddDependency(unit);
+            }
             return GetMemberFromMroNoReferences(this, node, unit, name, addRef);
         }
 
@@ -870,6 +916,17 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 }
             }
             return result;
+        }
+
+        internal void RecomputeIfNecessary() {
+            if (IsValid && _mroList.Any()) {
+                var typeId = _mroList.Last().TypeId;
+                if (typeId == BuiltinTypeId.Object || typeId == BuiltinTypeId.Type) {
+                    return;
+                }
+            }
+
+            Recompute();
         }
     }
 }

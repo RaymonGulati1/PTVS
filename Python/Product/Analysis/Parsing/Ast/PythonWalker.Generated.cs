@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -231,6 +231,10 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         // WithStatement
         public virtual bool Walk(WithStatement node) { return true; }
         public virtual void PostWalk(WithStatement node) { }
+
+        // WithItem
+        public virtual bool Walk(WithItem node) { return true; }
+        public virtual void PostWalk(WithItem node) { }
 
         // Arg
         public virtual bool Walk(Arg node) { return true; }
@@ -498,6 +502,10 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         public override bool Walk(WithStatement node) { return false; }
         public override void PostWalk(WithStatement node) { }
 
+        // WithItem
+        public override bool Walk(WithItem node) { return false; }
+        public override void PostWalk(WithItem node) { }
+
         // Arg
         public override bool Walk(Arg node) { return false; }
         public override void PostWalk(Arg node) { }
@@ -554,8 +562,39 @@ namespace Microsoft.PythonTools.Parsing.Ast {
     public class PythonWalkerWithLocation : PythonWalker {
         public readonly int Location;
 
+        private SourceLocation _loc = SourceLocation.Invalid;
+
         public PythonWalkerWithLocation(int location) {
             Location = location;
+        }
+
+        /// <summary>
+        /// Required when ExtendedStatements is set.
+        /// </summary>
+        public PythonAst Tree { get; set; }
+
+        /// <summary>
+        /// When enabled, statements will be walked if Location is on the same line.
+        /// Note that this may walk multiple statements if they are on the same line. Ensure
+        /// your walker state can handle this!
+        /// </summary>
+        public bool ExtendedStatements { get; set; }
+
+        private bool Contains(Statement stmt) {
+            if (Location < stmt.StartIndex) {
+                return false;
+            }
+            if (Location <= stmt.EndIndex) {
+                return true;
+            }
+            if (!ExtendedStatements || Tree == null) {
+                return false;
+            }
+            if (!_loc.IsValid) {
+                _loc = Tree.IndexToLocation(Location);
+            }
+            var start = Tree.IndexToLocation(stmt.StartIndex);
+            return _loc.Line == start.Line && _loc.Column > start.Column;
         }
 
         // AndExpression
@@ -643,79 +682,82 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         public override bool Walk(StarredExpression node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
 
         // AssertStatement
-        public override bool Walk(AssertStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(AssertStatement node) { return Contains(node); }
 
         // AssignmentStatement
-        public override bool Walk(AssignmentStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(AssignmentStatement node) { return Contains(node); }
 
         // AugmentedAssignStatement
-        public override bool Walk(AugmentedAssignStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(AugmentedAssignStatement node) { return Contains(node); }
 
         // BreakStatement
-        public override bool Walk(BreakStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(BreakStatement node) { return Contains(node); }
 
         // ClassDefinition
-        public override bool Walk(ClassDefinition node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(ClassDefinition node) { return Contains(node); }
 
         // ContinueStatement
-        public override bool Walk(ContinueStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(ContinueStatement node) { return Contains(node); }
 
         // DelStatement
-        public override bool Walk(DelStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(DelStatement node) { return Contains(node); }
 
         // EmptyStatement
-        public override bool Walk(EmptyStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(EmptyStatement node) { return Contains(node); }
 
         // ExecStatement
-        public override bool Walk(ExecStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(ExecStatement node) { return Contains(node); }
 
         // ExpressionStatement
-        public override bool Walk(ExpressionStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(ExpressionStatement node) { return Contains(node); }
 
         // ForStatement
-        public override bool Walk(ForStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(ForStatement node) { return Contains(node); }
 
         // FromImportStatement
-        public override bool Walk(FromImportStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(FromImportStatement node) { return Contains(node); }
 
         // FunctionDefinition
-        public override bool Walk(FunctionDefinition node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(FunctionDefinition node) { return Contains(node); }
 
         // GlobalStatement
-        public override bool Walk(GlobalStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(GlobalStatement node) { return Contains(node); }
 
         // NonlocalStatement
-        public override bool Walk(NonlocalStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(NonlocalStatement node) { return Contains(node); }
 
         // IfStatement
-        public override bool Walk(IfStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(IfStatement node) { return Contains(node); }
 
         // ImportStatement
-        public override bool Walk(ImportStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(ImportStatement node) { return Contains(node); }
 
         // PrintStatement
-        public override bool Walk(PrintStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(PrintStatement node) { return Contains(node); }
 
         // PythonAst
-        public override bool Walk(PythonAst node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(PythonAst node) { return Contains(node); }
 
         // RaiseStatement
-        public override bool Walk(RaiseStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(RaiseStatement node) { return Contains(node); }
 
         // ReturnStatement
-        public override bool Walk(ReturnStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(ReturnStatement node) { return Contains(node); }
 
         // SuiteStatement
-        public override bool Walk(SuiteStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(SuiteStatement node) { return Contains(node); }
 
         // TryStatement
-        public override bool Walk(TryStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(TryStatement node) { return Contains(node); }
 
         // WhileStatement
-        public override bool Walk(WhileStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(WhileStatement node) { return Contains(node); }
 
         // WithStatement
-        public override bool Walk(WithStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(WithStatement node) { return Contains(node); }
+
+        // WithItem
+        public override bool Walk(WithItem node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
 
         // Arg
         public override bool Walk(Arg node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
@@ -748,10 +790,10 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         public override bool Walk(TryStatementHandler node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
 
         // ErrorStatement
-        public override bool Walk(ErrorStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(ErrorStatement node) { return Contains(node); }
 
         // DecoratorStatement
-        public override bool Walk(DecoratorStatement node) { return Location >= node.StartIndex && Location <= node.EndIndex; }
+        public override bool Walk(DecoratorStatement node) { return Contains(node); }
     }
 
 }

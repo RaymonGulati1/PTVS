@@ -9,15 +9,18 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.PythonTools.Analysis;
+using Microsoft.PythonTools.Editor;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Intellisense;
 using Microsoft.PythonTools.Parsing;
@@ -48,31 +51,41 @@ namespace Microsoft.PythonTools.Refactoring {
 
             var caret = _view.GetPythonCaret();
             var entry = _view.GetAnalysisAtCaret(_serviceProvider);
-            if (caret == null || entry == null) {
+            var buffer = entry?.TryGetBufferParser()?.DefaultBufferInfo ?? PythonTextBufferInfo.TryGetForBuffer(_view.TextBuffer);
+            if (caret == null || entry == null || buffer == null) {
                 input.CannotRename(Strings.RenameVariable_UnableGetAnalysisCurrentTextView);
                 return;
             }
-            var analysis = await entry.Analyzer.AnalyzeExpressionAsync(entry, _view, caret.Value);
-            if (analysis == null) {
-                input.CannotRename(Strings.RenameVariable_UnableGetAnalysisCurrentTextView);
+            var analysis = await entry.Analyzer.AnalyzeExpressionAsync(entry, caret.Value, ExpressionAtPointPurpose.Rename);
+            if (analysis == null || string.IsNullOrEmpty(analysis.Expression) || !(analysis.Variables?.Any() ?? false)) {
+                input.CannotRename(Strings.RenameVariable_UnableGetExpressionAnalysis);
                 return;
             }
-            
-            string originalName = null;
-            string privatePrefix = null;
-            if (!String.IsNullOrWhiteSpace(analysis.Expression)) {
-                originalName = analysis.MemberName;
 
-                if (analysis.PrivatePrefix != null && originalName != null && originalName.StartsWith("_" + analysis.PrivatePrefix)) {
-                    originalName = originalName.Substring(analysis.PrivatePrefix.Length + 1);
-                    privatePrefix = analysis.PrivatePrefix;
-                }
-
-                if (originalName != null && _view.Selection.IsActive && !_view.Selection.IsEmpty) {
-                    if (_view.Selection.Start.Position < analysis.Span.GetStartPoint(_view.TextBuffer.CurrentSnapshot) ||
-                        _view.Selection.End.Position > analysis.Span.GetEndPoint(_view.TextBuffer.CurrentSnapshot)) {
-                        originalName = null;
+            string privatePrefix = analysis.PrivatePrefix;
+            var originalName = analysis.Variables
+                .Where(r => r.Type == VariableType.Definition)
+                .Where(r => r.Location.DocumentUri == buffer.DocumentUri && buffer.LocationTracker.CanTranslateFrom(r.Version ?? -1))
+                .Select(r => {
+                    var snapshot = buffer.CurrentSnapshot;
+                    try {
+                        return buffer.LocationTracker.Translate(r.Location.Span, r.Version ?? -1, snapshot).GetText();
+                    } catch (ArgumentException) {
+                        return null;
                     }
+                })
+                .Where(n => !string.IsNullOrEmpty(n))
+                .FirstOrDefault() ?? analysis.Expression;
+
+            if (analysis.PrivatePrefix != null && originalName != null && originalName.StartsWithOrdinal(analysis.PrivatePrefix)) {
+                originalName = originalName.Substring(analysis.PrivatePrefix.Length + 1);
+                privatePrefix = analysis.PrivatePrefix;
+            }
+
+            if (originalName != null && _view.Selection.IsActive && !_view.Selection.IsEmpty) {
+                if (_view.Selection.Start.Position < analysis.Span.GetStartPoint(_view.TextBuffer.CurrentSnapshot) ||
+                    _view.Selection.End.Position > analysis.Span.GetEndPoint(_view.TextBuffer.CurrentSnapshot)) {
+                    originalName = null;
                 }
             }
 
@@ -81,27 +94,9 @@ namespace Microsoft.PythonTools.Refactoring {
                 return;
             }
 
-            bool hasVariables = false;
-            foreach (var variable in analysis.Variables) {
-                if (variable.Type == VariableType.Definition || variable.Type == VariableType.Reference) {
-                    hasVariables = true;
-                    break;
-                }
-            }
-
-            IEnumerable<AnalysisVariable> variables;
-            if (!hasVariables) {
-                List<AnalysisVariable> paramVars = await GetKeywordParameters(analysis.Expression, originalName);
-
-                if (paramVars.Count == 0) {
-                    input.CannotRename(Strings.RenameVariable_NoInformationAvailableForVariable.FormatUI(originalName));
-                    return;
-                }
-
-                variables = paramVars;
-            } else {
-                variables = analysis.Variables;
-
+            if (!analysis.Variables.Any(v => v.Type == VariableType.Definition || v.Type == VariableType.Reference)) {
+                input.CannotRename(Strings.RenameVariable_NoInformationAvailableForVariable.FormatUI(originalName));
+                return;
             }
 
             PythonLanguageVersion languageVersion = PythonLanguageVersion.None;
@@ -113,36 +108,13 @@ namespace Microsoft.PythonTools.Refactoring {
 
             var info = input.GetRenameInfo(originalName, languageVersion);
             if (info != null) {
-                var engine = new PreviewChangesEngine(_serviceProvider, input, analysis.Expression, info, originalName, privatePrefix, _view.GetAnalyzerAtCaret(_serviceProvider), variables);
+                var engine = new PreviewChangesEngine(_serviceProvider, input, analysis.Expression, info, originalName, privatePrefix, _view.GetAnalyzerAtCaret(_serviceProvider), analysis.Variables);
                 if (info.Preview) {
                     previewChanges.PreviewChanges(engine);
                 } else {
                     ErrorHandler.ThrowOnFailure(engine.ApplyChanges());
                 }
             }
-        }
-
-        private async Task<List<AnalysisVariable>> GetKeywordParameters(string expr, string originalName) {
-            List<AnalysisVariable> paramVars = new List<AnalysisVariable>();
-            if (expr.IndexOf('.')  == -1) {
-                // let's check if we'r re-naming a keyword argument...
-                ITrackingSpan span = _view.GetCaretSpan();
-                var sigs = await _uiThread.InvokeTask(() => _serviceProvider.GetPythonToolsService().GetSignaturesAsync(_view, _view.TextBuffer.CurrentSnapshot, span))
-                    .ConfigureAwait(false);
-
-                foreach (var sig in sigs.Signatures) {
-                    PythonSignature overloadRes = sig as PythonSignature;
-                    if (overloadRes != null) {
-                        foreach (PythonParameter param in overloadRes.Parameters) {
-                            if (param.Name == originalName && param.Variables != null) {
-                                paramVars.AddRange(param.Variables);
-                            }
-                        }
-                    }
-                }
-            }
-
-            return paramVars;
         }
 
         private bool IsModuleName(IRenameVariableInput input) {

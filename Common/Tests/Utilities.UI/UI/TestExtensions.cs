@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -23,16 +23,15 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudioTools.MockVsTests;
 using Microsoft.VisualStudioTools.Project;
-using Microsoft.VisualStudioTools.VSTestHost;
 using TestUtilities.SharedProject;
 
 namespace TestUtilities.UI {
     public static class TestExtensions {
-        public static IVisualStudioInstance ToVs(this SolutionFile self) {
-            if (VSTestContext.IsMock) {
+        public static IVisualStudioInstance ToVs(this SolutionFile self, VisualStudioApp app) {
+            if (app == null) {
                 return self.ToMockVs();
             }
-            return new VisualStudioInstance(self);
+            return new VisualStudioInstance(self, app);
         }
 
         public static string[] GetDisplayTexts(this ICompletionSession completionSession) {
@@ -54,7 +53,9 @@ namespace TestUtilities.UI {
         public static bool GetNodeState(this EnvDTE.Project project, string item, __VSHIERARCHYITEMSTATE state) {
             IVsHierarchy hier = null;
             uint id = 0;
-            ThreadHelper.Generic.Invoke((Action)(() => {
+            ThreadHelper.JoinableTaskFactory.RunAsync(async () => {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
                 hier = ((dynamic)project).Project as IVsHierarchy;
                 object projectDir;
                 ErrorHandler.ThrowOnFailure(
@@ -71,11 +72,11 @@ namespace TestUtilities.UI {
                         hier.ParseCanonicalName(itemPath + "\\", out id)
                     );
                 }
-            }));
+            });
 
             // make sure we're still expanded.
             var solutionWindow = UIHierarchyUtilities.GetUIHierarchyWindow(
-                VSTestContext.ServiceProvider,
+                ServiceProvider.GlobalProvider,
                 new Guid(ToolWindowGuids80.SolutionExplorer)
             );
 

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -94,7 +94,20 @@ namespace Microsoft.PythonTools.Parsing {
                 case PythonOperator.IsNot: return "is not";
                 case PythonOperator.Is: return "is";
             }
-            return "";
+            return string.Empty;
+        }
+
+        internal static bool IsComparison(this PythonOperator self) {
+            return self == PythonOperator.LessThan ||
+                    self == PythonOperator.LessThanOrEqual ||
+                    self == PythonOperator.GreaterThan ||
+                    self == PythonOperator.GreaterThanOrEqual ||
+                    self == PythonOperator.Equal ||
+                    self == PythonOperator.NotEqual ||
+                    self == PythonOperator.In ||
+                    self == PythonOperator.NotIn ||
+                    self == PythonOperator.IsNot ||
+                    self == PythonOperator.Is;
         }
     }
 }

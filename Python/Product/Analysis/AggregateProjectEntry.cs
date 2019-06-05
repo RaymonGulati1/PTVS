@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -27,10 +27,10 @@ namespace Microsoft.PythonTools.Analysis {
     /// entries to exist in the system and be cleared out when any one of the project
     /// entries which contributed the dependency get updated.
     /// </summary>
-    public sealed class AggregateProjectEntry : IVersioned {
+    sealed class AggregateProjectEntry : IVersioned {
         private int _version;
         /// <summary>
-        /// The proejct entries which we are an aggregate of
+        /// The project entries which we are an aggregate of
         /// </summary>
         internal readonly HashSet<IProjectEntry> _aggregating;
         /// <summary>
@@ -55,7 +55,7 @@ namespace Microsoft.PythonTools.Analysis {
 
         public void RemovedFromProject() {
             _aggregating.Clear();
-            _next.Clear();
+            _next?.Clear();
             _version = -1;
         }
 

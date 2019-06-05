@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,6 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 
 namespace Microsoft.PythonTools.Analysis {
     /// <summary>
@@ -30,10 +31,10 @@ namespace Microsoft.PythonTools.Analysis {
     /// provides factory and extension methods.
     /// </summary>
     public interface IAnalysisSet : IEnumerable<AnalysisValue> {
-        IAnalysisSet Add(AnalysisValue item, bool canMutate = true);
-        IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = true);
-        IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = true);
-        IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = true);
+        IAnalysisSet Add(AnalysisValue item, bool canMutate = false);
+        IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = false);
+        IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = false);
+        IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = false);
         IAnalysisSet Clone();
 
         bool Contains(AnalysisValue item);
@@ -93,6 +94,18 @@ namespace Microsoft.PythonTools.Analysis {
         /// <param name="ns">The namespaces to contain in the set.</param>
         public static IAnalysisSet Create(IEnumerable<AnalysisValue> ns) {
             // TODO: Replace Trim() call with more efficient enumeration.
+            if (ns is IReadOnlyList<AnalysisValue> lst) {
+                if (lst.Count == 0) {
+                    return AnalysisSet.Empty;
+                } else if (lst.Count == 1) {
+                    return lst[0];
+                } else if (lst.Count == 2) {
+                    if (ObjectComparer.Instance.Equals(lst[0], lst[1])) {
+                        return lst[0];
+                    }
+                    return new AnalysisSetDetails.AnalysisSetTwoObject(lst[0], lst[1]);
+                }
+            }
             return new AnalysisSetDetails.AnalysisHashSet(ns, ObjectComparer.Instance).Trim();
         }
 
@@ -127,11 +140,10 @@ namespace Microsoft.PythonTools.Analysis {
             } else if (comparer is ObjectComparer) {
                 return Create(set);
             } else if (comparer is UnionComparer) {
-                bool dummy;
-                return set.AsUnion((UnionComparer)comparer, out dummy);
+                return set.AsUnion((UnionComparer)comparer, out _);
             }
 
-            throw new InvalidOperationException(string.Format("cannot use {0} as a comparer", comparer));
+            throw new InvalidOperationException("cannot use {0} as a comparer".FormatInvariant(comparer));
         }
 
         /// <summary>
@@ -181,9 +193,8 @@ namespace Microsoft.PythonTools.Analysis {
         /// <param name="ns">The namespaces to contain in the set.</param>
         /// <param name="comparer">The comparer to use for the set.</param>
         internal static IAnalysisSet CreateUnion(IEnumerable<AnalysisValue> ns, UnionComparer comparer) {
-            bool dummy;
             // TODO: Replace Trim() call with more intelligent enumeration.
-            return new AnalysisSetDetails.AnalysisHashSet(ns.UnionIter(comparer, out dummy), comparer).Trim();
+            return new AnalysisSetDetails.AnalysisHashSet(ns.UnionIter(comparer, out _), comparer).Trim();
         }
 
         /// <summary>
@@ -193,7 +204,7 @@ namespace Microsoft.PythonTools.Analysis {
         /// <param name="sets">The sets to contain in the set.</param>
         /// <param name="canMutate">True if sets in <paramref name="sets"/> may
         /// be modified.</param>
-        public static IAnalysisSet UnionAll(IEnumerable<IAnalysisSet> sets, bool canMutate = true) {
+        public static IAnalysisSet UnionAll(IEnumerable<IAnalysisSet> sets, bool canMutate = false) {
             return Empty.UnionAll(sets, canMutate);
         }
 
@@ -206,7 +217,7 @@ namespace Microsoft.PythonTools.Analysis {
         /// set.</param>
         /// <param name="canMutate">True if sets in <paramref name="sets"/> may
         /// be modified.</param>
-        public static IAnalysisSet UnionAll(IEnumerable<IAnalysisSet> sets, out bool wasChanged, bool canMutate = true) {
+        public static IAnalysisSet UnionAll(IEnumerable<IAnalysisSet> sets, out bool wasChanged, bool canMutate = false) {
             return Empty.UnionAll(sets, out wasChanged, canMutate);
         }
 
@@ -237,8 +248,7 @@ namespace Microsoft.PythonTools.Analysis {
         /// <param name="set">The set to convert to a union.</param>
         /// <param name="strength">The strength of the union.</param>
         public static IAnalysisSet AsUnion(this IAnalysisSet set, int strength) {
-            bool dummy;
-            return set.AsUnion(strength, out dummy);
+            return set.AsUnion(strength, out _);
         }
 
         /// <summary>
@@ -292,8 +302,7 @@ namespace Microsoft.PythonTools.Analysis {
             var ns2 = set as AnalysisSetDetails.AnalysisSetTwoObject;
             if (ns2 != null) {
                 if (comparer.Equals(ns2.Value1, ns2.Value2)) {
-                    bool dummy;
-                    return new AnalysisSetDetails.AnalysisSetOneUnion(comparer.MergeTypes(ns2.Value1, ns2.Value2, out dummy), comparer);
+                    return new AnalysisSetDetails.AnalysisSetOneUnion(comparer.MergeTypes(ns2.Value1, ns2.Value2, out _), comparer);
                 } else {
                     return new AnalysisSetDetails.AnalysisSetTwoUnion(ns2.Value1, ns2.Value2, comparer);
                 }
@@ -318,8 +327,8 @@ namespace Microsoft.PythonTools.Analysis {
                     foreach (var y in newItems) {
                         if (object.ReferenceEquals(x, y)) continue;
 
-                        Validation.Assert(!comparer.Equals(x, y));
-                        Validation.Assert(!comparer.Equals(y, x));
+                        Validation.Assert(!comparer.Equals(x, y), $"Failed {comparer}.Equals({x}, {y})");
+                        Validation.Assert(!comparer.Equals(y, x), $"Failed {comparer}.Equals({y}, {x})");
                     }
                 }
             }
@@ -365,7 +374,7 @@ namespace Microsoft.PythonTools.Analysis {
                         foreach (var other in keyValue.Value) {
                             bool merged;
 #if FULL_VALIDATION
-                            Validation.Assert(comparer.Equals(item, other));
+                            Validation.Assert(comparer.Equals(item, other), $"Merging non-equal items {item} and {other}");
 #endif
                             item = comparer.MergeTypes(item, other, out merged);
                             if (merged) {
@@ -382,6 +391,26 @@ namespace Microsoft.PythonTools.Analysis {
             return items;
         }
 
+#if FULL_VALIDATION || DEBUG
+        public static int GetTrueCount(this IAnalysisSet set) {
+            if (set is AnalysisSetDetails.AnalysisSetOneObject as1o) {
+                return as1o.Value == null ? 0 : 1;
+            } else if (set is AnalysisSetDetails.AnalysisSetOneUnion as1u) {
+                return as1u.Value == null ? 0 : 1;
+            } else if (set is AnalysisSetDetails.AnalysisSetTwoObject as2o) {
+                return (as2o.Value1 == null ? 0 : 1) + (as2o.Value2 == null ? 0 : 1);
+            } else if (set is AnalysisSetDetails.AnalysisSetTwoUnion as2u) {
+                return (as2u.Value1 == null ? 0 : 1) + (as2u.Value2 == null ? 0 : 1);
+            } else if (set is AnalysisSetDetails.AnalysisSetEmptyObject || set is AnalysisSetDetails.AnalysisSetEmptyUnion) {
+                return 0;
+            } else if (set is AnalysisSetDetails.AnalysisHashSet hashSet) {
+                return hashSet.GetTrueCount();
+            } else {
+                return set?.Count() ?? 0;
+            }
+        }
+#endif
+
         /// <summary>
         /// Removes excess capacity from <paramref name="set"/>.
         /// </summary>
@@ -390,38 +419,31 @@ namespace Microsoft.PythonTools.Analysis {
                 return set;
             }
 
-            if (!(set.Comparer is UnionComparer)) {
-                switch (set.Count) {
-                    case 0:
-                        return Empty;
-                    case 1:
-                        return set.First();
-                    case 2:
-                        return new AnalysisSetDetails.AnalysisSetTwoObject(set);
-                    default:
-                        return set;
-                }
-            }
-
-            switch (set.Count) {
-                case 0:
-                    return AnalysisSetDetails.AnalysisSetEmptyUnion.Instances[((UnionComparer)set.Comparer).Strength];
-                case 1:
-                    return new AnalysisSetDetails.AnalysisSetOneUnion(set.First(), (UnionComparer)set.Comparer);
-                case 2: {
-                        var tup = AnalysisSetDetails.AnalysisSetTwoUnion.FromEnumerable(set, (UnionComparer)set.Comparer);
-                        if (tup == null) {
+            var uc = set.Comparer as UnionComparer;
+            AnalysisValue first = null, second = null;
+            using (var e = set.GetEnumerator()) {
+                if (e.MoveNext()) {
+                    first = e.Current;
+                    if (e.MoveNext()) {
+                        second = e.Current;
+                        if (e.MoveNext()) {
+                            // More than two items, so return unchanged
                             return set;
-                        } else if (tup.Item1 == null && tup.Item2 == null) {
-                            return AnalysisSetDetails.AnalysisSetEmptyUnion.Instances[((UnionComparer)set.Comparer).Strength];
-                        } else if (tup.Item2 == null) {
-                            return new AnalysisSetDetails.AnalysisSetOneUnion(tup.Item1, (UnionComparer)set.Comparer);
+                        } else if (uc != null) {
+                            return new AnalysisSetDetails.AnalysisSetTwoUnion(first, second, uc);
                         } else {
-                            return new AnalysisSetDetails.AnalysisSetTwoUnion(tup.Item1, tup.Item2, (UnionComparer)set.Comparer);
+                            return new AnalysisSetDetails.AnalysisSetTwoObject(first, second);
                         }
+                    } else if (uc != null) {
+                        return new AnalysisSetDetails.AnalysisSetOneUnion(first, uc);
+                    } else {
+                        return first;
                     }
-                default:
-                    return set;
+                } else if (uc != null) {
+                    return AnalysisSetDetails.AnalysisSetEmptyUnion.Instances[uc.Strength];
+                } else {
+                    return AnalysisSetDetails.AnalysisSetEmptyObject.Instance;
+                }
             }
         }
 
@@ -430,9 +452,8 @@ namespace Microsoft.PythonTools.Analysis {
         /// </summary>
         /// <param name="sets">The sets to merge into this set.</param>
         /// <param name="canMutate">True if this set may be modified.</param>
-        public static IAnalysisSet UnionAll(this IAnalysisSet set, IEnumerable<IAnalysisSet> sets, bool canMutate = true) {
-            bool dummy;
-            return set.UnionAll(sets, out dummy, canMutate);
+        public static IAnalysisSet UnionAll(this IAnalysisSet set, IEnumerable<IAnalysisSet> sets, bool canMutate = false) {
+            return set.UnionAll(sets, out _, canMutate);
         }
 
         /// <summary>
@@ -442,7 +463,7 @@ namespace Microsoft.PythonTools.Analysis {
         /// <param name="wasChanged">Returns True if the contents of the
         /// returned set are different to the original set.</param>
         /// <param name="canMutate">True if this set may be modified.</param>
-        public static IAnalysisSet UnionAll(this IAnalysisSet set, IEnumerable<IAnalysisSet> sets, out bool wasChanged, bool canMutate = true) {
+        public static IAnalysisSet UnionAll(this IAnalysisSet set, IEnumerable<IAnalysisSet> sets, out bool wasChanged, bool canMutate = false) {
             bool changed;
             wasChanged = false;
             foreach (var s in sets) {
@@ -455,6 +476,81 @@ namespace Microsoft.PythonTools.Analysis {
             return set;
         }
 
+        /// <summary>
+        /// Splits values in the set according to the predicate. Returns true
+        /// if there are any values in <paramref name="trueSet"/> on return.
+        /// </summary>
+        public static bool Split(this IAnalysisSet set, Func<AnalysisValue, bool> predicate, out IAnalysisSet trueSet, out IAnalysisSet falseSet) {
+            if (predicate == null) {
+                throw new ArgumentNullException(nameof(predicate));
+            }
+
+            IAnalysisSet empty;
+            if (set.Comparer is UnionComparer uc) {
+                empty = CreateUnion(uc);
+            } else {
+                empty = Create();
+            }
+
+            if (set.Count == 0) {
+                trueSet = falseSet = empty;
+                return false;
+            } else if (set is AnalysisValue av) {
+                if (predicate(av)) {
+                    trueSet = av;
+                    falseSet = empty;
+                    return true;
+                }
+                trueSet = empty;
+                falseSet = av;
+                return false;
+            }
+
+            trueSet = empty.Union(set.Where(predicate), out bool res);
+            falseSet = empty.Union(set.Where(v => !predicate(v)));
+            return res;
+        }
+
+        /// <summary>
+        /// Splits values in the set according to type. Returns true if there are
+        /// any values of type T in <paramref name="ofType"/>.
+        /// </summary>
+        public static bool Split<T>(this IAnalysisSet set, out IReadOnlyList<T> ofType, out IAnalysisSet rest) {
+            IAnalysisSet empty;
+            if (set.Comparer is UnionComparer uc) {
+                empty = CreateUnion(uc);
+            } else {
+                empty = Create();
+            }
+
+            if (set is T t) {
+                ofType = new[] { t };
+                rest = empty;
+                return true;
+            } else if (set is AnalysisValue) {
+                ofType = Array.Empty<T>();
+                rest = set;
+                return false;
+            }
+
+            ofType = set.OfType<T>().ToArray();
+            if (!ofType.Any()) {
+                rest = set;
+                return false;
+            }
+
+            rest = Create(set.Where(av => !(av is T)), set.Comparer);
+            return true;
+        }
+
+        /// <summary>
+        /// Determines whether there is any overlap between two sets.
+        /// </summary>
+        public static bool ContainsAny(this IAnalysisSet set, IAnalysisSet values) {
+            // TODO: This can be optimised for specific set types
+            return set.Intersect(values, set.Comparer).Any();
+        }
+
         #endregion
     }
 
@@ -464,9 +560,9 @@ namespace Microsoft.PythonTools.Analysis {
         public bool Equals(AnalysisValue x, AnalysisValue y) {
 #if FULL_VALIDATION
             if (x != null && y != null) {
-                Validation.Assert(x.Equals(y) == y.Equals(x));
+                Validation.Assert(x.Equals(y) == y.Equals(x), $"Non-commutative equality: {x} == {y}");
                 if (x.Equals(y)) {
-                    Validation.Assert(x.GetHashCode() == y.GetHashCode());
+                    Validation.Assert(x.GetHashCode() == y.GetHashCode(), $"Mismatched hash code for {x} ({x.GetHashCode()}) == {y} ({y.GetHashCode()})");
                 }
             }
 #endif
@@ -482,10 +578,11 @@ namespace Microsoft.PythonTools.Analysis {
                 return set1.SetEquals(set2);
             } else if (set2.Comparer == this) {
                 return set2.SetEquals(set1);
-            } else {
+            } else if (set1.Count == set2.Count) {
                 return set1.All(ns => set2.Contains(ns, this)) &&
                        set2.All(ns => set1.Contains(ns, this));
             }
+            return false;
         }
 
         public int GetHashCode(IAnalysisSet obj) {
@@ -507,9 +604,9 @@ namespace Microsoft.PythonTools.Analysis {
         public bool Equals(AnalysisValue x, AnalysisValue y) {
 #if FULL_VALIDATION
             if (x != null && y != null) {
-                Validation.Assert(x.UnionEquals(y, Strength) == y.UnionEquals(x, Strength), string.Format("{0}\n{1}\n{2}", Strength, x, y));
+                Validation.Assert(x.UnionEquals(y, Strength) == y.UnionEquals(x, Strength), $"{Strength}\n{x}\n{y}");
                 if (x.UnionEquals(y, Strength)) {
-                    Validation.Assert(x.UnionHashCode(Strength) == y.UnionHashCode(Strength), string.Format("Strength:{0}\n{1} - {2}\n{3} - {4}", Strength, x, x.UnionHashCode(Strength), y, y.UnionHashCode(Strength)));
+                    Validation.Assert(x.UnionHashCode(Strength) == y.UnionHashCode(Strength), $"Strength:{Strength}\n{x} - {x.UnionHashCode(Strength)}\n{y} - {y.UnionHashCode(Strength)}");
                 }
             }
 #endif
@@ -533,9 +630,11 @@ namespace Microsoft.PythonTools.Analysis {
 #if FULL_VALIDATION
             var z2 = y.UnionMergeTypes(x, Strength);
             if (!object.ReferenceEquals(z, z2)) {
-                Validation.Assert(z.UnionEquals(z2, Strength), string.Format("{0}\n{1} + {2} => {3}\n{2} + {1} => {4}", Strength, x, y, z, z2));
-                Validation.Assert(z2.UnionEquals(z, Strength), string.Format("{0}\n{1} + {2} => {3}\n{2} + {1} => {4}", Strength, y, x, z2, z));
+                Validation.Assert(z.UnionEquals(z2, Strength), $"{Strength}\n{x} + {y} => {z}\n{y} + {x} => {z2}");
+                Validation.Assert(z2.UnionEquals(z, Strength), $"{Strength}\n{y} + {x} => {z2}\n{x} + {y} => {z}");
             }
+            Validation.Assert(x.UnionEquals(z, Strength), $"{Strength}\n{x} != {z}");
+            Validation.Assert(y.UnionEquals(z, Strength), $"{Strength}\n{y} != {z}");
 #endif
             return z;
         }
@@ -586,7 +685,7 @@ namespace Microsoft.PythonTools.Analysis {
                 } else if (data.Length < 5) {
                     return "{" + string.Join(", ", data.AsEnumerable()) + "}";
                 } else {
-                    return string.Format("{{Size = {0}}}", data.Length);
+                    return $"{{Size = {data.Length}}}";
                 }
             }
 
@@ -604,16 +703,16 @@ namespace Microsoft.PythonTools.Analysis {
         sealed class AnalysisSetEmptyObject : IAnalysisSet, IImmutableAnalysisSet {
             public static readonly IAnalysisSet Instance = new AnalysisSetEmptyObject();
 
-            public IAnalysisSet Add(AnalysisValue item, bool canMutate = true) {
+            public IAnalysisSet Add(AnalysisValue item, bool canMutate = false) {
                 return item;
             }
 
-            public IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = true) {
+            public IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = false) {
                 wasChanged = true;
                 return item;
             }
 
-            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = true) {
+            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = false) {
                 if (items == null || items is AnalysisSetEmptyObject || items is AnalysisSetEmptyUnion) {
                     return this;
                 }
@@ -623,7 +722,7 @@ namespace Microsoft.PythonTools.Analysis {
                 return items.Any() ? AnalysisSet.Create(items) : this;
             }
 
-            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = true) {
+            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = false) {
                 if (items == null || items is AnalysisSetEmptyObject || items is AnalysisSetEmptyUnion) {
                     wasChanged = false;
                     return this;
@@ -667,6 +766,9 @@ namespace Microsoft.PythonTools.Analysis {
             public override string ToString() {
                 return DebugViewProxy.ToString(this);
             }
+
+            public override bool Equals(object obj) => (obj is IAnalysisSet s) && SetEquals(s);
+            public override int GetHashCode() => ((IEqualityComparer<IAnalysisSet>)Comparer).GetHashCode(this);
         }
 
         [DebuggerDisplay(DebugViewProxy.DisplayString), DebuggerTypeProxy(typeof(DebugViewProxy))]
@@ -677,7 +779,7 @@ namespace Microsoft.PythonTools.Analysis {
                 Value = value;
             }
 
-            public IAnalysisSet Add(AnalysisValue item, bool canMutate = true) {
+            public IAnalysisSet Add(AnalysisValue item, bool canMutate = false) {
                 if (ObjectComparer.Instance.Equals(Value, item)) {
                     return this;
                 } else {
@@ -685,7 +787,7 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
-            public IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = true) {
+            public IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = false) {
                 if (ObjectComparer.Instance.Equals(Value, item)) {
                     wasChanged = false;
                     return this;
@@ -695,12 +797,12 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
-            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = true) {
+            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = false) {
                 bool wasChanged;
                 return Union(items, out wasChanged, canMutate);
             }
 
-            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = true) {
+            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = false) {
                 AnalysisSetOneObject ns1;
                 AnalysisSetTwoObject ns2;
                 if (items == null) {
@@ -714,9 +816,9 @@ namespace Microsoft.PythonTools.Analysis {
                         return ns2;
                     }
                     wasChanged = true;
-                    return new AnalysisHashSet(3, ObjectComparer.Instance).Add(ns2.Value1).Add(ns2.Value2).Add(Value);
+                    return new AnalysisHashSet(3, ObjectComparer.Instance).Add(ns2.Value1, canMutate: true).Add(ns2.Value2, canMutate: true).Add(Value, canMutate: true);
                 } else {
-                    return new AnalysisHashSet(items, ObjectComparer.Instance).Add(Value, out wasChanged);
+                    return new AnalysisHashSet(items, ObjectComparer.Instance).Add(Value, out wasChanged, canMutate: true);
                 }
             }
 
@@ -764,6 +866,9 @@ namespace Microsoft.PythonTools.Analysis {
             public override string ToString() {
                 return DebugViewProxy.ToString(this);
             }
+
+            public override bool Equals(object obj) => (obj is IAnalysisSet s) && SetEquals(s);
+            public override int GetHashCode() => ((IEqualityComparer<IAnalysisSet>)Comparer).GetHashCode(this);
         }
 
         [DebuggerDisplay(DebugViewProxy.DisplayString), DebuggerTypeProxy(typeof(DebugViewProxy))]
@@ -791,12 +896,12 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
-            public IAnalysisSet Add(AnalysisValue item, bool canMutate = true) {
+            public IAnalysisSet Add(AnalysisValue item, bool canMutate = false) {
                 bool wasChanged;
                 return Add(item, out wasChanged, canMutate);
             }
 
-            public IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = true) {
+            public IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = false) {
                 if (ObjectComparer.Instance.Equals(Value1, item) || ObjectComparer.Instance.Equals(Value2, item)) {
                     wasChanged = false;
                     return this;
@@ -805,7 +910,7 @@ namespace Microsoft.PythonTools.Analysis {
                 return new AnalysisHashSet(3, ObjectComparer.Instance).Add(Value1).Add(Value2).Add(item);
             }
 
-            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = true) {
+            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = false) {
                 AnalysisValue ns;
                 AnalysisSetOneObject ns1;
                 if (items == null) {
@@ -819,7 +924,7 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
-            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = true) {
+            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = false) {
                 AnalysisValue ns;
                 AnalysisSetOneObject ns1;
                 if (items == null) {
@@ -884,6 +989,9 @@ namespace Microsoft.PythonTools.Analysis {
             public override string ToString() {
                 return DebugViewProxy.ToString(this);
             }
+
+            public override bool Equals(object obj) => (obj is IAnalysisSet s) && SetEquals(s);
+            public override int GetHashCode() => ((IEqualityComparer<IAnalysisSet>)Comparer).GetHashCode(this);
         }
 
 
@@ -899,16 +1007,16 @@ namespace Microsoft.PythonTools.Analysis {
                 _comparer = comparer;
             }
 
-            public IAnalysisSet Add(AnalysisValue item, bool canMutate = true) {
+            public IAnalysisSet Add(AnalysisValue item, bool canMutate = false) {
                 return new AnalysisSetOneUnion(item, Comparer);
             }
 
-            public IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = true) {
+            public IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = false) {
                 wasChanged = true;
                 return new AnalysisSetOneUnion(item, Comparer);
             }
 
-            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = true) {
+            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = false) {
                 if (items == null) {
                     return this;
                 } else if (items is AnalysisSetOneUnion || items is AnalysisSetTwoUnion || items is AnalysisSetEmptyUnion) {
@@ -917,7 +1025,7 @@ namespace Microsoft.PythonTools.Analysis {
                 return items.Any() ? AnalysisSet.CreateUnion(items, Comparer) : this;
             }
 
-            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = true) {
+            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = false) {
                 if (items == null || items is AnalysisSetEmptyObject || items is AnalysisSetEmptyUnion) {
                     wasChanged = false;
                     return this;
@@ -965,6 +1073,9 @@ namespace Microsoft.PythonTools.Analysis {
             public override string ToString() {
                 return DebugViewProxy.ToString(this);
             }
+
+            public override bool Equals(object obj) => (obj is IAnalysisSet s) && SetEquals(s);
+            public override int GetHashCode() => Comparer.GetHashCode(this);
         }
 
         [DebuggerDisplay(DebugViewProxy.DisplayString), DebuggerTypeProxy(typeof(DebugViewProxy))]
@@ -977,7 +1088,7 @@ namespace Microsoft.PythonTools.Analysis {
                 _comparer = comparer;
             }
 
-            public IAnalysisSet Add(AnalysisValue item, bool canMutate = true) {
+            public IAnalysisSet Add(AnalysisValue item, bool canMutate = false) {
                 if (Object.ReferenceEquals(Value, item)) {
                     return this;
                 } else if (Comparer.Equals(Value, item)) {
@@ -989,7 +1100,7 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
-            public IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = true) {
+            public IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = false) {
                 if (Object.ReferenceEquals(Value, item)) {
                     wasChanged = false;
                     return this;
@@ -1002,7 +1113,7 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
-            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = true) {
+            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = false) {
                 AnalysisValue ns;
                 AnalysisSetOneUnion ns1;
                 AnalysisSetOneObject nsO1;
@@ -1022,7 +1133,7 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
-            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = true) {
+            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = false) {
                 AnalysisValue ns;
                 AnalysisSetOneUnion ns1;
                 AnalysisSetOneObject nsO1;
@@ -1055,7 +1166,7 @@ namespace Microsoft.PythonTools.Analysis {
                 var ns1 = other as AnalysisSetOneUnion;
                 if (ns1 != null) {
                     return Comparer.Equals(Value, ns1.Value);
-                } else if (other == null) {
+                } else if (other == null || other.Count == 0) {
                     return false;
                 } else if (other.Count == 1) {
                     return Comparer.Equals(Value, other.First());
@@ -1087,6 +1198,9 @@ namespace Microsoft.PythonTools.Analysis {
             public override string ToString() {
                 return DebugViewProxy.ToString(this);
             }
+
+            public override bool Equals(object obj) => (obj is IAnalysisSet s) && SetEquals(s);
+            public override int GetHashCode() => Comparer.GetHashCode(this);
         }
 
         [DebuggerDisplay(DebugViewProxy.DisplayString), DebuggerTypeProxy(typeof(DebugViewProxy))]
@@ -1112,8 +1226,7 @@ namespace Microsoft.PythonTools.Analysis {
                     }
                     var value2 = e.Current;
                     if (comparer.Equals(e.Current, value1)) {
-                        bool dummy;
-                        return new Tuple<AnalysisValue, AnalysisValue>(comparer.MergeTypes(value1, value2, out dummy), null);
+                        return new Tuple<AnalysisValue, AnalysisValue>(comparer.MergeTypes(value1, value2, out _), null);
                     }
                     if (e.MoveNext()) {
                         return null;
@@ -1132,13 +1245,11 @@ namespace Microsoft.PythonTools.Analysis {
                 Value2 = tup.Item2;
             }
 
-            public IAnalysisSet Add(AnalysisValue item, bool canMutate = true) {
-                bool dummy;
-                return Add(item, out dummy, canMutate);
+            public IAnalysisSet Add(AnalysisValue item, bool canMutate = false) {
+                return Add(item, out _, canMutate);
             }
 
-            public IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = true) {
-                bool dummy;
+            public IAnalysisSet Add(AnalysisValue item, out bool wasChanged, bool canMutate = false) {
                 if (Object.ReferenceEquals(Value1, item) || Object.ReferenceEquals(Value2, item)) {
                     wasChanged = false;
                     return this;
@@ -1148,7 +1259,7 @@ namespace Microsoft.PythonTools.Analysis {
                         return this;
                     }
                     if (Comparer.Equals(Value2, newValue)) {
-                        return new AnalysisSetOneUnion(Comparer.MergeTypes(Value2, newValue, out dummy), Comparer);
+                        return new AnalysisSetOneUnion(Comparer.MergeTypes(Value2, newValue, out _), Comparer);
                     } else {
                         return new AnalysisSetTwoUnion(newValue, Value2, Comparer);
                     }
@@ -1158,7 +1269,7 @@ namespace Microsoft.PythonTools.Analysis {
                         return this;
                     }
                     if (Comparer.Equals(Value1, newValue)) {
-                        return new AnalysisSetOneUnion(Comparer.MergeTypes(Value1, newValue, out dummy), Comparer);
+                        return new AnalysisSetOneUnion(Comparer.MergeTypes(Value1, newValue, out _), Comparer);
                     } else {
                         return new AnalysisSetTwoUnion(Value1, newValue, Comparer);
                     }
@@ -1167,7 +1278,7 @@ namespace Microsoft.PythonTools.Analysis {
                 return new AnalysisHashSet(3, Comparer).Add(Value1).Add(Value2).Add(item);
             }
 
-            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = true) {
+            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, bool canMutate = false) {
                 AnalysisValue ns;
                 AnalysisSetOneObject ns1o;
                 AnalysisSetOneUnion ns1u;
@@ -1184,7 +1295,7 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
-            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = true) {
+            public IAnalysisSet Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate = false) {
                 AnalysisValue ns;
                 AnalysisSetOneObject ns1o;
                 AnalysisSetOneUnion ns1u;
@@ -1215,7 +1326,7 @@ namespace Microsoft.PythonTools.Analysis {
                 if (ns2 != null) {
                     return Comparer.Equals(Value1, ns2.Value1) && Comparer.Equals(Value2, ns2.Value2) ||
                         Comparer.Equals(Value1, ns2.Value2) && Comparer.Equals(Value2, ns2.Value1);
-                } else if (other != null) {
+                } else if (other != null && other.Count > 0) {
                     return other.All(ns => Comparer.Equals(Value1) || Comparer.Equals(Value2));
                 } else {
                     return false;
@@ -1246,6 +1357,9 @@ namespace Microsoft.PythonTools.Analysis {
             public override string ToString() {
                 return DebugViewProxy.ToString(this);
             }
+
+            public override bool Equals(object obj) => (obj is IAnalysisSet s) && SetEquals(s);
+            public override int GetHashCode() => Comparer.GetHashCode(this);
         }
 
     }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -28,6 +28,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
 using System.Xml.XPath;
 using Microsoft.PythonTools.Analysis;
 using Microsoft.PythonTools.Infrastructure;
@@ -61,16 +62,30 @@ namespace Microsoft.PythonTools.TestAdapter {
             _cancelRequested.Set();
         }
 
+        private static XPathDocument Read(string xml) {
+            var settings = new XmlReaderSettings();
+            settings.XmlResolver = null;
+            return new XPathDocument(XmlReader.Create(new StringReader(xml), settings));
+        }
+
         public void RunTests(IEnumerable<string> sources, IRunContext runContext, IFrameworkHandle frameworkHandle) {
-            ValidateArg.NotNull(sources, "sources");
-            ValidateArg.NotNull(runContext, "runContext");
-            ValidateArg.NotNull(frameworkHandle, "frameworkHandle");
+            if (sources == null) {
+                throw new ArgumentNullException(nameof(sources));
+            }
+
+            if (runContext == null) {
+                throw new ArgumentNullException(nameof(runContext));
+            }
+
+            if (frameworkHandle == null) {
+                throw new ArgumentNullException(nameof(frameworkHandle));
+            }
 
             _cancelRequested.Reset();
 
             var executorUri = new Uri(PythonConstants.TestExecutorUriString);
             var tests = new List<TestCase>();
-            var doc = new XPathDocument(new StringReader(runContext.RunSettings.SettingsXml));
+            var doc = Read(runContext.RunSettings.SettingsXml);
             foreach (var t in TestReader.ReadTests(doc, new HashSet<string>(sources, StringComparer.OrdinalIgnoreCase), m => {
                 frameworkHandle?.SendMessage(TestMessageLevel.Warning, m);
             })) {
@@ -89,7 +104,7 @@ namespace Microsoft.PythonTools.TestAdapter {
         }
 
         private Dictionary<string, PythonProjectSettings> GetSourceToSettings(IRunSettings settings) {
-            var doc = new XPathDocument(new StringReader(settings.SettingsXml));
+            var doc = Read(settings.SettingsXml);
             XPathNodeIterator nodes = doc.CreateNavigator().Select("/RunSettings/Python/TestCases/Project");
             Dictionary<string, PythonProjectSettings> res = new Dictionary<string, PythonProjectSettings>();
 
@@ -125,9 +140,17 @@ namespace Microsoft.PythonTools.TestAdapter {
         }
 
         public void RunTests(IEnumerable<TestCase> tests, IRunContext runContext, IFrameworkHandle frameworkHandle) {
-            ValidateArg.NotNull(tests, "tests");
-            ValidateArg.NotNull(runContext, "runContext");
-            ValidateArg.NotNull(frameworkHandle, "frameworkHandle");
+            if (tests == null) {
+                throw new ArgumentNullException(nameof(tests));
+            }
+
+            if (runContext == null) {
+                throw new ArgumentNullException(nameof(runContext));
+            }
+
+            if (frameworkHandle == null) {
+                throw new ArgumentNullException(nameof(frameworkHandle));
+            }
 
             _cancelRequested.Reset();
 
@@ -265,7 +288,7 @@ namespace Microsoft.PythonTools.TestAdapter {
         }
 
         private static bool EnableCodeCoverage(IRunContext runContext) {
-            var doc = new XPathDocument(new StringReader(runContext.RunSettings.SettingsXml));
+            var doc = Read(runContext.RunSettings.SettingsXml);
             XPathNodeIterator nodes = doc.CreateNavigator().Select("/RunSettings/Python/EnableCoverage");
             bool enableCoverage;
             if (nodes.MoveNext()) {
@@ -281,7 +304,7 @@ namespace Microsoft.PythonTools.TestAdapter {
         /// &lt;DryRun value="true" /&gt; element under RunSettings/Python.
         /// </summary>
         private static bool IsDryRun(IRunSettings settings) {
-            var doc = new XPathDocument(new StringReader(settings.SettingsXml));
+            var doc = Read(settings.SettingsXml);
             try {
                 var node = doc.CreateNavigator().SelectSingleNode("/RunSettings/Python/DryRun[@value='true']");
                 return node != null;
@@ -297,7 +320,7 @@ namespace Microsoft.PythonTools.TestAdapter {
         /// RunSettings/Python.
         /// </summary>
         private static bool ShouldShowConsole(IRunSettings settings) {
-            var doc = new XPathDocument(new StringReader(settings.SettingsXml));
+            var doc = Read(settings.SettingsXml);
             try {
                 var node = doc.CreateNavigator().SelectSingleNode("/RunSettings/Python/ShowConsole[@value='false']");
                 return node == null;
@@ -326,7 +349,7 @@ namespace Microsoft.PythonTools.TestAdapter {
             private Connection _connection;
             private readonly Socket _socket;
             private readonly StringBuilder _stdOut = new StringBuilder(), _stdErr = new StringBuilder();
-            private TestCase _curTest;
+            private TestResult _curTestResult;
             private readonly bool _dryRun, _showConsole;
 
             public TestRunner(
@@ -365,9 +388,8 @@ namespace Microsoft.PythonTools.TestAdapter {
                         .Replace('/', '_')
                         .TrimEnd('=');
 
-                    _debugPort = GetFreePort();
+                    SocketUtils.GetRandomPortListener(IPAddress.Loopback, out _debugPort).Stop();
                 }
-
                 _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.IP);
                 _socket.Bind(new IPEndPoint(IPAddress.Loopback, 0));
                 _socket.Listen(0);
@@ -386,7 +408,7 @@ namespace Microsoft.PythonTools.TestAdapter {
                 throw new NotImplementedException();
             }
 
-            private void ConectionReceivedEvent(object sender, EventReceivedEventArgs e) {
+            private void ConnectionReceivedEvent(object sender, EventReceivedEventArgs e) {
                 switch (e.Name) {
                     case TP.ResultEvent.Name:
                         var result = (TP.ResultEvent)e.Event;
@@ -397,11 +419,9 @@ namespace Microsoft.PythonTools.TestAdapter {
                             case "skipped": outcome = TestOutcome.Skipped; break;
                         }
 
-                        var testResult = new TestResult(_curTest);
                         RecordEnd(
                             _frameworkHandle,
-                            _curTest,
-                            testResult,
+                            _curTestResult,
                             _stdOut.ToString(),
                             _stdErr.ToString(),
                             outcome,
@@ -414,16 +434,19 @@ namespace Microsoft.PythonTools.TestAdapter {
 
                     case TP.StartEvent.Name:
                         var start = (TP.StartEvent)e.Event;
-                        _curTest = null;
+
+                        // Create the TestResult object right away, so that
+                        // StartTime is initialized correctly.
+                        _curTestResult = null;
                         foreach (var test in GetTestCases()) {
                             if (test.Key == start.test) {
-                                _curTest = test.Value;
+                                _curTestResult = new TestResult(test.Value);
                                 break;
                             }
                         }
 
-                        if (_curTest != null) {
-                            _frameworkHandle.RecordStart(_curTest);
+                        if (_curTestResult != null) {
+                            _frameworkHandle.RecordStart(_curTestResult.TestCase);
                         } else {
                             Warning(Strings.Test_UnexpectedResult.FormatUI(start.classname, start.method));
                         }
@@ -490,8 +513,8 @@ namespace Microsoft.PythonTools.TestAdapter {
                     TP.RegisteredTypes,
                     "TestExecutor"
                 );
-                _connection.EventReceived += ConectionReceivedEvent;
-                _connection.StartProcessing();
+                _connection.EventReceived += ConnectionReceivedEvent;
+                Task.Run(_connection.ProcessMessages).DoNotWait();
                 _connected.Set();
             }
 
@@ -531,7 +554,10 @@ namespace Microsoft.PythonTools.TestAdapter {
                         DebugInfo("set " + pythonPath.Key + "=" + pythonPath.Value);
                         DebugInfo(proc.Arguments);
 
-                        _connected.WaitOne();
+                        // If there's an error in the launcher script,
+                        // it will terminate without connecting back.
+                        WaitHandle.WaitAny(new WaitHandle[] { _connected, proc.WaitHandle });
+
                         if (proc.ExitCode.HasValue) {
                             // Process has already exited
                             proc.Wait();
@@ -541,12 +567,22 @@ namespace Microsoft.PythonTools.TestAdapter {
                                     Error(line);
                                 }
                             }
+
+                            foreach (var test in GetTestCases()) {
+                                _frameworkHandle.RecordStart(test.Value);
+                                _frameworkHandle.RecordResult(new TestResult(test.Value) {
+                                    Outcome = TestOutcome.Skipped,
+                                    ErrorMessage = Strings.Test_NotRun
+                                });
+                            }
+
+                            killed = true;
                         }
 
-                        if (_debugMode != PythonDebugMode.None) {
+                        if (!killed && _debugMode != PythonDebugMode.None) {
                             try {
                                 if (_debugMode == PythonDebugMode.PythonOnly) {
-                                    string qualifierUri = string.Format("tcp://{0}@localhost:{1}", _debugSecret, _debugPort);
+                                    string qualifierUri = string.Format("tcp://{0}@localhost:{1}?legacyUnitTest", _debugSecret, _debugPort);
                                     while (!_app.AttachToProcess(proc, PythonRemoteDebugPortSupplierUnsecuredId, qualifierUri)) {
                                         if (proc.Wait(TimeSpan.FromMilliseconds(500))) {
                                             break;
@@ -739,9 +775,9 @@ namespace Microsoft.PythonTools.TestAdapter {
             }
         }
 
-        private static void RecordEnd(IFrameworkHandle frameworkHandle, TestCase test, TestResult result, string stdout, string stderr, TestOutcome outcome, TP.ResultEvent resultInfo) {
+        private static void RecordEnd(IFrameworkHandle frameworkHandle, TestResult result, string stdout, string stderr, TestOutcome outcome, TP.ResultEvent resultInfo) {
             result.EndTime = DateTimeOffset.Now;
-            result.Duration = result.EndTime - result.StartTime;
+            result.Duration = TimeSpan.FromSeconds(resultInfo.durationInSecs);
             result.Outcome = outcome;
             
             // Replace \n with \r\n to be more friendly when copying output...
@@ -760,7 +796,7 @@ namespace Microsoft.PythonTools.TestAdapter {
             }
 
             frameworkHandle.RecordResult(result);
-            frameworkHandle.RecordEnd(test, outcome);
+            frameworkHandle.RecordEnd(result.TestCase, outcome);
         }
 
         class TestReceiver : ITestCaseDiscoverySink {
@@ -845,13 +881,6 @@ namespace Microsoft.PythonTools.TestAdapter {
             get {
                 return Path.GetDirectoryName(Path.GetDirectoryName(PythonToolsInstallPath.GetFile("ptvsd\\__init__.py")));
             }
-        }
-
-        private static int GetFreePort() {
-            return Enumerable.Range(new Random().Next(49152, 65536), 60000).Except(
-                from connection in IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections()
-                select connection.LocalEndPoint.Port
-            ).First();
         }
     }
 }

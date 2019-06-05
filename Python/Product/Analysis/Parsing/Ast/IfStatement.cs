@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -28,13 +28,9 @@ namespace Microsoft.PythonTools.Parsing.Ast {
             _else = else_;
         }
 
-        public IList<IfStatementTest> Tests {
-            get { return _tests; }
-        }
-
-        public Statement ElseStatement {
-            get { return _else; }
-        }
+        public IList<IfStatementTest> Tests => _tests;
+        public Statement ElseStatement => _else;
+        internal IfStatementTest[] TestsInternal => _tests;
 
         public int ElseIndex {
             get {
@@ -52,9 +48,8 @@ namespace Microsoft.PythonTools.Parsing.Ast {
                         test.Walk(walker);
                     }
                 }
-                if (_else != null) {
-                    _else.Walk(walker);
-                }
+
+                _else?.Walk(walker);
             }
             walker.PostWalk(this);
         }
@@ -75,7 +70,7 @@ namespace Microsoft.PythonTools.Parsing.Ast {
             }
 
             if (_else != null) {
-                format.ReflowComment(res, this.GetProceedingWhiteSpace(ast));
+                format.ReflowComment(res, this.GetPreceedingWhiteSpace(ast));
                 res.Append("else");
                 _else.AppendCodeString(res, ast, format);
             }

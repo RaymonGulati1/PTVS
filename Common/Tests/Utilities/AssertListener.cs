@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,7 +21,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
-using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace TestUtilities {
@@ -37,6 +36,8 @@ namespace TestUtilities {
             get { return "Microsoft.PythonTools.AssertListener"; }
             set { }
         }
+
+        public static bool LogObjectDisposedExceptions { get; set; } = true;
 
         public static void Initialize() {
             var listener = new AssertListener();
@@ -68,7 +69,7 @@ namespace TestUtilities {
         }
 
         static void CurrentDomain_FirstChanceException(object sender, FirstChanceExceptionEventArgs e) {
-            if (e.Exception is NullReferenceException || e.Exception is ObjectDisposedException) {
+            if (e.Exception is NullReferenceException || (e.Exception is ObjectDisposedException && LogObjectDisposedExceptions)) {
                 // Exclude safe handle messages because they are noisy
                 if (!e.Exception.Message.Contains("Safe handle has been closed")) {
                     var log = new EventLog("Application");
@@ -100,12 +101,13 @@ namespace TestUtilities {
             foreach (var frame in trace.GetFrames()) {
                 var mi = frame.GetMethod();
                 if (!seenDebugAssert) {
-                    seenDebugAssert = (mi.DeclaringType == typeof(Debug) && mi.Name == "Assert");
+                    seenDebugAssert = (mi.DeclaringType == typeof(Debug) && 
+                        (mi.Name == "Assert" || mi.Name == "Fail"));
                 } else if (mi.DeclaringType == typeof(System.RuntimeMethodHandle)) {
                     break;
                 } else {
                     var filename = frame.GetFileName();
-                    Trace.WriteLine(string.Format(
+                    Console.Error.WriteLine(string.Format(
                         " at {0}.{1}({2}) in {3}:line {4}",
                         mi.DeclaringType.FullName,
                         mi.Name,
@@ -113,9 +115,9 @@ namespace TestUtilities {
                         filename ?? "<unknown>",
                         frame.GetFileLineNumber()
                     ));
-                    if (!string.IsNullOrEmpty(filename)) {
+                    if (File.Exists(filename)) {
                         try {
-                            Trace.WriteLine(
+                            Console.Error.WriteLine(
                                 "    " +
                                 File.ReadLines(filename).ElementAt(frame.GetFileLineNumber() - 1).Trim()
                             );
@@ -129,7 +131,8 @@ namespace TestUtilities {
             if (Debugger.IsAttached) {
                 Debugger.Break();
             }
-            Console.WriteLine(message);
+
+            Console.Error.WriteLine(message);
 
             if (_testContext == null) {
                 lock (_unhandled) {

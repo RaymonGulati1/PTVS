@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,6 +21,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Permissions;
 using System.Windows;
+using System.Xml;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
@@ -39,7 +40,7 @@ namespace Microsoft.PythonTools.Profiling {
         public ProfilingSessionEditorFactory(PythonProfilingPackage package) {
             Trace.WriteLine(string.Format(CultureInfo.CurrentCulture, "Entering {0} constructor", this.ToString()));
 
-            this._editorPackage = package;
+            _editorPackage = package;
         }
 
         /// <summary>
@@ -144,6 +145,7 @@ namespace Microsoft.PythonTools.Profiling {
         /// <param name="pgrfCDW">Flags for CreateDocumentWindow</param>
         /// <returns></returns>
         [SecurityPermission(SecurityAction.Demand, Flags = SecurityPermissionFlag.UnmanagedCode)]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Security.Xml", "CA3053:UseXmlSecureResolver")]
         public int CreateEditorInstance(
                         uint grfCreateDoc,
                         string pszMkDocument,
@@ -174,13 +176,14 @@ namespace Microsoft.PythonTools.Profiling {
             }
 
             // Create the Document (editor)
-            var perfWin = _editorPackage.ShowPerformanceExplorer();
+            var perfWin = _editorPackage.JoinableTaskFactory.Run(() => _editorPackage.ShowPerformanceExplorerAsync());
 
             ProfilingTarget target;
             try {
-                using (var fs = new FileStream(pszMkDocument, FileMode.Open)) {
-                    target = (ProfilingTarget)ProfilingTarget.Serializer.Deserialize(fs);
-                    fs.Close();
+                var settings = new XmlReaderSettings { XmlResolver = null };
+                using (var fs = new FileStream(pszMkDocument, FileMode.Open))
+                using (var reader = XmlReader.Create(fs, settings)) {
+                    target = (ProfilingTarget)ProfilingTarget.Serializer.Deserialize(reader);
                 }
             } catch (IOException e) {
                 MessageBox.Show(Strings.FailedToOpenPerformanceSessionFile.FormatUI(pszMkDocument, e.Message), Strings.ProductTitle);

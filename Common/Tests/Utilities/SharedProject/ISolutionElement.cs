@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -34,17 +34,13 @@ namespace TestUtilities.SharedProject {
         /// <summary>
         /// The type guid for the project type or other solution element type such as a folder.
         /// </summary>
-        Guid TypeGuid {
-            get;
-        }
+        Guid TypeGuid { get; }
 
         /// <summary>
         /// Gets the flags which control how the solution element is written to the
         /// solution file.
         /// </summary>
-        SolutionElementFlags Flags {
-            get;
-        }
+        SolutionElementFlags Flags { get; }
 
         /// <summary>
         /// Saves the solution element to disk at the specified location.  The

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -34,9 +34,14 @@ namespace Microsoft.CookiecutterTools.Telemetry {
         bool CanCollectPrivateInformation { get; }
 
         /// <summary>
-        /// Records event with parameters. Perameters are
+        /// Records event with parameters. Parameters are
         /// a collection of string/object pairs.
         /// </summary>
         void RecordEvent(string eventName, object parameters = null);
+
+        /// <summary>
+        /// Records a fault event.
+        /// </summary>
+        void RecordFault(string eventName, Exception ex, string description, bool dumpProcess);
     }
 }

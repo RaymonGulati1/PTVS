@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -55,7 +55,7 @@ namespace TestUtilities.SharedProject {
         /// <returns></returns>
         public static SolutionFile Generate(string solutionName, int pathSpaceRemaining, params ISolutionElement[] toGenerate) {
             List<MSBuild.Project> projects = new List<MSBuild.Project>();
-            var location = TestData.GetTempPath(randomSubPath: true);
+            var location = TestData.GetTempPath();
 
             if (pathSpaceRemaining >= 0) {
                 int targetPathLength = 260 - pathSpaceRemaining;
@@ -80,6 +80,8 @@ namespace TestUtilities.SharedProject {
             StringBuilder slnFile = new StringBuilder("\r\nMicrosoft Visual Studio Solution File, Format Version 12.00\r\n\u0023 Visual Studio 14\r\nVisualStudioVersion = 14.0.25123.0\r\nMinimumVisualStudioVersion = 10.0.40219.1\r\n");
 #elif DEV15
             StringBuilder slnFile = new StringBuilder("\r\nMicrosoft Visual Studio Solution File, Format Version 12.00\r\n\u0023 Visual Studio 15\r\nVisualStudioVersion = 15.0.25424.0\r\nMinimumVisualStudioVersion = 10.0.40219.1\r\n");
+#elif DEV16
+            StringBuilder slnFile = new StringBuilder("\r\nMicrosoft Visual Studio Solution File, Format Version 12.00\r\n\u0023 Visual Studio 15\r\nVisualStudioVersion = 16.0.0.0\r\nMinimumVisualStudioVersion = 10.0.40219.1\r\n");
 #else
 #error Unsupported VS version
 #endif

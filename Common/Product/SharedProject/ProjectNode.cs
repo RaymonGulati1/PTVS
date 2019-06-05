@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -631,15 +631,20 @@ namespace Microsoft.VisualStudioTools.Project {
         /// </summary>
         public string ProjectHome {
             get {
-                if (projectHome == null) {
-                    projectHome = CommonUtils.GetAbsoluteDirectoryPath(
-                        this.ProjectFolder,
+                var home = projectHome;
+                if (home == null) {
+                    var folder = ProjectFolder;
+                    if (string.IsNullOrEmpty(folder)) {
+                        return null;
+                    }
+                    home = CommonUtils.GetAbsoluteDirectoryPath(
+                        folder,
                         this.GetProjectProperty(CommonConstants.ProjectHome, resetCache: false));
-                    projectHome = CommonUtils.TrimEndSeparator(projectHome);
+                    projectHome = home = CommonUtils.TrimEndSeparator(home);
                 }
 
-                Debug.Assert(projectHome != null, "ProjectHome should not be null");
-                return projectHome;
+                Debug.Assert(home != null, "ProjectHome should not be null");
+                return home;
             }
         }
 
@@ -2035,7 +2040,44 @@ namespace Microsoft.VisualStudioTools.Project {
             this.currentConfig = null;
         }
 
+        public virtual void SetOrAddPropertyAfter(string propertyName, string propertyValue, string afterProperty) {
+            Utilities.ArgumentNotNull("propertyName", propertyName);
+            Utilities.ArgumentNotNull("afterProperty", afterProperty);
 
+            Site.GetUIThread().MustBeCalledFromUIThread();
+
+            var oldValue = GetUnevaluatedProperty(propertyName) ?? string.Empty;
+            propertyValue = propertyValue ?? string.Empty;
+
+            if (oldValue.Equals(propertyValue, StringComparison.Ordinal)) {
+                // Property is unchanged or unspecified, so don't set it.
+                return;
+            }
+
+            // Check out the project file.
+            if (!this.QueryEditProjectFile(false)) {
+                throw Marshal.GetExceptionForHR(VSConstants.OLE_E_PROMPTSAVECANCELLED);
+            }
+
+            var oldProp = this.buildProject.GetProperty(propertyName);
+            if (oldProp == null || oldProp.IsImported) {
+                var propertyGroups = from g in this.buildProject.Xml.PropertyGroups
+                                     where g.Children.Where(c => c.ElementName == afterProperty).Any()
+                                     select g;
+                var group = propertyGroups.LastOrDefault();
+                if (group != null) {
+                    var newProp = group.SetProperty(propertyName, propertyValue);
+                } else {
+                    this.buildProject.SetProperty(propertyName, propertyValue);
+                }
+            } else {
+                this.buildProject.SetProperty(propertyName, propertyValue);
+            }
+            RaiseProjectPropertyChanged(propertyName, oldValue, propertyValue);
+
+            // property cache will need to be updated
+            this.currentConfig = null;
+        }
 
         public virtual CompilerParameters GetProjectOptions(string config) {
             // This needs to be commented out because if you build for Debug the properties from the Debug 
@@ -2313,8 +2355,9 @@ namespace Microsoft.VisualStudioTools.Project {
             uint uiItemId;
             if (ErrorHandler.Succeeded(this.ParseCanonicalName(fullPath, out uiItemId)) &&
                 uiItemId != 0) {
-                Debug.Assert(this.NodeFromItemId(uiItemId) is FolderNode, "Not a FolderNode");
-                folderNode = (FolderNode)this.NodeFromItemId(uiItemId);
+                var node = this.NodeFromItemId(uiItemId);
+                Debug.Assert(node is FolderNode, "Not a FolderNode");
+                folderNode = (FolderNode)node;
             }
 
             if (folderNode == null && fullPath != null && parent != null) {
@@ -3665,16 +3708,20 @@ namespace Microsoft.VisualStudioTools.Project {
         /// <param name="iPersistXMLFragment">Object that support being initialized with an XML fragment</param>
         /// <param name="configName">Name of the configuration being initialized, null if it is the project</param>
         /// <param name="platformName">Name of the platform being initialized, null is ok</param>
+        [SuppressMessage("Microsoft.Security.Xml", "CA3053:UseXmlSecureResolver")]
         protected internal void LoadXmlFragment(IPersistXMLFragment persistXmlFragment, string configName, string platformName) {
             Utilities.ArgumentNotNull("persistXmlFragment", persistXmlFragment);
 
             if (xmlFragments == null) {
                 // Retrieve the xml fragments from MSBuild
-                xmlFragments = new XmlDocument();
+                xmlFragments = new XmlDocument { XmlResolver = null };
 
                 string fragments = GetProjectExtensions()[ProjectFileConstants.VisualStudio];
                 fragments = String.Format(CultureInfo.InvariantCulture, "<root>{0}</root>", fragments);
-                xmlFragments.LoadXml(fragments);
+
+                var settings = new XmlReaderSettings { XmlResolver = null };
+                using (var reader = XmlReader.Create(new StringReader(fragments), settings))
+                    xmlFragments.Load(reader);
             }
 
             // We need to loop through all the flavors
@@ -3731,6 +3778,7 @@ namespace Microsoft.VisualStudioTools.Project {
         /// <summary>
         /// Retrieve all XML fragments that need to be saved from the flavors and store the information in msbuild.
         /// </summary>
+        [SuppressMessage("Microsoft.Security.Xml", "CA3053:UseXmlSecureResolver")]
         protected void PersistXMLFragments() {
             if (IsFlavorDirty()) {
                 XmlDocument doc = new XmlDocument();
@@ -5785,7 +5833,7 @@ If the files in the existing folder have the same names as files in the folder y
         internal HierarchyNode FindNodeByFullPath(string name) {
             Site.GetUIThread().MustBeCalledFromUIThread();
 
-            Debug.Assert(Path.IsPathRooted(name));
+            Debug.Assert(Path.IsPathRooted(name), $"{name} is not a full path");
 
             HierarchyNode res;
             _diskNodes.TryGetValue(name, out res);
@@ -5800,11 +5848,18 @@ If the files in the existing folder have the same names as files in the folder y
         /// <param name="path">The full path on disk to the item which is being queried about..</param>
         internal HierarchyNode GetParentFolderForPath(string path) {
             var parentDir = CommonUtils.GetParent(path);
-            HierarchyNode parent;
-            if (CommonUtils.IsSamePath(parentDir, ProjectHome)) {
-                parent = this;
-            } else {
-                parent = FindNodeByFullPath(parentDir);
+            HierarchyNode parent = this;
+            if (!CommonUtils.IsSameDirectory(parentDir, ProjectHome)) {
+                var relPath = CommonUtils.TrimEndSeparator(CommonUtils.GetRelativeDirectoryPath(ProjectHome, parentDir));
+                foreach (var part in relPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) {
+                    if (string.IsNullOrEmpty(part)) {
+                        continue;
+                    }
+                    parent = parent.AllChildren.FirstOrDefault(c => part.Equals(c.Name, StringComparison.OrdinalIgnoreCase));
+                    if (parent == null) {
+                        break;
+                    }
+                }
                 Debug.WriteLineIf(parent == null, string.Format("Unable to find parent folder {0} for {1}", parentDir, path));
             }
             return parent;
@@ -6260,7 +6315,12 @@ If the files in the existing folder have the same names as files in the folder y
                     dd = Marshal.GetObjectForIUnknown(docData) as IVsPersistDocData;
                     Utilities.CheckNotNull(dd);
 
-                    ErrorHandler.ThrowOnFailure(dd.SaveDocData(saveFlag, out docNew, out cancelled));
+                    var saveResult = dd.SaveDocData(saveFlag, out docNew, out cancelled);
+                    ErrorHandler.ThrowOnFailure(saveResult);
+
+                    // HRESULT can be successful, but with code STG_S_DATALOSS.
+                    // return it so the user gets prompted to save again with unicode.
+                    returnCode = saveResult;
                 }
 
                 // We can be unloaded after the SaveDocData() call if the save caused a designer to add a file and this caused
@@ -6289,18 +6349,18 @@ If the files in the existing folder have the same names as files in the folder y
                         ((saveFlag == VSSAVEFLAGS.VSSAVE_Save) && !emptyOrSamePath);
 
                     if (saveAs) {
-                        returnCode = node.AfterSaveItemAs(docData, docNew);
+                        var afterSaveResult = node.AfterSaveItemAs(docData, docNew);
 
                         // If it has been cancelled recover the old name.
-                        if ((returnCode == (int)OleConstants.OLECMDERR_E_CANCELED || returnCode == VSConstants.E_ABORT)) {
+                        if ((afterSaveResult == (int)OleConstants.OLECMDERR_E_CANCELED || afterSaveResult == VSConstants.E_ABORT)) {
                             // Cleanup.
                             this.DeleteFromStorage(docNew);
 
                             if (ff != null) {
-                                returnCode = shell.SaveDocDataToFile(VSSAVEFLAGS.VSSAVE_SilentSave, ff, existingFileMoniker, out docNew, out cancelled);
+                                afterSaveResult = shell.SaveDocDataToFile(VSSAVEFLAGS.VSSAVE_SilentSave, ff, existingFileMoniker, out docNew, out cancelled);
                             }
-                        } else if (returnCode != VSConstants.S_OK) {
-                            ErrorHandler.ThrowOnFailure(returnCode);
+                        } else if (afterSaveResult != VSConstants.S_OK) {
+                            ErrorHandler.ThrowOnFailure(afterSaveResult);
                         }
                     }
                 }

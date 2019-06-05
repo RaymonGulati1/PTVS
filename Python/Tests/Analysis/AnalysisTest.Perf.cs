@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,17 +18,13 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Threading;
 using Microsoft.PythonTools.Analysis;
 using Microsoft.PythonTools.Infrastructure;
-using Microsoft.PythonTools.Intellisense;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Parsing.Ast;
-using Microsoft.Scripting;
-using Microsoft.VisualStudioTools;
 using TestUtilities;
 
 namespace AnalysisTests {
@@ -225,11 +221,10 @@ import System
 
             sw.Start();
             long start0 = sw.ElapsedMilliseconds;
-            // Explicitly specify the builtins name because we are using a 2.7
-            // interpreter for all versions.
+
             var fact = InterpreterFactoryCreator.CreateAnalysisInterpreterFactory(version.ToVersion());
-            var projectState = new PythonAnalyzer(fact, fact.CreateInterpreter(), "__builtin__");
-            projectState.ReloadModulesAsync().WaitAndUnwrapExceptions();
+            var projectState = new PythonAnalyzer(fact, fact.CreateInterpreter());
+            projectState.ReloadModulesAsync(cancel ?? CancellationToken.None).WaitAndUnwrapExceptions();
 
             projectState.Limits = AnalysisLimits.GetStandardLibraryLimits();
 
@@ -266,7 +261,10 @@ import System
                 var ast = nodes[i];
 
                 if (ast != null) {
-                    modules[i].UpdateTree(ast, null);
+                    using (var p = modules[i].BeginParse()) {
+                        p.Tree = ast;
+                        p.Complete();
+                    }
                 }
             }
 
@@ -288,42 +286,9 @@ import System
             return projectState;
         }
 
-        internal sealed class FileTextContentProvider : TextContentProvider {
-            private readonly FileStreamContentProvider _provider;
-
-            public FileTextContentProvider(FileStreamContentProvider fileStreamContentProvider) {
-                _provider = fileStreamContentProvider;
-            }
-
-            public override SourceCodeReader GetReader() {
-                return new SourceCodeReader(new StreamReader(_provider.GetStream(), Encoding.ASCII), Encoding.ASCII);
-            }
-        }
-
-        internal sealed class FileStreamContentProvider : StreamContentProvider {
-            private readonly string _path;
-
-            internal string Path {
-                get { return _path; }
-            }
-
-            #region Construction
-
-            internal FileStreamContentProvider(string path) {
-                _path = path;
-            }
-
-            #endregion
-
-            public override Stream GetStream() {
-                return new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            }
-        }
-
-
         private static void CollectFiles(string dir, List<string> files, ISet<string> excludeDirectories = null) {
             foreach (string file in Directory.GetFiles(dir)) {
-                if (file.EndsWith(".py", StringComparison.OrdinalIgnoreCase)) {
+                if (file.EndsWithOrdinal(".py", ignoreCase: true)) {
                     files.Add(file);
                 }
             }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -169,6 +169,7 @@ namespace Microsoft.VisualStudioTools.Project {
         internal const string v35 = "v35";
         internal const string v4 = "v4";
         internal const string Warning = "Warning";
+        internal const string WebBrowseNavigateError = "WebBrowseNavigateError";
         internal const string WorkingDirectory = "WorkingDirectory";
         internal const string WorkingDirectoryDescription = "WorkingDirectoryDescription";
         internal const string WinExe = "WinExe";
@@ -212,21 +213,21 @@ namespace Microsoft.VisualStudioTools.Project {
             }
 
             if (args.Length == 0) {
-                Debug.Assert(result.IndexOf("{0}") < 0, "Resource string '" + value + "' requires format arguments.");
+                Debug.Assert(result.IndexOf("{0}", StringComparison.Ordinal) < 0, "Resource string '" + value + "' requires format arguments.");
                 return result;
             }
 
             Debug.WriteLineIf(
-                Enumerable.Range(0, args.Length).Any(i => result.IndexOf(string.Format("{{{0}", i)) < 0),
-                string.Format("Resource string '{0}' does not use all {1} arguments", value, args.Length)
+                Enumerable.Range(0, args.Length).Any(i => result.IndexOf(string.Format(CultureInfo.InvariantCulture, "{{{0}", i), StringComparison.Ordinal) < 0),
+                string.Format(CultureInfo.InvariantCulture, "Resource string '{0}' does not use all {1} arguments", value, args.Length)
             );
             Debug.WriteLineIf(
-                result.IndexOf(string.Format("{{{0}", args.Length)) >= 0,
-                string.Format("Resource string '{0}' requires more than {1} argument(s)", value, args.Length)
+                result.IndexOf(string.Format(CultureInfo.InvariantCulture, "{{{0}", args.Length), StringComparison.Ordinal) >= 0,
+                string.Format(CultureInfo.InvariantCulture, "Resource string '{0}' requires more than {1} argument(s)", value, args.Length)
             );
 
 
-            return string.Format(CultureInfo.CurrentUICulture, result, args);
+            return string.Format(CultureInfo.CurrentCulture, result, args);
         }
 
         public static string GetString(string value, params object[] args) {

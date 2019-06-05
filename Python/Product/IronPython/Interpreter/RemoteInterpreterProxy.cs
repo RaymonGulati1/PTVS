@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -29,16 +29,8 @@ namespace Microsoft.IronPythonTools.Interpreter {
         private readonly RemoteInterpreter _remoteInterpreter;
 
         public RemoteInterpreterProxy() {
-            AppDomain.CurrentDomain.AssemblyResolve += new ResolveEventHandler(CurrentDomain_AssemblyResolve);
-            AppDomain.CurrentDomain.TypeResolve += new ResolveEventHandler(CurrentDomain_AssemblyResolve);
             _remoteInterpreter = new RemoteInterpreter();
         }
-
-        System.Reflection.Assembly CurrentDomain_AssemblyResolve(object sender, ResolveEventArgs args) {
-            Debug.WriteLine("AssemblyResolve");
-            return null;
-        }
-
 
         internal IEnumerable<string> GetBuiltinModuleNames() {
             return _remoteInterpreter.GetBuiltinModuleNames();
@@ -94,6 +86,10 @@ namespace Microsoft.IronPythonTools.Interpreter {
 
         internal bool LoadAssemblyReference(string assembly) {
             return _remoteInterpreter.LoadAssemblyReference(assembly);
+        }
+
+        internal bool LoadAssemblyReferenceByName(string assembly) {
+            return _remoteInterpreter.LoadAssemblyReferenceByName(assembly);
         }
 
         internal string GetExtensionPropertyDocumentation(ObjectIdentityHandle value) {

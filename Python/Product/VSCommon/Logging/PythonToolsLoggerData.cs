@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -26,7 +26,7 @@ namespace Microsoft.PythonTools.Logging {
     /// <summary>
     /// Provides a base class for logging complicated event data.
     /// </summary>
-    public abstract class PythonToolsLoggerData {
+    abstract class PythonToolsLoggerData {
         public static IDictionary<string, object> AsDictionary(object obj) {
             IDictionary<string, object> res;
 
@@ -59,35 +59,120 @@ namespace Microsoft.PythonTools.Logging {
     }
 
     [AttributeUsage(AttributeTargets.Property, Inherited = false, AllowMultiple = false)]
-    public sealed class PiiPropertyAttribute : Attribute {
+    sealed class PiiPropertyAttribute : Attribute {
         public PiiPropertyAttribute() { }
     }
 
-    internal sealed class PackageInfo : PythonToolsLoggerData {
+    sealed class PackageInfo : PythonToolsLoggerData {
         [PiiProperty]
         public string Name { get; set; }
     }
 
-    internal sealed class AnalysisInfo : PythonToolsLoggerData {
+    sealed class AnalysisInitialize : PythonToolsLoggerData {
+        [PiiProperty]
+        public string InterpreterId { get; set; }
+        public string Architecture { get; set; }
+        public string Version { get; set; }
+        public string Reason { get; set; }
+    }
+
+    static class AnalysisInitializeReasons {
+        public const string Project = "Project";
+        public const string Interactive = "Interactive";
+        public const string Default = "Default";
+    }
+
+    sealed class AnalysisInfo : PythonToolsLoggerData {
         [PiiProperty]
         public string InterpreterId { get; set; }
         public int AnalysisSeconds { get; set; }
     }
 
-    internal sealed class LaunchInfo : PythonToolsLoggerData {
+    sealed class LaunchInfo : PythonToolsLoggerData {
         public bool IsDebug { get; set; }
         public bool IsWeb { get; set; }
         public string Version { get; set; }
     }
 
-    internal sealed class AnalysisTimingInfo : PythonToolsLoggerData {
+    sealed class AnalysisTimingInfo : PythonToolsLoggerData {
         public string RequestName { get; set; }
         public int Milliseconds { get; set; }
         public bool Timeout { get; set; }
     }
 
-    internal sealed class DebugReplInfo : PythonToolsLoggerData {
+    sealed class DebugReplInfo : PythonToolsLoggerData {
         public bool RemoteProcess { get; set; }
         public string Version { get; set; }
+    }
+
+    sealed class GetExpressionAtPointInfo : PythonToolsLoggerData {
+        public int Milliseconds { get; set; }
+        public int PartialAstLength { get; set; }
+        public bool Success { get; set; }
+        public bool ExpressionFound { get; set; }
+    }
+
+    static class CondaEnvCreateInfoBarActions {
+        public const string Prompt = "Prompt";
+        public const string Create = "Create";
+        public const string Ignore = "Ignore";
+    }
+
+    static class CondaEnvCreateInfoBarReasons {
+        public const string MissingEnv = "MissingEnv";
+        public const string NoEnv = "NoEnv";
+    }
+
+    sealed class CondaEnvCreateInfoBarInfo : PythonToolsLoggerData {
+        public string Reason { get; set; }
+        public string Action { get; set; }
+    }
+
+    static class VirtualEnvCreateInfoBarActions {
+        public const string Prompt = "Prompt";
+        public const string Create = "Create";
+        public const string Ignore = "Ignore";
+    }
+
+    sealed class VirtualEnvCreateInfoBarInfo : PythonToolsLoggerData {
+        public string Action { get; set; }
+    }
+
+    static class PackageInstallInfoBarActions {
+        public const string Prompt = "Prompt";
+        public const string Install = "Install";
+        public const string Ignore = "Ignore";
+    }
+
+    sealed class PackageInstallInfoBarInfo : PythonToolsLoggerData {
+        public string Action { get; set; }
+    }
+
+    sealed class CreateCondaEnvInfo : PythonToolsLoggerData {
+        public bool Failed { get; set; }
+        public bool FromEnvironmentFile { get; set; }
+        public bool SetAsDefault { get; set; }
+        public bool SetAsCurrent { get; set; }
+        public bool OpenEnvironmentsWindow { get; set; }
+    }
+
+    sealed class CreateVirtualEnvInfo : PythonToolsLoggerData {
+        public bool Failed { get; set; }
+        public string LanguageVersion { get; set; }
+        public string Architecture { get; set; }
+        public bool InstallRequirements { get; set; }
+        public bool UseVEnv { get; set; }
+        public bool Global { get; set; }
+        public bool SetAsDefault { get; set; }
+        public bool SetAsCurrent { get; set; }
+        public bool OpenEnvironmentsWindow { get; set; }
+    }
+
+    sealed class AddExistingEnvInfo : PythonToolsLoggerData {
+        public bool Failed { get; set; }
+        public string LanguageVersion { get; set; }
+        public string Architecture { get; set; }
+        public bool Custom { get; set; }
+        public bool Global { get; set; }
     }
 }

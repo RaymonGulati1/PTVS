@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -25,12 +25,17 @@ using Microsoft.VisualStudio.Utilities;
 namespace Microsoft.PythonTools.Editor {
     [Export(typeof(ISmartIndentProvider))]
     [ContentType(PythonCoreConstants.ContentType)]
-    public sealed class SmartIndentProvider : ISmartIndentProvider {
+    sealed class SmartIndentProvider : ISmartIndentProvider {
         private readonly PythonToolsService _pyService;
+        private readonly PythonEditorServices _editorServices;
 
         [ImportingConstructor]
-        internal SmartIndentProvider([Import(typeof(SVsServiceProvider))] IServiceProvider serviceProvider) {
+        internal SmartIndentProvider(
+            [Import(typeof(SVsServiceProvider))] IServiceProvider serviceProvider,
+            PythonEditorServices editorServices
+        ) {
             _pyService = serviceProvider.GetPythonToolsService();
+            _editorServices = editorServices;
         }
 
         private sealed class Indent : ISmartIndent {
@@ -44,7 +49,7 @@ namespace Microsoft.PythonTools.Editor {
 
             public int? GetDesiredIndentation(ITextSnapshotLine line) {
                 if (_provider._pyService.LangPrefs.IndentMode == vsIndentStyle.vsIndentStyleSmart) {
-                    return AutoIndent.GetLineIndentation(line, _textView);
+                    return AutoIndent.GetLineIndentation(_provider._editorServices.GetBufferInfo(line.Snapshot.TextBuffer), line, _textView);
                 } else {
                     return null;
                 }

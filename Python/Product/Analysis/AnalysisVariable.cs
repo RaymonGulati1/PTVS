@@ -9,33 +9,41 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
-
 namespace Microsoft.PythonTools.Analysis {
     class AnalysisVariable : IAnalysisVariable {
-        private readonly LocationInfo _loc;
-        private readonly VariableType _type;
-
-        public AnalysisVariable(VariableType type, LocationInfo location) {
-            _loc = location;
-            _type = type;
+        public AnalysisVariable(VariableType type, LocationInfo location, int? version = null) {
+            Location = location;
+            Type = type;
+            Version = version;
         }
 
         #region IAnalysisVariable Members
 
-        public LocationInfo Location {
-            get { return _loc; }
-        }
+        public LocationInfo Location { get; }
 
-        public VariableType Type {
-            get { return _type; }
-        }
+        public VariableType Type { get; }
+
+        public int? Version { get; }
 
         #endregion
-    }
 
+        public override bool Equals(object obj) {
+            AnalysisVariable other = obj as AnalysisVariable;
+            if (other != null) {
+                return LocationInfo.FullComparer.Equals(Location, other.Location) &&
+                       Type.Equals(other.Type) &&
+                       Version == other.Version;
+            }
+            return false;
+        }
+
+        public override int GetHashCode() {
+            return Type.GetHashCode() ^ Location?.GetHashCode() ?? 0;
+        }
+    }
 }

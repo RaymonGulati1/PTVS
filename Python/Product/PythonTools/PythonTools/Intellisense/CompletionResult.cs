@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,30 +20,33 @@ using Microsoft.PythonTools.Interpreter;
 namespace Microsoft.PythonTools.Intellisense {
     using AP = AnalysisProtocol;
 
-    public sealed class CompletionResult {
-        private readonly string _completion;
-        private readonly PythonMemberType _memberType;
-        private readonly string _name, _doc;
+    sealed class CompletionResult {
         private readonly AP.CompletionValue[] _values;
 
         internal CompletionResult(string name, PythonMemberType memberType) {
-            _name = name;
-            _completion = name;
-            _memberType = memberType;
+            MergeKey = name ?? throw new ArgumentNullException(nameof(name));
+            Name = name;
+            Completion = name;
+            MemberType = memberType;
         }
 
-        internal CompletionResult(string name, string completion, string doc, PythonMemberType memberType, AP.CompletionValue[] values) {
-            _name = name;
-            _memberType = memberType;
-            _completion = completion;
-            _doc = doc;
+        internal CompletionResult(string mergeKey, string name, string completion, string doc, PythonMemberType memberType, AP.CompletionValue[] values) {
+            MergeKey = mergeKey ?? throw new ArgumentNullException(nameof(mergeKey));
+            Name = name ?? throw new ArgumentNullException(nameof(name));
+            Completion = completion ?? throw new ArgumentNullException(nameof(completion));
+            MemberType = memberType;
+            Documentation = doc;
             _values = values;
         }
 
-        public string Completion => _completion;
-        public string Documentation => _doc;
-        public PythonMemberType MemberType => _memberType;
-        public string Name => _name;
+        public string Completion { get; }
+        public string Documentation { get; }
+        public PythonMemberType MemberType { get; }
+        public string Name { get; }
+        /// <summary>
+        /// Items with the same merge key may be merged together.
+        /// </summary>
+        public string MergeKey { get; }
 
         internal AP.CompletionValue[] Values => _values ?? Array.Empty<AP.CompletionValue>();
     }

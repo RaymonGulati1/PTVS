@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,17 +21,17 @@ using System.Threading.Tasks;
 namespace Microsoft.PythonTools.Projects {
     public abstract class ProjectAnalyzer {
         /// <summary>
-        /// Registers a new extension with the project analyzer, looking the DLL from the specified
-        /// path and making available any exported IAnalysisExtensions.
+        /// Registers the extension type with the analyzer. The extension must have a
+        /// public default constructor, as it will be recreated in the out-of-process
+        /// analyzer.
         /// </summary>
-        /// <param name="path"></param>
-        public abstract void RegisterExtension(string path);
+        public abstract Task RegisterExtensionAsync(Type extensionType);
 
         /// <summary>
         /// Sends a command to an analysis extension with the specified input and returns
         /// the result.
         /// </summary>
-        /// <param name="extensionName">The name of the analysis extension, as exported with
+        /// <param name="extensionName">The name of the analysis extension, as attributed with
         /// AnalysisExtensionNameAttribute.</param>
         /// <param name="commandId">The command that the extension supports and will execute.</param>
         /// <param name="body">The input to the command.</param>

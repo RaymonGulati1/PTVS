@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,11 +17,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Microsoft.PythonTools.Infrastructure {
-    public static class EnumerableExtensions {
+    static class EnumerableExtensions {
         public static IEnumerable<T> MaybeEnumerate<T>(this IEnumerable<T> source) {
             return source ?? Enumerable.Empty<T>();
         }
@@ -89,6 +87,65 @@ namespace Microsoft.PythonTools.Infrastructure {
                 return source.TakeWhile(new TakeWhileCounter<T>((ulong)count).ShouldTake);
             }
             return Enumerable.Empty<T>();
+        }
+
+        public static int IndexOf<T>(this IEnumerable<T> source, T value) where T : IEquatable<T> {
+            return source.IndexOf(value, EqualityComparer<T>.Default);
+        }
+
+        public static int IndexOf<T>(this IEnumerable<T> source, T value, IEqualityComparer<T> comparer) {
+            int index = 0;
+            foreach (var v in source) {
+                if (comparer.Equals(value, v)) {
+                    return index;
+                }
+                index += 1;
+            }
+
+            return -1;
+        }
+
+        public static int IndexOf<T>(this IEnumerable<T> source, Func<T, bool> predicate) {
+            int index = 0;
+            foreach (var v in source) {
+                if (predicate(v)) {
+                    return index;
+                }
+                index += 1;
+            }
+
+            return -1;
+        }
+
+        public static IEnumerable<T> TraverseBreadthFirst<T>(this T root, Func<T, IEnumerable<T>> selectChildren) {
+            Queue<T> items = new Queue<T>();
+            items.Enqueue(root);
+            while (items.Count > 0) {
+                var item = items.Dequeue();
+                yield return item;
+
+                IEnumerable<T> childen = selectChildren(item);
+                if (childen == null) {
+                    continue;
+                }
+
+                foreach (var child in childen) {
+                    items.Enqueue(child);
+                }
+            }
+        }
+
+        public static IEnumerable<T> TraverseDepthFirst<T>(this T root, Func<T, IEnumerable<T>> selectChildren) {
+            yield return root;
+
+            var children = selectChildren(root);
+            if (children != null) {
+                foreach (T child in children) {
+                    foreach (T t in TraverseDepthFirst(child, selectChildren)) {
+                        yield return t;
+                    }
+                }
+            }
         }
     }
 }

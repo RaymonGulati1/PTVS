@@ -13,6 +13,9 @@
     <ProjectFile Include="VSInterpreters\VSInterpreters.csproj"/>
     <ProjectFile Include="Analyzer\Analyzer.csproj"/>
 
+    <ProjectFile Include="BuildTasks\BuildTasks.csproj"/>
+    <ProjectFile Include="BuildTasks\BuildTasks.Core.csproj"/>
+
     <ProjectFile Include="XamlDesignerSupport\XamlDesignerSupport.csproj"/>
 
     <ProjectFile Include="PyDebugAttach\PyDebugAttach.vcxproj"/>
@@ -20,13 +23,13 @@
     <ProjectFile Include="Attacher\Attacher.csproj"/>
     <ProjectFile Include="AttacherX86\AttacherX86.csproj"/>
     <ProjectFile Include="Debugger\Debugger.csproj"/>
+    <ProjectFile Include="Debugger.Concord\Debugger.Concord.csproj"/>
     
     <ProjectFile Include="EnvironmentsList\EnvironmentsList.csproj"/>
 
     <ProjectFile Include="TestAdapter\TestAdapter.csproj"/>
     <ProjectFile Include="TestAdapter.Analysis\TestAdapter.Analysis.csproj"/>
 
-    <ProjectFile Include="ImportWizard\ImportWizard.csproj"/>
     <ProjectFile Include="ProjectWizards\ProjectWizards.csproj"/>
 
     <ProjectFile Include="PythonTools\PythonTools.csproj"/>
@@ -38,17 +41,21 @@
     <ProjectFile Include="VsPyProf\VsPyProf.vcxproj"/>
     <ProjectFile Include="VsPyProf\VsPyProfX86.vcxproj"/>
     <ProjectFile Include="Profiling\Profiling.csproj"/>
+    <ProjectFile Include="ExternalProfilerDriver\ExternalProfilerDriver.csproj" Condition="'$(IncludeExternalProfilerDriver)' == 'True'"/>
 
     <ProjectFile Include="WebRole\WebRole.csproj"/>
+    <ProjectFile Include="Django.Analysis\Django.Analysis.csproj" Condition="'$(IncludeDjango)' == 'True' and '$(IncludeDjangoHtmlExtensions)' == 'True'" />
     <ProjectFile Include="Django\Django.csproj" Condition="'$(IncludeDjango)' == 'True'"/>
     <ProjectFile Include="Cookiecutter\Cookiecutter.csproj"/>
 
-    <ProjectFile Include="AnalysisBrowser\AnalysisBrowser.csproj" Condition="$(VSTarget) != '15.0'" />
-    <ProjectFile Include="AnalysisMemoryTester\AnalysisMemoryTester.csproj" Condition="$(VSTarget) != '15.0'" />
-    <ProjectFile Include="EnvironmentsListHost\EnvironmentsListHost.csproj" Condition="$(VSTarget) != '15.0'" />
-
-    <ProjectFile Include="Uwp\Uwp.csproj" Condition="'$(IncludeUwp)' == 'True'"/>
+    <ProjectFile Include="AnalysisMemoryTester\AnalysisMemoryTester.csproj" />
     
+    <ProjectFile Include="VCDebugLauncher\VCDebugLauncher.csproj" Condition="'$(IncludeVCDebugLauncher)' == 'True'"/>
+    <ProjectFile Include="Wsl\Wsl.csproj" Condition="'$(IncludeWsl)' == 'True'"/>
+    <ProjectFile Include="Miniconda\Miniconda.csproj" Condition="'$(IncludeMiniconda)' == 'True'"/>
+
+    <ProjectFile Include="LiveShare\LiveShare.csproj" Condition="'$(IncludeLiveShare)' == 'True'"/>
+
     <ProjectFile Include="Core\Core.csproj" />
     <ProjectFile Include="..\Templates\Templates.csproj" />
   </ItemGroup>

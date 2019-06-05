@@ -9,11 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
+
+using System;
 
 namespace Microsoft.PythonTools.Parsing.Ast {
     internal static class NodeAttributes {
@@ -100,11 +102,11 @@ namespace Microsoft.PythonTools.Parsing.Ast {
             }
         }
 
-        public static string GetProceedingWhiteSpace(this Node node, PythonAst ast) {
+        public static string GetPreceedingWhiteSpace(this Node node, PythonAst ast) {
             return GetWhiteSpace(node, ast, NodeAttributes.PreceedingWhiteSpace);
         }
 
-        public static string GetProceedingWhiteSpaceDefaultNull(this Node node, PythonAst ast) {
+        public static string GetPreceedingWhiteSpaceDefaultNull(this Node node, PythonAst ast) {
             return GetWhiteSpace(node, ast, NodeAttributes.PreceedingWhiteSpace, null);
         }
 

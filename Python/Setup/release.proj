@@ -8,18 +8,17 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ReleaseFile Include="$(SetupOutputPath)en-us\PythonToolsInstaller.msi" Condition="Exists('$(SetupOutputPath)en-us\PythonToolsInstaller.msi')">
-      <Name>PTVS$(_CBI) VS $(VSTargetName).msi</Name>
-    </ReleaseFile>
-    <ReleaseFile Include="$(SetupOutputPath)en-us\PythonToolsInstaller.msi" Condition="Exists('$(SetupOutputPath)en-us\PythonToolsInstaller.msi')">
-      <Name>PTVS$(_CBI.Replace(` `, `_`).Replace(`.`, `_`).Replace(`-`, `_`))_VS_$(VSTargetName).msi</Name>
-    </ReleaseFile>
-
     <ReleaseFile Include="$(SetupOutputPath)swix\*.vsix;$(SetupOutputPath)swix\*.vsman">
       <Name>%(Filename)%(Extension)</Name>
     </ReleaseFile>
+    <ReleaseFile Include="$(SetupOutputPath)Microsoft.PythonTools.Wsl.vsix" Condition="'$(IncludeWsl)' == 'True'">
+      <Name>%(Filename).VS$(VSTargetName)%(Extension)</Name>
+    </ReleaseFile>
     <ReleaseFile Include="swix\InstallIntoDev15.ps1">
       <Name>InstallIntoDev15.ps1</Name>
+    </ReleaseFile>
+    <ReleaseFile Include="swix\InstallIntoDev16.ps1">
+      <Name>InstallIntoDev16.ps1</Name>
     </ReleaseFile>
   </ItemGroup>
 

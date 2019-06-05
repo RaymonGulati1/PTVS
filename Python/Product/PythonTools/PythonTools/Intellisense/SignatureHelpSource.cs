@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -52,7 +52,7 @@ namespace Microsoft.PythonTools.Intellisense {
                 if (curSig != null) {
                     // save the current sig so we don't need to recalculate it (we can't set it until
                     // the signatures are added by our caller).
-                    session.Properties.AddProperty(typeof(PythonSignature), curSig);
+                    session.Properties?.AddProperty(typeof(PythonSignature), curSig);
                 }
             }
         }

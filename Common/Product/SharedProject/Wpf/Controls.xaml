@@ -220,6 +220,16 @@
         </Setter>
     </Style>
 
+    <Style x:Key="InfoPanel" TargetType="{x:Type Panel}">
+        <Setter Property="Background" Value="{DynamicResource {x:Static wpf:Controls.InfoBackgroundKey}}" />
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource {x:Static wpf:Controls.InfoTextKey}}" />
+        <Setter Property="img:ImageThemingUtilities.ImageBackgroundColor" Value="{DynamicResource {x:Static wpf:Controls.InfoBackgroundColorKey}}" />
+    </Style>
+
+    <Style x:Key="InfoText" TargetType="{x:Type TextBlock}" BasedOn="{StaticResource {x:Type TextBlock}}">
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static wpf:Controls.InfoTextKey}}" />
+    </Style>
+
     <Style TargetType="{x:Type GroupBox}">
         <Setter Property="Margin" Value="6" />
         <Setter Property="Padding" Value="6 3" />
@@ -290,20 +300,13 @@
             <Trigger Property="Command" Value="ApplicationCommands.Close">
                 <Setter Property="IsCancel" Value="True" />
             </Trigger>
-            <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{DynamicResource {x:Static wpf:Controls.ControlBackgroundHoverKey}}" />
-                <Setter Property="BorderBrush" Value="{DynamicResource {x:Static wpf:Controls.ControlBorderHoverKey}}" />
-                <Setter Property="img:ImageThemingUtilities.ImageBackgroundColor" Value="{DynamicResource {x:Static wpf:Controls.ControlBackgroundHoverColorKey}}" />
-            </Trigger>
-            <Trigger Property="IsPressed" Value="True">
-                <Setter Property="BorderBrush" Value="{DynamicResource {x:Static wpf:Controls.ControlBorderSelectedKey}}" />
-            </Trigger>
             <Trigger Property="IsKeyboardFocused" Value="True">
                 <Setter Property="BorderBrush" Value="{DynamicResource {x:Static wpf:Controls.ControlBorderKey}}" />
             </Trigger>
             <Trigger Property="IsMouseOver" Value="True" >
                 <Setter Property="BorderBrush" Value="{DynamicResource {x:Static wpf:Controls.ButtonBorderHoverKey}}" />
                 <Setter Property="Background" Value="{DynamicResource {x:Static wpf:Controls.ButtonBackgroundHoverKey}}" />
+                <Setter Property="Foreground" Value="{DynamicResource {x:Static wpf:Controls.ButtonForegroundHoverKey}}" />
                 <Setter Property="img:ImageThemingUtilities.ImageBackgroundColor" Value="{DynamicResource {x:Static wpf:Controls.ButtonBackgroundHoverColorKey}}" />
             </Trigger>
             <Trigger Property="IsPressed" Value="True" >
@@ -342,7 +345,8 @@
                 <ControlTemplate TargetType="{x:Type Button}">
                     <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}" RecognizesAccessKey="True" Height="Auto">
                         <ContentPresenter.Resources>
-                            <Style TargetType="{x:Type TextBlock}">
+                            <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="Foreground" Value="{Binding Foreground,RelativeSource={RelativeSource AncestorType=Button}}" />
                                 <Style.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
                                         <Setter Property="TextDecorations">
@@ -355,7 +359,7 @@
                                     </Trigger>
                                 </Style.Triggers>
                             </Style>
-                            <Style TargetType="{x:Type Label}">
+                            <Style TargetType="{x:Type Label}" BasedOn="{StaticResource {x:Type Label}}">
                                 <Setter Property="Foreground" Value="{Binding Foreground,RelativeSource={RelativeSource AncestorType=Button}}" />
                             </Style>
                         </ContentPresenter.Resources>
@@ -469,6 +473,7 @@
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource {x:Static wpf:Controls.ControlBackgroundHoverKey}}" />
                 <Setter Property="BorderBrush" Value="{DynamicResource {x:Static wpf:Controls.ControlBorderHoverKey}}" />
+                <Setter Property="Foreground" Value="{DynamicResource {x:Static wpf:Controls.ControlForegroundHoverKey}}" />
                 <Setter Property="img:ImageThemingUtilities.ImageBackgroundColor" Value="{DynamicResource {x:Static wpf:Controls.ControlBackgroundHoverColorKey}}" />
             </Trigger>
             <Trigger Property="IsExpanded" Value="True">
@@ -497,30 +502,36 @@
             <Trigger Property="AcceptsReturn" Value="False">
                 <Setter Property="VerticalContentAlignment" Value="Center" />
             </Trigger>
-            <MultiTrigger>
-                <MultiTrigger.Conditions>
-                    <Condition Property="AcceptsReturn" Value="True" />
-                    <Condition Property="IsMouseOver" Value="True" />
-                </MultiTrigger.Conditions>
-                <MultiTrigger.Setters>
-                    <Setter Property="Background" Value="{DynamicResource {x:Static wpf:Controls.ControlBackgroundHoverKey}}" />
-                    <Setter Property="img:ImageThemingUtilities.ImageBackgroundColor" Value="{DynamicResource {x:Static wpf:Controls.ControlBackgroundHoverColorKey}}" />
-                </MultiTrigger.Setters>
-            </MultiTrigger>
         </Style.Triggers>
     </Style>
 
     <!-- see also https://msdn.microsoft.com/en-us/library/ms752048(v=vs.100).aspx -->
     <Style TargetType="{x:Type TreeView}" BasedOn="{StaticResource ControlNoHover}">
         <Setter Property="Background" Value="{DynamicResource {x:Static wpf:Controls.TreeViewBackgroundKey}}" />
-        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="KeyboardNavigation.TabNavigation" Value="Local" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type TreeView}">
+                    <Border Name="Border" 
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            Background="{TemplateBinding Background}">
+                        <ScrollViewer Focusable="False" CanContentScroll="False" Padding="4">
+                            <ItemsPresenter KeyboardNavigation.IsTabStop="True" />
+                        </ScrollViewer>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style TargetType="{x:Type TreeViewItem}">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Foreground" Value="{DynamicResource {x:Static wpf:Controls.TreeViewForegroundKey}}" />
-        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusVisualStyle}" />
+        <Setter Property="KeyboardNavigation.IsTabStop" Value="False" />
+        <Setter Property="KeyboardNavigation.TabNavigation" Value="Continue"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TreeViewItem">
@@ -585,6 +596,7 @@
 
                         <ToggleButton x:Name="ExpanderButton" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsTabStop="False"
                                       IsChecked="{Binding IsExpanded,Mode=TwoWay,RelativeSource={RelativeSource TemplatedParent}}"
+                                      Focusable="False"
                                       Foreground="{TemplateBinding Foreground}">
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
@@ -628,8 +640,7 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                Margin="0" Padding="{TemplateBinding Padding}"
-                                FocusVisualStyle="{x:Null}">
+                                Margin="0" Padding="{TemplateBinding Padding}">
                             <Grid>
                                 <Button x:Name="Header"
                                         ClickMode="Hover"
@@ -640,8 +651,7 @@
                                         HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                         VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                         Margin="0"
-                                        IsTabStop="False"
-                                        FocusVisualStyle="{TemplateBinding FocusVisualStyle}">
+                                        IsTabStop="False">
                                     <Button.Template>
                                         <ControlTemplate TargetType="Button">
                                             <Grid Background="{TemplateBinding Background}">
@@ -686,7 +696,8 @@
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     </Style>
     <Style TargetType="{x:Type ListBoxItem}">
-        <Setter Property="Background" Value="{x:Null}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="IsHitTestVisible" Value="True" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ListBoxItem">
@@ -700,10 +711,11 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter Property="Background" Value="{DynamicResource {x:Static wpf:Controls.HotTrackKey}}" />
+                            <Setter Property="Foreground" Value="{DynamicResource {x:Static wpf:Controls.HotTrackTextKey}}" />
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter Property="Background" Value="{DynamicResource {x:Static wpf:Controls.HighlightKey}}" />
-                            <Setter Property="Foreground" Value="{DynamicResource {x:Static wpf:Controls.HighlightTextKey}}" />
+                            <Setter Property="Background" Value="{DynamicResource {x:Static wpf:Controls.ListBoxItemSelectedKey}}" />
+                            <Setter Property="Foreground" Value="{DynamicResource {x:Static wpf:Controls.ListBoxItemSelectedTextKey}}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -779,6 +791,14 @@
                             <Setter Property="Opacity" TargetName="optionMark" Value="0" />
                             <Setter Property="Opacity" TargetName="indeterminateMark" Value="1" />
                         </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="optionMark" Property="Fill" Value="{DynamicResource {x:Static wpf:Controls.ControlForegroundHoverKey}}" />
+                            <Setter TargetName="indeterminateMark" Property="Fill" Value="{DynamicResource {x:Static wpf:Controls.ControlForegroundHoverKey}}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="optionMark" Property="Fill" Value="{DynamicResource {x:Static wpf:Controls.ControlForegroundPressedKey}}" />
+                            <Setter TargetName="indeterminateMark" Property="Fill" Value="{DynamicResource {x:Static wpf:Controls.ControlForegroundPressedKey}}" />
+                        </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
@@ -851,6 +871,12 @@
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter Property="Opacity" TargetName="optionMark" Value="1" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="optionMark" Property="Fill" Value="{DynamicResource {x:Static wpf:Controls.ControlForegroundHoverKey}}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="optionMark" Property="Fill" Value="{DynamicResource {x:Static wpf:Controls.ControlForegroundPressedKey}}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -1065,6 +1091,7 @@
                                       BorderThickness="{TemplateBinding BorderThickness}"
                                       Background="{TemplateBinding Background}"
                                       Foreground="{TemplateBinding Foreground}"
+                                      TextElement.Foreground="{TemplateBinding Foreground}"
                                       Grid.ColumnSpan="2"
                                       IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
                             <ToggleButton.Style>
@@ -1112,7 +1139,13 @@
                                           HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                           IsHitTestVisible="False"
                                           Margin="{TemplateBinding Padding}"
-                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}">
+                            <ContentPresenter.Resources>
+                                <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                    <Setter Property="Foreground" Value="{Binding Foreground,RelativeSource={RelativeSource AncestorType=ComboBox}}" />
+                                </Style>
+                            </ContentPresenter.Resources>
+                        </ContentPresenter>
                     </Grid>
                     <ControlTemplate.Triggers>
                         <MultiTrigger>
@@ -1124,6 +1157,8 @@
                         </MultiTrigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter Property="Background" Value="{DynamicResource {x:Static wpf:Controls.ControlBackgroundHoverKey}}" />
+                            <Setter Property="Foreground" Value="{DynamicResource {x:Static wpf:Controls.ControlForegroundHoverKey}}" />
+                            <Setter Property="TextElement.Foreground" Value="{DynamicResource {x:Static wpf:Controls.ControlForegroundHoverKey}}" />
                         </Trigger>
                         <Trigger Property="HasItems" Value="False">
                             <Setter Property="Height" TargetName="DropDownBorder" Value="95" />
@@ -1293,8 +1328,9 @@
                         </Grid.ColumnDefinitions>
 
                         <TextBox Grid.Column="0"
-                                 x:Name="_TextBox"
+                                 x:Name="PART_ComboBox"
                                  Margin="4 4 1 4"
+                                 MinHeight="24"
                                  VerticalAlignment="Stretch"
                                  Style="{StaticResource {x:Type TextBox}}"
                                  AutomationProperties.Name="{TemplateBinding AutomationProperties.Name}"
@@ -1314,7 +1350,7 @@
                         </TextBox>
 
                         <TextBlock Grid.Column="0"
-                                   x:Name="_Watermark"
+                                   x:Name="PART_Watermark"
                                    Foreground="{DynamicResource {x:Static wpf:Controls.GrayTextKey}}"
                                    HorizontalAlignment="Left"
                                    VerticalAlignment="Center"
@@ -1324,24 +1360,25 @@
                                    Text="{TemplateBinding Watermark}" />
 
                         <Button Grid.Column="1"
-                                x:Name="_Browse"
-                                Margin="1 4 4 4"
+                                x:Name="PART_BrowseButton"
+                                Margin="4 4 4 4"
+                                MinHeight="24"
                                 VerticalAlignment="Center"
                                 Style="{TemplateBinding BrowseButtonStyle}"
                                 AutomationProperties.Name="{TemplateBinding BrowseAutomationName}"
                                 CommandParameter="{TemplateBinding BrowseCommandParameter}"
-                                CommandTarget="{Binding ElementName=_TextBox}" />
+                                CommandTarget="{Binding ElementName=PART_ComboBox}" />
                     </Grid>
 
                     <ControlTemplate.Triggers>
-                        <Trigger SourceName="_TextBox" Property="Text" Value="">
-                            <Setter TargetName="_Watermark" Property="Visibility" Value="Visible" />
+                        <Trigger SourceName="PART_ComboBox" Property="Text" Value="">
+                            <Setter TargetName="PART_Watermark" Property="Visibility" Value="Visible" />
                         </Trigger>
-                        <Trigger SourceName="_TextBox" Property="IsReadOnly" Value="True">
-                            <Setter TargetName="_Browse" Property="Visibility" Value="Collapsed" />
+                        <Trigger SourceName="PART_ComboBox" Property="IsReadOnly" Value="True">
+                            <Setter TargetName="PART_BrowseButton" Property="Visibility" Value="Collapsed" />
                         </Trigger>
-                        <Trigger SourceName="_Browse" Property="Style" Value="{x:Null}">
-                            <Setter TargetName="_Browse" Property="Visibility" Value="Collapsed" />
+                        <Trigger SourceName="PART_BrowseButton" Property="Style" Value="{x:Null}">
+                            <Setter TargetName="PART_BrowseButton" Property="Visibility" Value="Collapsed" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -1361,7 +1398,7 @@
                         </Grid.ColumnDefinitions>
 
                         <ComboBox Grid.Column="0"
-                                  x:Name="_ComboBox"
+                                  x:Name="PART_ComboBox"
                                   IsEditable="False"
                                   Margin="4 4 1 4"
                                   VerticalAlignment="Center"

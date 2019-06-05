@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -35,13 +35,13 @@ namespace Microsoft {
             _mappedType = mappedType;
         }
 
-        public override void Register(RegistrationAttribute.RegistrationContext context) {
+        public override void Register(RegistrationContext context) {
             using (Key key = context.CreateKey("Diff\\SupportedContentTypes")) {
                 key.SetValue(_contentType, _mappedType);
             }
         }
 
-        public override void Unregister(RegistrationAttribute.RegistrationContext context) {
+        public override void Unregister(RegistrationContext context) {
         }
     }
 }

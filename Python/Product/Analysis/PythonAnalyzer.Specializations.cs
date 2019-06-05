@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -22,6 +22,7 @@ using System.Linq;
 using System.Threading;
 using Microsoft.PythonTools.Analysis.Analyzer;
 using Microsoft.PythonTools.Analysis.Values;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Parsing.Ast;
@@ -48,7 +49,7 @@ namespace Microsoft.PythonTools.Analysis {
         /// <remarks>New in 2.0</remarks>
         public void SpecializeFunction(string moduleName, string name, string returnType, bool mergeOriginalAnalysis = false) {
             if (returnType.LastIndexOf('.') == -1) {
-                throw new ArgumentException(String.Format("Expected module.typename for return type, got '{0}'", returnType));
+                throw new ArgumentException("Expected module.typename for return type, got '{0}'".FormatInvariant(returnType));
             }
 
             SpecializeFunction(moduleName, name, (n, u, a, k) => u.FindAnalysisValueByName(n, returnType), mergeOriginalAnalysis, true);
@@ -133,19 +134,55 @@ namespace Microsoft.PythonTools.Analysis {
             }
         }
 
-
-
         void AddBuiltInSpecializations() {
-            SpecializeFunction(_builtinName, "range", RangeConstructor);
-            SpecializeFunction(_builtinName, "min", ReturnUnionOfInputs);
-            SpecializeFunction(_builtinName, "max", ReturnUnionOfInputs);
+            SpecializeFunction(_builtinName, "abs", Identity);
+            SpecializeFunction(_builtinName, "all", ReturnsBool);
+            SpecializeFunction(_builtinName, "any", ReturnsBool);
+            SpecializeFunction(_builtinName, "ascii", ReturnsString);
+            SpecializeFunction(_builtinName, "bin", ReturnsString);
+            SpecializeFunction(_builtinName, "callable", ReturnsBool);
+            SpecializeFunction(_builtinName, "chr", ReturnsString);
+            if (LanguageVersion.Is2x()) {
+                SpecializeFunction(_builtinName, "cmp", ReturnsInt);
+            }
+            //SpecializeFunction(_builtinName, "compile", null);
+            SpecializeFunction(_builtinName, "dir", ReturnsListOfString);
+            //SpecializeFunction(_builtinName, "divmod", null);
+            SpecializeFunction(_builtinName, "eval", ReturnsObject);
+            //SpecializeFunction(_builtinName, "exec", null);
+            SpecializeFunction(_builtinName, "format", ReturnsString);
             SpecializeFunction(_builtinName, "getattr", SpecialGetAttr);
-            SpecializeFunction(_builtinName, "setattr", SpecialSetAttr);
-            SpecializeFunction(_builtinName, "next", SpecialNext);
+            SpecializeFunction(_builtinName, "globals", ReturnsStringToObjectDict);
+            SpecializeFunction(_builtinName, "hasattr", ReturnsBool);
+            SpecializeFunction(_builtinName, "hash", ReturnsInt);
+            SpecializeFunction(_builtinName, "hex", ReturnsString);
+            SpecializeFunction(_builtinName, "id", ReturnsInt);
+            if (LanguageVersion.Is3x()) {
+                SpecializeFunction(_builtinName, "input", ReturnsString);
+            } else {
+                SpecializeFunction(_builtinName, "input", ReturnsObject);
+                SpecializeFunction(_builtinName, "raw_input", ReturnsString);
+            }
+            SpecializeFunction(_builtinName, "isinstance", ReturnsBool);
+            SpecializeFunction(_builtinName, "issubclass", ReturnsBool);
             SpecializeFunction(_builtinName, "iter", SpecialIter);
+            SpecializeFunction(_builtinName, "len", ReturnsInt);
+            SpecializeFunction(_builtinName, "locals", ReturnsStringToObjectDict);
+            SpecializeFunction(_builtinName, "max", ReturnUnionOfInputs);
+            SpecializeFunction(_builtinName, "min", ReturnUnionOfInputs);
+            SpecializeFunction(_builtinName, "next", SpecialNext);
+            SpecializeFunction(_builtinName, "oct", ReturnsString);
+            SpecializeFunction(_builtinName, "open", SpecialOpen);
+            SpecializeFunction(_builtinName, "ord", ReturnsInt);
+            SpecializeFunction(_builtinName, "pow", ReturnUnionOfInputs);
+            SpecializeFunction(_builtinName, "range", RangeConstructor);
+            SpecializeFunction(_builtinName, "repr", ReturnsString);
+            SpecializeFunction(_builtinName, "round", SpecialRound);
+            SpecializeFunction(_builtinName, "setattr", SpecialSetAttr);
+            SpecializeFunction(_builtinName, "sorted", ReturnsListOfInputIterable);
+            SpecializeFunction(_builtinName, "sum", ReturnUnionOfInputs);
             SpecializeFunction(_builtinName, "super", SpecialSuper);
             SpecializeFunction(_builtinName, "vars", ReturnsStringToObjectDict);
-            SpecializeFunction(_builtinName, "dir", ReturnsListOfString);
 
             // analyzing the copy module causes an explosion in types (it gets called w/ all sorts of types to be
             // copied, and always returns the same type).  So we specialize these away so they return the type passed
@@ -180,12 +217,14 @@ namespace Microsoft.PythonTools.Analysis {
             SpecializeFunction("unittest", "skipIf", IdentityDecorator);
             SpecializeFunction("unittest", "skipUnless", IdentityDecorator);
 
-            // cached for quick checks to see if we're a call to clr.AddReference
-
-            SpecializeFunction("wpf", "LoadComponent", LoadComponent);
+            // These are also specially handled in Function
+            SpecializeFunction("abc", "abstractmethod", IdentityDecorator);
+            SpecializeFunction("abc", "abstractclassmethod", IdentityDecorator);
+            SpecializeFunction("abc", "abstractstaticmethod", IdentityDecorator);
+            SpecializeFunction("abc", "abstractproperty", IdentityDecorator);
         }
 
-        private static IAnalysisSet GetArg(
+        internal static IAnalysisSet GetArg(
             IAnalysisSet[] args,
             NameExpression[] keywordArgNames,
             string name,
@@ -224,13 +263,13 @@ namespace Microsoft.PythonTools.Analysis {
             if (args[0].GetMember(node, unit, "__call__").Any()) {
                 return args[0];
             }
-            return unit.ProjectState.GetCached(" PythonAnalyzer.Identity()", () => {
+            return unit.State.GetCached(" PythonAnalyzer.Identity()", () => {
                 return new SpecializedCallable(null, Identity, false);
             });
         }
 
         IAnalysisSet RangeConstructor(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
-            return unit.Scope.GetOrMakeNodeValue(node, NodeValueKind.Range, (nn) => new RangeInfo(unit.ProjectState.Types[BuiltinTypeId.List], unit.ProjectState));
+            return unit.Scope.GetOrMakeNodeValue(node, NodeValueKind.Range, (nn) => new RangeInfo(unit.State.Types[BuiltinTypeId.List], unit.State));
         }
 
         IAnalysisSet CopyFunction(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
@@ -240,21 +279,33 @@ namespace Microsoft.PythonTools.Analysis {
             return AnalysisSet.Empty;
         }
 
+        IAnalysisSet ReturnsObject(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+            return unit.State.ClassInfos[BuiltinTypeId.Object].Instance;
+        }
+
+        IAnalysisSet ReturnsBool(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+            return unit.State.ClassInfos[BuiltinTypeId.Bool].Instance;
+        }
+
+        IAnalysisSet ReturnsInt(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+            return unit.State.ClassInfos[BuiltinTypeId.Int].Instance;
+        }
+
         IAnalysisSet ReturnsBytes(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
-            return unit.ProjectState.ClassInfos[BuiltinTypeId.Bytes].Instance;
+            return unit.State.ClassInfos[BuiltinTypeId.Bytes].Instance;
         }
 
         IAnalysisSet ReturnsString(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
-            return unit.ProjectState.ClassInfos[BuiltinTypeId.Str].Instance;
+            return unit.State.ClassInfos[BuiltinTypeId.Str].Instance;
         }
 
         IAnalysisSet ReturnsListOfString(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             return unit.Scope.GetOrMakeNodeValue(node, NodeValueKind.ListOfString, n => {
                 var vars = new VariableDef();
-                vars.AddTypes(unit, unit.ProjectState.ClassInfos[BuiltinTypeId.Str].Instance);
+                vars.AddTypes(unit, unit.State.ClassInfos[BuiltinTypeId.Str].Instance);
                 return new ListInfo(
                     new[] { vars },
-                    unit.ProjectState.ClassInfos[BuiltinTypeId.List],
+                    unit.State.ClassInfos[BuiltinTypeId.List],
                     node,
                     unit.ProjectEntry
                 );
@@ -267,12 +318,13 @@ namespace Microsoft.PythonTools.Analysis {
                 dict.AddTypes(
                     node,
                     unit,
-                    unit.ProjectState.ClassInfos[BuiltinTypeId.Str].Instance,
-                    unit.ProjectState.ClassInfos[BuiltinTypeId.Object].Instance
+                    unit.State.ClassInfos[BuiltinTypeId.Str].Instance,
+                    unit.State.ClassInfos[BuiltinTypeId.Object].Instance
                 );
                 return dict;
             });
         }
+
 
         IAnalysisSet SpecialGetAttr(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             var res = AnalysisSet.Empty;
@@ -308,7 +360,7 @@ namespace Microsoft.PythonTools.Analysis {
 
         IAnalysisSet SpecialNext(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             if (args.Length > 0) {
-                var nextName = (unit.ProjectState.LanguageVersion.Is3x()) ? "__next__" : "next";
+                var nextName = (unit.State.LanguageVersion.Is3x()) ? "__next__" : "next";
                 var newArgs = args.Skip(1).ToArray();
                 var newNames = (keywordArgNames.Any()) ? keywordArgNames.Skip(1).ToArray() : keywordArgNames;
 
@@ -325,7 +377,7 @@ namespace Microsoft.PythonTools.Analysis {
             } else if (args.Length == 2) {
 
                 var iterator = unit.Scope.GetOrMakeNodeValue(node, NodeValueKind.Iterator, n => {
-                    return new SingleIteratorValue(new VariableDef(), unit.ProjectState.ClassInfos[BuiltinTypeId.CallableIterator], unit.ProjectEntry);
+                    return new SingleIteratorValue(new VariableDef(), unit.State.ClassInfos[BuiltinTypeId.CallableIterator], unit.ProjectEntry);
                 });
                 foreach (var iter in iterator.OfType<SingleIteratorValue>()) {
                     // call the callable object
@@ -346,7 +398,7 @@ namespace Microsoft.PythonTools.Analysis {
             var instances = AnalysisSet.Empty;
 
             if (args.Length == 0) {
-                if (unit.ProjectState.LanguageVersion.Is3x()) {
+                if (unit.State.LanguageVersion.Is3x()) {
                     // No-arg version is magic in 3k - first arg is implicitly the enclosing class, and second is implicitly
                     // the first argument of the enclosing method. Look up that information from the scope.
                     // We want to find the nearest enclosing class scope, and the function scope that is immediately beneath
@@ -367,7 +419,7 @@ namespace Microsoft.PythonTools.Analysis {
                     if (classScope != null && funcScope != null) {
                         classes = classScope.Class.SelfSet;
                         // Get first arg of function.
-                        if (funcScope.Function.FunctionDefinition.Parameters.Count > 0) {
+                        if (funcScope.Function.FunctionDefinition.ParametersInternal.Length > 0) {
                             instances = classScope.Class.Instance.SelfSet;
                         }
                     }
@@ -421,13 +473,13 @@ namespace Microsoft.PythonTools.Analysis {
             }
 
             wrapper.SetMember(node, unit, "__wrapped__", wrapped);
-            
+
             var assignedItems = (assigned != null) ?
                 IterateStringConstants(unit, assigned.IndexTypes) :
                 new[] { "__module__", "__name__", "__qualname__", "__doc__", "__annotations__" };
 
             foreach (var attr in assignedItems) {
-                var member = wrapped.GetMember(node, unit, attr);
+                var member = wrapped.GetMember(node, unit, attr).Resolve(unit);
                 if (member != null && member.Any()) {
                     wrapper.SetMember(node, unit, attr, member);
                 }
@@ -438,9 +490,9 @@ namespace Microsoft.PythonTools.Analysis {
                 new[] { "__dict__" };
 
             foreach (var attr in updatedItems) {
-                var member = wrapped.GetMember(node, unit, attr);
+                var member = wrapped.GetMember(node, unit, attr).Resolve(unit);
                 if (member != null && member.Any()) {
-                    var existing = wrapper.GetMember(node, unit, attr);
+                    var existing = wrapper.GetMember(node, unit, attr).Resolve(unit);
                     if (existing != null) {
                         var updateMethod = existing.GetMember(node, unit, "update");
                         if (updateMethod != null) {
@@ -468,7 +520,7 @@ namespace Microsoft.PythonTools.Analysis {
                     return AnalysisSet.Empty;
                 }
 
-                var newArgs = new [] {
+                var newArgs = new[] {
                     args[0],
                     args.Length > 1 ? args[1] : AnalysisSet.Empty,
                     args.Length > 2 ? args[2] : AnalysisSet.Empty
@@ -499,102 +551,46 @@ namespace Microsoft.PythonTools.Analysis {
             });
         }
 
+        IAnalysisSet SpecialRound(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+            if (args.Length == 0) {
+                return AnalysisSet.Empty;
+            }
+            if (args[0].Any(a => a.TypeId == BuiltinTypeId.Int || a.TypeId == BuiltinTypeId.Float)) {
+                if (args.Length == 2 || unit.State.LanguageVersion.Is2x()) {
+                    return unit.State.ClassInfos[BuiltinTypeId.Float].Instance;
+                }
+                return args[0];
+            }
+            return AnalysisSet.Empty;
+        }
+
         IAnalysisSet ReturnUnionOfInputs(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             return AnalysisSet.UnionAll(args);
         }
 
+        IAnalysisSet ReturnsListOfInputIterable(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+            // TODO: Grab the input iterable and create a list containing them
+            return unit.State.ClassInfos[BuiltinTypeId.List].Instance;
+        }
 
-        IAnalysisSet LoadComponent(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
-            if (args.Length == 2 && unit.ProjectState.Interpreter is IDotNetPythonInterpreter) {
-                var self = args[0];
-                var xaml = args[1];
+        IAnalysisSet SpecialOpen(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+            var mode = GetArg(args, keywordArgNames, "mode", 1);
 
-                foreach (var arg in xaml) {
-                    var strConst = arg.GetConstantValueAsString();
-                    if (string.IsNullOrEmpty(strConst)) {
-                        continue;
-                    }
-
-                    // process xaml file, add attributes to self
-                    string xamlPath = Path.Combine(Path.GetDirectoryName(unit.DeclaringModule.ProjectEntry.FilePath), strConst);
-                    XamlProjectEntry xamlProject;
-                    if (unit.ProjectState._xamlByFilename.TryGetValue(xamlPath, out xamlProject)) {
-                        // TODO: Get existing analysis if it hasn't changed.
-                        var analysis = xamlProject.Analysis;
-
-                        if (analysis == null) {
-                            xamlProject.Analyze(CancellationToken.None);
-                            analysis = xamlProject.Analysis;
-                        }
-
-                        xamlProject.AddDependency(unit.ProjectEntry);
-
-                        var evalUnit = unit.CopyForEval();
-
-                        // add named objects to instance
-                        foreach (var keyValue in analysis.NamedObjects) {
-                            var type = keyValue.Value;
-                            if (type.Type.UnderlyingType != null) {
-
-                                var ns = unit.ProjectState.GetAnalysisValueFromObjects(((IDotNetPythonInterpreter)unit.ProjectState.Interpreter).GetBuiltinType(type.Type.UnderlyingType));
-                                var bci = ns as BuiltinClassInfo;
-                                if (bci != null) {
-                                    ns = bci.Instance;
-                                }
-                                self.SetMember(node, evalUnit, keyValue.Key, ns.SelfSet);
-                            }
-
-                            // TODO: Better would be if SetMember took something other than a node, then we'd
-                            // track references w/o this extra effort.
-                            foreach (var inst in self) {
-                                InstanceInfo instInfo = inst as InstanceInfo;
-                                if (instInfo != null && instInfo.InstanceAttributes != null) {
-                                    VariableDef def;
-                                    if (instInfo.InstanceAttributes.TryGetValue(keyValue.Key, out def)) {
-                                        def.AddAssignment(
-                                            new EncodedLocation(
-                                                new LocationInfo(xamlProject.FilePath, type.LineNumber, type.LineOffset),
-                                                null
-                                            ),
-                                            xamlProject
-                                        );
-                                    }
-                                }
-                            }
-                        }
-
-                        // add references to event handlers
-                        foreach (var keyValue in analysis.EventHandlers) {
-                            // add reference to methods...
-                            var member = keyValue.Value;
-
-                            // TODO: Better would be if SetMember took something other than a node, then we'd
-                            // track references w/o this extra effort.
-                            foreach (var inst in self) {
-                                InstanceInfo instInfo = inst as InstanceInfo;
-                                if (instInfo != null) {
-                                    ClassInfo ci = instInfo.ClassInfo;
-
-                                    VariableDef def;
-                                    if (ci.Scope.TryGetVariable(keyValue.Key, out def)) {
-                                        def.AddReference(
-                                            new EncodedLocation(
-                                                new LocationInfo(xamlProject.FilePath, member.LineNumber, member.LineOffset),
-                                                null
-                                            ),
-                                            xamlProject
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
+            bool bytes = false;
+            foreach (var m in (mode?.GetConstantValueAsString()).MaybeEnumerate()) {
+                if (m.Contains("b")) {
+                    bytes = true;
+                    break;
                 }
-                // load component returns self
-                return self;
             }
 
-            return AnalysisSet.Empty;
+            ModuleReference modRef;
+            if (!unit.State.Modules.TryImport("io", out modRef)) {
+                return unit.State.ClassInfos[BuiltinTypeId.Object].Instance;
+            }
+
+            var memb = modRef.Module.GetModuleMember(node, unit, bytes ? "BufferedIOBase" : "TextIOWrapper", addRef: false);
+            return memb?.GetInstanceType() ?? unit.State.ClassInfos[BuiltinTypeId.Object].Instance;
         }
     }
 }

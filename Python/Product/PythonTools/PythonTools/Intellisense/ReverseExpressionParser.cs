@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,6 +17,7 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.PythonTools.Analysis;
+using Microsoft.PythonTools.Editor;
 using Microsoft.VisualStudio.Language.StandardClassification;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
@@ -47,17 +48,10 @@ namespace Microsoft.PythonTools.Intellisense {
 
             var targetSpan = new Span(line.Start.Position, span.GetEndPoint(snapshot).Position - line.Start.Position);
 
-            if (!_buffer.Properties.TryGetProperty(typeof(PythonClassifier), out _classifier) || _classifier == null) {
+            _classifier = _buffer.GetPythonClassifier();
+            if (_classifier == null) {
                 throw new ArgumentException(Strings.ReverseExpressionParserFailedToGetClassifierFromBufferException);
             }
-        }
-
-        public SnapshotSpan? GetExpressionRange(bool forCompletion = true, int nesting = 0) {
-            int dummy;
-            SnapshotPoint? dummyPoint;
-            string lastKeywordArg;
-            bool isParameterName;
-            return GetExpressionRange(nesting, out dummy, out dummyPoint, out lastKeywordArg, out isParameterName, forCompletion);
         }
 
         internal static IEnumerator<ClassificationSpan> ForwardClassificationSpanEnumerator(PythonClassifier classifier, SnapshotPoint startPoint) {
@@ -180,6 +174,7 @@ namespace Microsoft.PythonTools.Intellisense {
         /// <param name="nesting">1 if we have an opening parenthesis for sig completion</param>
         /// <param name="paramIndex">The current parameter index.</param>
         /// <returns></returns>
+        [Obsolete("Use GetExpressionAtPoint instead")]
         public SnapshotSpan? GetExpressionRange(int nesting, out int paramIndex, out SnapshotPoint? sigStart, out string lastKeywordArg, out bool isParameterName, bool forCompletion = true) {
             SnapshotSpan? start = null;
             paramIndex = 0;
@@ -390,13 +385,18 @@ namespace Microsoft.PythonTools.Intellisense {
             }
 
             if (start.HasValue && lastToken != null && (lastToken.Span.End.Position - start.Value.Start.Position) >= 0) {
-                return new SnapshotSpan(
+                var spanToReturn = new SnapshotSpan(
                     Snapshot,
                     new Span(
                         start.Value.Start.Position,
                         lastToken.Span.End.Position - start.Value.Start.Position
                     )
                 );
+                // To handle a case where a space is returned for displaying the type signature.
+                if (string.IsNullOrWhiteSpace(spanToReturn.GetText())) {
+                    return null;
+                }
+                return spanToReturn;
             }
 
             return _span.GetSpan(_snapshot);
@@ -449,6 +449,31 @@ namespace Microsoft.PythonTools.Intellisense {
             return ReverseClassificationSpanEnumerator(Classifier, _span.GetSpan(_snapshot).End);
         }
 
+        internal static bool IsInGrouping(ITextSnapshot snapshot, IEnumerable<TrackingTokenInfo> tokensInReverse) {
+            int nesting = 0;
+            foreach (var token in tokensInReverse) {
+                if (token.Category == Parsing.TokenCategory.Grouping) {
+                    var t = token.GetText(snapshot);
+                    if (t.IsCloseGrouping()) {
+                        nesting++;
+                    } else if (t.IsOpenGrouping()) {
+                        if (nesting-- == 0) {
+                            return true;
+                        }
+                    }
+                } else if (token.Category == Parsing.TokenCategory.Delimiter) {
+                    if (nesting == 0 && token.GetText(snapshot) == ",") {
+                        return true;
+                    }
+                } else if (token.Category == Parsing.TokenCategory.Keyword) {
+                    if (PythonKeywords.IsOnlyStatementKeyword(token.GetText(snapshot))) {
+                        return false;
+                    }
+                }
+            }
+            return false;
+        }
+
         internal bool IsInGrouping() {
             // We assume that groupings are correctly matched and keep a simple
             // nesting count.
@@ -462,6 +487,12 @@ namespace Microsoft.PythonTools.Intellisense {
                     nesting++;
                 } else if (token.IsOpenGrouping()) {
                     if (nesting-- == 0) {
+                        return true;
+                    }
+                } else if (token.ClassificationType.IsOfType(PythonPredefinedClassificationTypeNames.Comma)) {
+                    if (nesting == 0) {
+                        // A preceding comma at our level is only valid in a
+                        // grouping.
                         return true;
                     }
                 } else if (token.ClassificationType.IsOfType(PredefinedClassificationTypeNames.Keyword) &&

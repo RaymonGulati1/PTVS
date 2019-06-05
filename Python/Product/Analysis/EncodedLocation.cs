@@ -9,12 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using System.Diagnostics;
 
 namespace Microsoft.PythonTools.Analysis {
     /// <summary>
@@ -34,21 +35,28 @@ namespace Microsoft.PythonTools.Analysis {
     /// storing the line/column info directly while still allowing multiple schemes
     /// to be used.
     /// </summary>
-    struct EncodedLocation : IEquatable<EncodedLocation> {
+    public struct EncodedLocation : IEquatable<EncodedLocation>, ICanExpire {
         public readonly ILocationResolver Resolver;
         public readonly object Location;
 
         public EncodedLocation(ILocationResolver resolver, object location) {
+            if (resolver == null && !(location is LocationInfo)) {
+                throw new ArgumentNullException(nameof(resolver));
+            }
+
+            for (var r = resolver; r != null; r = r.GetAlternateResolver()) {
+                resolver = r;
+            }
+            Debug.Assert(resolver != null);
+
             Resolver = resolver;
             Location = location;
         }
 
-        public override int GetHashCode() {
-            if (Location != null) {
-                return Resolver.GetHashCode() ^ Location.GetHashCode();
-            }
+        public bool IsAlive => (Resolver as ICanExpire)?.IsAlive ?? true;
 
-            return Resolver.GetHashCode();
+        public override int GetHashCode() {
+            return (Resolver?.GetHashCode() ?? 0) ^ (Location?.GetHashCode() ?? 0);
         }
 
         public override bool Equals(object obj) {
@@ -61,13 +69,15 @@ namespace Microsoft.PythonTools.Analysis {
         #region IEquatable<EncodedLocation> Members
 
         public bool Equals(EncodedLocation other) {
-            return Resolver == other.Resolver &&
-                Location == other.Location;
+            return Location == other.Location;
         }
 
         #endregion
 
         public LocationInfo GetLocationInfo() {
+            if (Resolver == null) {
+                return Location as LocationInfo;
+            }
             return Resolver.ResolveLocation(Location);
         }
     }

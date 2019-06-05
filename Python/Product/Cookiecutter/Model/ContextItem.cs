@@ -9,10 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
+
+using System;
+using Microsoft.CookiecutterTools.Infrastructure;
 
 namespace Microsoft.CookiecutterTools.Model {
     class ContextItem {
@@ -21,6 +24,7 @@ namespace Microsoft.CookiecutterTools.Model {
             Selector = selector;
             DefaultValue = defaultValue;
             Values = items ?? new string[0];
+            Visible = !name.StartsWithOrdinal("_");
         }
 
         public string Name { get; }
@@ -30,5 +34,7 @@ namespace Microsoft.CookiecutterTools.Model {
         public string Selector { get; set; }
         public string DefaultValue { get; }
         public string[] Values { get; }
+        public bool Visible { get; set; }
+        public string ValueSource { get; set; }
     }
 }

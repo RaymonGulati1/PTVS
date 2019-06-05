@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,48 +19,33 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using IronPython.Hosting;
 using Microsoft.PythonTools;
 using Microsoft.PythonTools.Intellisense;
-using Microsoft.PythonTools.Interpreter;
-using Microsoft.PythonTools.Parsing;
-using Microsoft.Scripting.Hosting;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Adornments;
 using Microsoft.VisualStudio.Text.Tagging;
 using Microsoft.VisualStudio.Utilities;
-using Microsoft.VisualStudioTools.MockVsTests;
 using TestUtilities;
 using TestUtilities.Mocks;
 using TestUtilities.Python;
+using PriorityAttribute = Microsoft.VisualStudio.TestTools.UnitTesting.PriorityAttribute;
 
 namespace PythonToolsMockTests {
     [TestClass]
     public class SquiggleTests {
         public static IContentType PythonContentType = new MockContentType("Python", new IContentType[0]);
-        public static ScriptEngine PythonEngine = Python.CreateEngine();
 
         [ClassInitialize]
         public static void DoDeployment(TestContext context) {
             AssertListener.Initialize();
-            PythonTestData.Deploy(includeTestData: false);
-        }
-
-        [TestInitialize]
-        public void TestInitialize() {
-            UnresolvedImportSquiggleProvider._alwaysCreateSquiggle = true;
-        }
-
-        [TestCleanup]
-        public void TestCleanup() {
-            UnresolvedImportSquiggleProvider._alwaysCreateSquiggle = false;
         }
 
         private static string FormatErrorTag(TrackingTagSpan<ErrorTag> tag) {
-            return string.Format("{0}: {1} ({2})",
+            return string.Format("{0}: {1} ({2}:{3})",
                 tag.Tag.ErrorType,
                 tag.Tag.ToolTipContent,
+                (tag.Tag as ErrorTagWithMoniker)?.Moniker ?? "no moniker",
                 FormatErrorTagSpan(tag)
             );
         }
@@ -73,16 +58,16 @@ namespace PythonToolsMockTests {
         }
 
 
-        [TestMethod, Priority(1)]
-        public void UnresolvedImportSquiggle() {
+        [TestMethod, Priority(0)]
+        public async Task UnresolvedImportSquiggle() {
             List<string> squiggles;
 
-            using (var view = new PythonEditor("import fob, oar\r\nfrom baz import *\r\nfrom .spam import eggs")) {
+            using (var view = new PythonEditor("import fob, oar\r\nfrom baz import *\r\nfrom spam import eggs")) {
                 var errorProvider = view.VS.ServiceProvider.GetComponentModel().GetService<IErrorProviderFactory>();
                 var tagger = errorProvider.GetErrorTagger(view.View.TextView.TextBuffer);
                 // Ensure all tasks have been updated
                 var taskProvider = (ErrorTaskProvider)view.VS.ServiceProvider.GetService(typeof(ErrorTaskProvider));
-                var time = taskProvider.FlushAsync().GetAwaiter().GetResult();
+                var time = await taskProvider.FlushAsync();
                 Console.WriteLine("TaskProvider.FlushAsync took {0}ms", time.TotalMilliseconds);
 
                 squiggles = tagger.GetTaggedSpans(new SnapshotSpan(view.CurrentSnapshot, 0, view.CurrentSnapshot.Length))
@@ -99,10 +84,10 @@ namespace PythonToolsMockTests {
             int i = 0;
             foreach (var expected in new[] {
                 // Ensure that the warning includes the module name
-                @".*warning:.*fob.*\(7-10\)",
-                @".*warning:.*oar.*\(12-15\)",
-                @".*warning:.*baz.*\(22-25\)",
-                @".*warning:.*\.spam.*\(41-46\)"
+                @".*warning:.*fob.*\(Python.+:7-10\)",
+                @".*warning:.*oar.*\(Python.+:12-15\)",
+                @".*warning:.*baz.*\(Python.+:22-25\)",
+                @".*warning:.*spam.*\(Python.+:41-45\)"
             }) {
                 Assert.IsTrue(i < squiggles.Count, "Not enough squiggles");
                 AssertUtil.AreEqual(new Regex(expected, RegexOptions.IgnoreCase | RegexOptions.Singleline), squiggles[i]);
@@ -110,9 +95,14 @@ namespace PythonToolsMockTests {
             }
         }
 
-        [TestMethod, Priority(1)]
-        public void HandledImportSquiggle() {
+        [TestMethod, Priority(2)]
+        public async Task HandledImportSquiggle() {
             var testCases = new List<Tuple<string, string[]>>();
+            testCases.Add(Tuple.Create(
+                "try:\r\n    import spam\r\nexcept ValueError:\r\n    pass\r\n",
+                new[] { @".*warning:.*spam.*\(Python.+:17-21\)" }
+            ));
+
             testCases.AddRange(
                 new[] { "", " BaseException", " Exception", " ImportError", " (ValueError, ImportError)" }
                 .Select(ex => Tuple.Create(
@@ -120,11 +110,6 @@ namespace PythonToolsMockTests {
                     new string[0]
                 ))
             );
-
-            testCases.Add(Tuple.Create(
-                "try:\r\n    import spam\r\nexcept ValueError:\r\n    pass\r\n",
-                new[] { @".*warning:.*spam.*\(17-21\)" }
-            ));
 
             using (var view = new PythonEditor()) {
                 var errorProvider = view.VS.ServiceProvider.GetComponentModel().GetService<IErrorProviderFactory>();
@@ -135,7 +120,7 @@ namespace PythonToolsMockTests {
 
                 foreach (var testCase in testCases) {
                     view.Text = testCase.Item1;
-                    var time = taskProvider.FlushAsync().GetAwaiter().GetResult();
+                    var time = await taskProvider.FlushAsync();
                     Console.WriteLine("TaskProvider.FlushAsync took {0}ms", time.TotalMilliseconds);
 
                     var squiggles = tagger.GetTaggedSpans(new SnapshotSpan(view.CurrentSnapshot, 0, view.CurrentSnapshot.Length))

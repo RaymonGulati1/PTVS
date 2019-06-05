@@ -9,15 +9,15 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Collections.Generic;
-using System.ComponentModel.Composition.Hosting;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -26,9 +26,10 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.PythonTools.Analysis;
-using Microsoft.PythonTools.Ipc.Json;
-using Microsoft.PythonTools.Infrastructure;
+using Microsoft.PythonTools.Analysis.Analyzer;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
+using Microsoft.PythonTools.Ipc.Json;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Parsing.Ast;
 using Microsoft.PythonTools.Projects;
@@ -36,6 +37,7 @@ using Microsoft.VisualStudioTools;
 
 namespace Microsoft.PythonTools.Intellisense {
     using AP = AnalysisProtocol;
+    using LS = Microsoft.PythonTools.Analysis.LanguageServer;
 
     /// <summary>
     /// Performs centralized parsing and analysis of Python source code for a remotely running process.
@@ -48,40 +50,29 @@ namespace Microsoft.PythonTools.Intellisense {
     /// updated via interfacing w/ the remote process editor APIs, and supports adding additional files to the 
     /// analysis.
     /// </summary>
-    sealed class OutOfProcProjectAnalyzer : IDisposable {
-        private readonly AnalysisQueue _analysisQueue;
-        private IPythonInterpreterFactory _interpreterFactory;
-        private readonly ProjectEntryMap _projectFiles;
-        private PythonAnalyzer _pyAnalyzer;
-        private readonly AutoResetEvent _queueActivityEvent = new AutoResetEvent(false);
-        private InterpreterConfiguration[] _allConfigs;
-        private volatile Dictionary<string, AP.TaskPriority> _commentPriorityMap = new Dictionary<string, AP.TaskPriority>() {
-            { "TODO", AP.TaskPriority.normal },
-            { "HACK", AP.TaskPriority.high },
-        };
-        private AP.OptionsChangedEvent _options;
-        private readonly AggregateCatalog _catalog;
-        private readonly CompositionContainer _container;
-        internal int _analysisPending;
+    public sealed class OutOfProcProjectAnalyzer : IDisposable {
+        private readonly LS.Server _server;
+        private readonly Dictionary<string, IAnalysisExtension> _extensions;
+        private readonly Action<string> _log;
 
-        // Moniker strings allow the task provider to distinguish between
-        // different sources of items for the same file.
-        private const string ParserTaskMoniker = "Parser";
-        internal const string UnresolvedImportMoniker = "UnresolvedImport";
-        private readonly HashSet<IAnalysisExtension> _registeredExtensions = new HashSet<IAnalysisExtension>();
-        private readonly Dictionary<string, IAnalysisExtension> _extensionsByName = new Dictionary<string, IAnalysisExtension>();
+        private bool _isDisposed;
 
         private readonly Connection _connection;
 
-        internal OutOfProcProjectAnalyzer(Stream writer, Stream reader) {
-            _analysisQueue = new AnalysisQueue(this);
-            _analysisQueue.AnalysisComplete += AnalysisQueue_Complete;
-            _analysisQueue.AnalysisAborted += AnalysisQueue_Aborted;
-            _options = new AP.OptionsChangedEvent() {
-                indentation_inconsistency_severity = Severity.Ignore
-            };
+        public OutOfProcProjectAnalyzer(Stream writer, Stream reader, Action<string> log) {
+            _server = new LS.Server();
+            _server.OnParseComplete += OnParseComplete;
+            _server.OnAnalysisComplete += OnAnalysisComplete;
+            _server.OnLogMessage += Server_OnLogMessage;
+            _server.OnPublishDiagnostics += OnPublishDiagnostics;
+            _server._queue.AnalysisComplete += AnalysisQueue_Complete;
+            _server._queue.AnalysisAborted += AnalysisQueue_Aborted;
 
-            _projectFiles = new ProjectEntryMap();
+            _log = log;
+            Options = new AP.AnalysisOptions();
+
+            _extensions = new Dictionary<string, IAnalysisExtension>();
+
             _connection = new Connection(
                 writer,
                 true,
@@ -92,66 +83,27 @@ namespace Microsoft.PythonTools.Intellisense {
                 "Analyzer"
             );
             _connection.EventReceived += ConectionReceivedEvent;
+            if (!string.IsNullOrEmpty(_connection.LogFilename)) {
+                _log?.Invoke($"Connection log: {_connection.LogFilename}");
+            }
+        }
 
-            GlobalInterpreterOptions.SuppressFileSystemWatchers = true;
-            GlobalInterpreterOptions.SuppressPackageManagers = true;
-
-            _catalog = new AggregateCatalog();
-            _container = new CompositionContainer(_catalog);
-            _container.ExportsChanged += ContainerExportsChanged;
+        private void Server_OnLogMessage(object sender, LS.LogMessageEventArgs e) {
+            if (_log != null && Options.traceLevel.HasValue && e.type <= Options.traceLevel.Value) {
+                _log(e.message);
+                _connection?.SendEventAsync(new AP.AnalyzerWarningEvent { message = e.message }).DoNotWait();
+            }
         }
 
         private void AnalysisQueue_Aborted(object sender, EventArgs e) {
             _connection.Dispose();
         }
 
-        private void ContainerExportsChanged(object sender, ExportsChangeEventArgs e) {
-            // figure out the new extensions...
-            var extensions = _container.GetExports<IAnalysisExtension, IDictionary<string, object>>();
-            HashSet<IAnalysisExtension> newExtensions = new HashSet<IAnalysisExtension>();
-            lock (_registeredExtensions) {
-                foreach (var extension in extensions) {
-
-                    if (!_registeredExtensions.Contains(extension.Value)) {
-                        
-                        newExtensions.Add(extension.Value);
-                        if (extension.Metadata.ContainsKey("Name") && extension.Metadata["Name"] is string) {
-                            _extensionsByName[(string)extension.Metadata["Name"]] = extension.Value;
-                        } else {
-                            Console.Error.WriteLine("Extension {0} has no name, will not respond to commands", extension.Value);
-                        }
-                    }
-                }
-
-                _registeredExtensions.UnionWith(newExtensions);
-            }
-
-            if (_pyAnalyzer != null) {
-                // inform them of the analyzer...
-                foreach (var extension in newExtensions) {
-                    extension.Register(_pyAnalyzer);
-                }
-            }
-        }
-
         private void ConectionReceivedEvent(object sender, EventReceivedEventArgs e) {
             switch (e.Event.name) {
                 case AP.ModulesChangedEvent.Name: OnModulesChanged(this, EventArgs.Empty); break;
-                case AP.OptionsChangedEvent.Name: SetOptions((AP.OptionsChangedEvent)e.Event); break;
-                case AP.SetCommentTaskTokens.Name: _commentPriorityMap = ((AP.SetCommentTaskTokens)e.Event).tokens; break;
-                case AP.ExtensionAddedEvent.Name: AddExtension((AP.ExtensionAddedEvent)e.Event); break;
+                case AP.FileChangedEvent.Name: OnFileChanged((AP.FileChangedEvent)e.Event); break;
             }
-        }
-
-        private void AddExtension(AP.ExtensionAddedEvent extensionAdded) {
-            _catalog.Catalogs.Add(new AssemblyCatalog(extensionAdded.path));
-        }
-
-        private void SetOptions(AP.OptionsChangedEvent options) {
-            if (_pyAnalyzer != null) {
-                _pyAnalyzer.Limits.CrossModule = options.crossModuleAnalysisLimit;
-            }
-            _options = options;
         }
 
         private async Task RequestHandler(RequestArgs requestArgs, Func<Response, Task> done) {
@@ -167,19 +119,16 @@ namespace Microsoft.PythonTools.Intellisense {
 
             // These commands return a response, which we then send.
             switch (command) {
-                case AP.UnloadFileRequest.Command: response = UnloadFile((AP.UnloadFileRequest)request); break;
-                case AP.TopLevelCompletionsRequest.Command: response = GetTopLevelCompletions(request); break;
-                case AP.CompletionsRequest.Command: response = GetCompletions(request); break;
-                case AP.GetAllMembersRequest.Command: response = GetAllMembers(request); break;
-                case AP.GetModulesRequest.Command: response = GetModules(request); break;
-                case AP.GetModuleMembersRequest.Command: response = GeModuleMembers(request); break;
-                case AP.SignaturesRequest.Command: response = GetSignatures((AP.SignaturesRequest)request); break;
-                case AP.QuickInfoRequest.Command: response = GetQuickInfo((AP.QuickInfoRequest)request); break;
-                case AP.AnalyzeExpressionRequest.Command: response = AnalyzeExpression((AP.AnalyzeExpressionRequest)request); break;
-                case AP.OutlingRegionsRequest.Command: response = GetOutliningRegions((AP.OutlingRegionsRequest)request); break;
-                case AP.NavigationRequest.Command: response = GetNavigations((AP.NavigationRequest)request); break;
-                case AP.FileUpdateRequest.Command: response = UpdateContent((AP.FileUpdateRequest)request); break;
-                case AP.UnresolvedImportsRequest.Command: response = GetUnresolvedImports((AP.UnresolvedImportsRequest)request); break;
+                case AP.UnloadFileRequest.Command: response = await UnloadFile((AP.UnloadFileRequest)request); break;
+                case AP.CompletionsRequest.Command: response = await GetCompletions(request); break;
+                case AP.GetAllMembersRequest.Command: response = await GetAllMembers(request); break;
+                case AP.GetModulesRequest.Command: response = await GetModules(request); break;
+                case AP.SignaturesRequest.Command: response = await GetSignatures((AP.SignaturesRequest)request); break;
+                case AP.QuickInfoRequest.Command: response = await GetQuickInfo((AP.QuickInfoRequest)request); break;
+                case AP.AnalyzeExpressionRequest.Command: response = await AnalyzeExpression((AP.AnalyzeExpressionRequest)request); break;
+                case AP.OutliningRegionsRequest.Command: response = GetOutliningRegions((AP.OutliningRegionsRequest)request); break;
+                case AP.NavigationRequest.Command: response = await GetNavigationsAsync((AP.NavigationRequest)request); break;
+                case AP.FileUpdateRequest.Command: response = await UpdateContent((AP.FileUpdateRequest)request); break;
                 case AP.AddImportRequest.Command: response = AddImportRequest((AP.AddImportRequest)request); break;
                 case AP.IsMissingImportRequest.Command: response = IsMissingImport((AP.IsMissingImportRequest)request); break;
                 case AP.AvailableImportsRequest.Command: response = AvailableImports((AP.AvailableImportsRequest)request); break;
@@ -187,7 +136,6 @@ namespace Microsoft.PythonTools.Intellisense {
                 case AP.RemoveImportsRequest.Command: response = RemoveImports((AP.RemoveImportsRequest)request); break;
                 case AP.ExtractMethodRequest.Command: response = ExtractMethod((AP.ExtractMethodRequest)request); break;
                 case AP.AnalysisStatusRequest.Command: response = AnalysisStatus(); break;
-                case AP.OverridesCompletionRequest.Command: response = GetOverrides((AP.OverridesCompletionRequest)request); break;
                 case AP.LocationNameRequest.Command: response = GetLocationName((AP.LocationNameRequest)request); break;
                 case AP.ProximityExpressionsRequest.Command: response = GetProximityExpressions((AP.ProximityExpressionsRequest)request); break;
                 case AP.AnalysisClassificationsRequest.Command: response = GetAnalysisClassifications((AP.AnalysisClassificationsRequest)request); break;
@@ -199,9 +147,12 @@ namespace Microsoft.PythonTools.Intellisense {
                 case AP.SetSearchPathRequest.Command: response = SetSearchPath((AP.SetSearchPathRequest)request); break;
                 case AP.ModuleImportsRequest.Command: response = GetModuleImports((AP.ModuleImportsRequest)request); break;
                 case AP.ValueDescriptionRequest.Command: response = GetValueDescriptions((AP.ValueDescriptionRequest)request); break;
+                case AP.LoadExtensionRequest.Command: response = LoadExtensionRequest((AP.LoadExtensionRequest)request); break;
                 case AP.ExtensionRequest.Command: response = ExtensionRequest((AP.ExtensionRequest)request); break;
+                case AP.ExpressionAtPointRequest.Command: response = ExpressionAtPoint((AP.ExpressionAtPointRequest)request); break;
                 case AP.InitializeRequest.Command: response = await Initialize((AP.InitializeRequest)request); break;
-                case AP.ExpressionForDataTipRequest.Command: response = ExpressionForDataTip((AP.ExpressionForDataTipRequest)request); break;
+                case AP.SetAnalysisOptionsRequest.Command: response = SetAnalysisOptions((AP.SetAnalysisOptionsRequest)request); break;
+                case AP.LanguageServerRequest.Command: response = await ProcessLanguageServerRequest((AP.LanguageServerRequest)request); break;
                 case AP.ExitRequest.Command: throw new OperationCanceledException();
                 default:
                     throw new InvalidOperationException("Unknown command");
@@ -210,14 +161,37 @@ namespace Microsoft.PythonTools.Intellisense {
             await done(response);
         }
 
+        private async Task<Response> ProcessLanguageServerRequest(AP.LanguageServerRequest request) {
+            try {
+                var body = (Newtonsoft.Json.Linq.JObject)request.body;
+                object result = null;
+
+                switch (request.name) {
+                    case "textDocument/completion": result = await _server.Completion(body.ToObject<LS.CompletionParams>()); break;
+                    case "textDocument/hover": result = await _server.Hover(body.ToObject<LS.TextDocumentPositionParams>()); break;
+                    case "textDocument/definition": result = await _server.GotoDefinition(body.ToObject<LS.TextDocumentPositionParams>()); break;
+                    case "textDocument/references": result = await _server.FindReferences(body.ToObject<LS.ReferencesParams>()); break;
+                    case "textDocument/signatureHelp": result = await _server.SignatureHelp(body.ToObject<LS.TextDocumentPositionParams>()); break;
+                }
+
+                if (result != null) {
+                    return new AP.LanguageServerResponse { body = result };
+                }
+
+                return new AP.LanguageServerResponse { error = "Unknown command: " + request.name };
+            } catch (Exception ex) {
+                return new AP.LanguageServerResponse { error = ex.ToString() };
+            }
+        }
+
         internal void ReportUnhandledException(Exception ex) {
-            SendUnhandledException(ex);
+            SendUnhandledExceptionAsync(ex).DoNotWait();
             // Allow some time for the other threads to write the event before
             // we (probably) come crashing down.
             Thread.Sleep(100);
         }
 
-        private async void SendUnhandledException(Exception ex) {
+        private async Task SendUnhandledExceptionAsync(Exception ex) {
             try {
                 Debug.Fail(ex.ToString());
                 await _connection.SendEventAsync(
@@ -230,124 +204,162 @@ namespace Microsoft.PythonTools.Intellisense {
             }
         }
 
-        private async Task<Response> Initialize(AP.InitializeRequest request) {
-            List<AssemblyCatalog> catalogs = new List<AssemblyCatalog>();
+        private Response IncorrectFileType() {
+            throw new InvalidOperationException("File was not correct type");
+        }
 
-            HashSet<string> assemblies = new HashSet<string>(request.mefExtensions);
-            assemblies.Add(typeof(IInterpreterRegistryService).Assembly.Location);
-            assemblies.Add(GetType().Assembly.Location);
+        private Response IncorrectBufferId(Uri documentUri) {
+            throw new InvalidOperationException($"Buffer was not valid in file {documentUri?.AbsoluteUri ?? "(null)"}");
+        }
 
-            List<string> failures = new List<string>();
-            string error = null;
-            foreach (var asm in assemblies) {
-                try {
-                    var asmCatalog = new AssemblyCatalog(asm);
-                    _catalog.Catalogs.Add(asmCatalog);
-                } catch (Exception e) {
-                    failures.Add(String.Format("Failed to load {0}: {1}", asm, e));
-                }
+        private IPythonInterpreterFactory LoadInterpreterFactory(AP.InterpreterInfo info) {
+            if (string.IsNullOrEmpty(info?.assembly) || string.IsNullOrEmpty(info?.typeName)) {
+                return null;
             }
 
-            if (request.projectFile != null) {
-                var projectContextProvider = _container.GetExportedValue<OutOfProcProjectContextProvider>();
-                projectContextProvider.AddContext(
-                    new InMemoryProject(
-                        request.projectFile,
-                        new Dictionary<string, object>() {
-                            { "InterpreterId", request.interpreterId },
-                            { "ProjectHome", request.projectHome },
-                            {  "Interpreters",
-                                request.derivedInterpreters.Select(
-                                    interp => new Dictionary<string, string>() {
-                                        { "EvaluatedInclude", interp.name },
-                                        { MSBuildConstants.IdKey,              interp.id },
-                                        { MSBuildConstants.VersionKey,         interp.version },
-                                        { MSBuildConstants.DescriptionKey,     interp.description },
-                                        { MSBuildConstants.BaseInterpreterKey, interp.baseInterpreter },
-                                        { MSBuildConstants.InterpreterPathKey, interp.path },
-                                        { MSBuildConstants.WindowsPathKey,     interp.windowsPath },
-                                        { MSBuildConstants.LibraryPathKey,     interp.libPath },
-                                        { MSBuildConstants.PathEnvVarKey,      interp.pathEnvVar },
-                                        { MSBuildConstants.ArchitectureKey,    interp.arch }
-                                    }
-                                ).ToArray()
+            var assembly = File.Exists(info.assembly) ? AssemblyName.GetAssemblyName(info.assembly) : new AssemblyName(info.assembly);
+            var type = Assembly.Load(assembly).GetType(info.typeName, true);
+
+            return (IPythonInterpreterFactory)Activator.CreateInstance(
+                type,
+                BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance,
+                null,
+                new object[] { info.properties },
+                CultureInfo.CurrentCulture
+            );
+        }
+
+        private IAnalysisExtension LoadAnalysisExtension(AP.LoadExtensionRequest info) {
+            if (string.IsNullOrEmpty(info?.assembly) || string.IsNullOrEmpty(info?.typeName)) {
+                return null;
+            }
+
+            var assembly = File.Exists(info.assembly) ? AssemblyName.GetAssemblyName(info.assembly) : new AssemblyName(info.assembly);
+            var type = Assembly.Load(assembly).GetType(info.typeName, true);
+
+            return (IAnalysisExtension)Activator.CreateInstance(
+                type,
+                BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance,
+                null,
+                new object[0],
+                CultureInfo.CurrentCulture
+            );
+        }
+
+        private async Task<Response> Initialize(AP.InitializeRequest request) {
+            try {
+                await _server.Initialize(new LS.InitializeParams {
+                    rootUri = request.rootUri,
+                    initializationOptions = new LS.PythonInitializationOptions {
+                        interpreter = new LS.PythonInitializationOptions.Interpreter {
+                            assembly = request.interpreter?.assembly,
+                            typeName = request.interpreter?.typeName,
+                            properties = request.interpreter?.properties
+                        },
+                        displayOptions = new LS.InformationDisplayOptions {
+                            maxDocumentationLineLength = 30,
+                            trimDocumentationLines = true,
+                            maxDocumentationTextLength = 1024,
+                            trimDocumentationText = true,
+                            maxDocumentationLines = 100
+                        },
+                        analysisUpdates = true,
+                        traceLogging = request.traceLogging,
+                    },
+                    capabilities = new LS.ClientCapabilities {
+                        python = new LS.PythonClientCapabilities {
+                            manualFileLoad = !request.analyzeAllFiles,
+                            liveLinting = request.liveLinting
+                        },
+                        textDocument = new LS.TextDocumentClientCapabilities {
+                            completion = new LS.TextDocumentClientCapabilities.CompletionCapabilities {
+                                completionItem = new LS.TextDocumentClientCapabilities.CompletionCapabilities.CompletionItemCapabilities {
+                                    documentationFormat = new[] { LS.MarkupKind.PlainText },
+                                    snippetSupport = false
+                                }
+                            },
+                            signatureHelp = new LS.TextDocumentClientCapabilities.SignatureHelpCapabilities {
+                                signatureInformation = new LS.TextDocumentClientCapabilities.SignatureHelpCapabilities.SignatureInformationCapabilities {
+                                    documentationFormat = new[] { LS.MarkupKind.PlainText },
+                                    _shortLabel = true
+                                }
+                            },
+                            hover = new LS.TextDocumentClientCapabilities.HoverCapabilities {
+                                contentFormat = new[] { LS.MarkupKind.PlainText }
                             }
                         }
-                    )
-                );
-            }
-
-            var registry = _container.GetExportedValue<IInterpreterRegistryService>();
-            IPythonInterpreterFactory factory = null;
-            Version analysisVersion;
-            if (request.interpreterId.StartsWith("AnalysisOnly|")) {
-                int versionStart = request.interpreterId.IndexOf('|') + 1;
-                int versionEnd = request.interpreterId.IndexOf('|', versionStart);
-
-                if (Version.TryParse(request.interpreterId.Substring(versionStart, versionEnd - versionStart), out analysisVersion)) {
-                    string[] dbDirs;
-                    if (versionEnd + 1 != request.interpreterId.Length) {
-                        dbDirs = request.interpreterId.Substring(versionEnd + 1).Split('|');
-                    } else {
-                        dbDirs = null;
                     }
-                    factory = InterpreterFactoryCreator.CreateAnalysisInterpreterFactory(analysisVersion, null, dbDirs);
-                }
-            } else {
-                factory = registry.FindInterpreter(request.interpreterId);
+                });
+            } catch (Exception ex) {
+                return new AP.InitializeResponse {
+                    error = ex.Message,
+                    fullError = ex.ToString()
+                };
             }
 
-            if (factory == null) {
-                if (_connection != null) {
-                    await _connection.SendEventAsync(
-                        new AP.AnalyzerWarningEvent(string.Format("No active interpreter found for interpreter ID: {0}", request.interpreterId))
-                    );
-                }
-                var db = PythonTypeDatabase.CreateDefaultTypeDatabase();
-                factory = InterpreterFactoryCreator.CreateAnalysisInterpreterFactory(db.LanguageVersion, db);
-            }
+            return new AP.InitializeResponse();
+        }
 
-            _interpreterFactory = factory;
-            _allConfigs = registry.Configurations.ToArray();
+        private Response LoadExtensionRequest(AP.LoadExtensionRequest request) {
+            IAnalysisExtension extension, oldExtension;
+
+            if (Project == null) {
+                return new AP.LoadExtensionResponse {
+                    error = "Uninitialized analyzer",
+                    fullError = $"Uninitialized analyzer{Environment.NewLine}{new StackTrace()}"
+                };
+            }
 
             try {
-                var interpreter = factory.CreateInterpreter();
-                if (interpreter != null) {
-                    _pyAnalyzer = PythonAnalyzer.Create(factory, interpreter);
-                    await _pyAnalyzer.ReloadModulesAsync();
-                    interpreter.ModuleNamesChanged += OnModulesChanged;
-                }
-            } catch (Exception ex) when (!ex.IsCriticalException()) {
-                error = ex.ToString();
+                extension = LoadAnalysisExtension(request);
+                extension.Register(Project);
+            } catch (Exception ex) {
+                return new AP.LoadExtensionResponse {
+                    error = ex.Message,
+                    fullError = ex.ToString()
+                };
             }
 
-            return new AP.InitializeResponse() {
-                failedLoads = failures.ToArray(),
-                error = error
-            };
+            lock (_extensions) {
+                _extensions.TryGetValue(request.extension, out oldExtension);
+                _extensions[request.extension] = extension;
+            }
+            (oldExtension as IDisposable)?.Dispose();
+
+            return new AP.LoadExtensionResponse();
         }
 
         private Response ExtensionRequest(AP.ExtensionRequest request) {
             IAnalysisExtension extension;
-            lock (_registeredExtensions) {
-                if (!_extensionsByName.TryGetValue(request.extension, out extension)) {
-                    throw new InvalidOperationException("Unknown extension: " + request.extension);
+            lock (_extensions) {
+                if (!_extensions.TryGetValue(request.extension, out extension)) {
+                    return new AP.ExtensionResponse {
+                        error = $"Unknown extension: {request.extension}"
+                    };
                 }
             }
 
-            return new AP.ExtensionResponse() {
-                response = extension.HandleCommand(request.commandId, request.body)
-            };
+            try {
+                return new AP.ExtensionResponse {
+                    response = extension.HandleCommand(request.commandId, request.body)
+                };
+            } catch (Exception ex) {
+                return new AP.ExtensionResponse {
+                    error = ex.ToString()
+                };
+            }
         }
 
         private Response GetValueDescriptions(AP.ValueDescriptionRequest request) {
-            var pyEntry = _projectFiles[request.fileId] as IPythonProjectEntry;
+            var entry = GetPythonEntry(request.documentUri);
+            if (entry == null) {
+                return IncorrectFileType();
+            }
             string[] descriptions = Array.Empty<string>();
-            if (pyEntry.Analysis != null) {
-                var values = pyEntry.Analysis.GetValues(
+            if (entry.Analysis != null) {
+                var values = entry.Analysis.GetValues(
                     request.expr,
                     new SourceLocation(
-                        request.index,
                         request.line,
                         request.column
                     )
@@ -371,7 +383,7 @@ namespace Microsoft.PythonTools.Intellisense {
                 modules = res.Select(entry => new AP.ModuleInfo() {
                     filename = entry.FilePath,
                     moduleName = entry.ModuleName,
-                    fileId = ProjectEntryMap.GetId(entry)
+                    documentUri = entry.DocumentUri
                 }).ToArray()
             };
         }
@@ -398,27 +410,8 @@ namespace Microsoft.PythonTools.Intellisense {
             return new AP.AddReferenceResponse();
         }
 
-        private static ProjectReference GetAssemblyReference(string kind, string name, string assemblyName) {
-            ProjectReference reference;
-            switch (kind) {
-                case "assembly":
-                    reference = new ProjectAssemblyReference(
-                        new AssemblyName(assemblyName),
-                        name
-                    );
-                    break;
-                case "extension":
-                    reference = new ProjectReference(name, ProjectReferenceKind.ExtensionModule);
-                    break;
-                default:
-                    throw new InvalidOperationException("Unsupported reference type: " + kind);
-            }
-
-            return reference;
-        }
-
         private Response FindMethods(AP.FindMethodsRequest request) {
-            var analysis = _projectFiles[request.fileId] as IPythonProjectEntry;
+            var analysis = GetPythonEntry(request.documentUri);
 
             List<string> names = new List<string>();
             if (analysis != null) {
@@ -426,7 +419,6 @@ namespace Microsoft.PythonTools.Intellisense {
                 string code;
                 var ast = analysis.GetVerbatimAstAndCode(
                     Analyzer.LanguageVersion,
-                    request.bufferId,
                     out version,
                     out code
                 );
@@ -438,7 +430,7 @@ namespace Microsoft.PythonTools.Intellisense {
                             foreach (var methodCandidate in suite.Statements) {
                                 FunctionDefinition funcDef = methodCandidate as FunctionDefinition;
                                 if (funcDef != null) {
-                                    if (request.paramCount != null && request.paramCount != funcDef.Parameters.Count) {
+                                    if (request.paramCount != null && request.paramCount != funcDef.ParametersInternal.Length) {
                                         continue;
                                     }
 
@@ -456,45 +448,45 @@ namespace Microsoft.PythonTools.Intellisense {
         }
 
         private Response GetMethodInsertionLocation(AP.MethodInsertionLocationRequest request) {
-            var analysis = _projectFiles[request.fileId] as IPythonProjectEntry;
-
-            if (analysis != null) {
-                int version;
-                string code;
-                var ast = analysis.GetVerbatimAstAndCode(
-                    Analyzer.LanguageVersion,
-                    request.bufferId,
-                    out version,
-                    out code
-                );
-
-                if (ast != null) {
-                    foreach (var classDef in FindClassDef(request.className, ast)) {
-                        int end = classDef.Body.EndIndex;
-                        // insert after the newline at the end of the last statement of the class def
-                        if (code[end] == '\r') {
-                            if (end + 1 < code.Length &&
-                                code[end + 1] == '\n') {
-                                end += 2;
-                            } else {
-                                end++;
-                            }
-                        } else if (code[end] == '\n') {
-                            end++;
-                        }
-
-                        return new AP.MethodInsertionLocationResponse() {
-                            indentation = classDef.Body.GetStart(ast).Column - 1,
-                            location = end,
-                            version = version
-                        };
-                    }
-
-                    throw new InvalidOperationException("Failed to find class definition");
-                }
+            var analysis = GetPythonEntry(request.documentUri);
+            if (analysis == null) {
+                return IncorrectFileType();
             }
 
-            throw new InvalidOperationException("Analysis not available");
+            int version;
+            string code;
+            var ast = analysis.GetVerbatimAstAndCode(
+                Analyzer.LanguageVersion,
+                out version,
+                out code
+            );
+
+            if (ast == null) {
+                return new AP.MethodInsertionLocationResponse();
+            }
+
+            foreach (var classDef in FindClassDef(request.className, ast)) {
+                int end = classDef.Body.EndIndex;
+                // insert after the newline at the end of the last statement of the class def
+                if (code[end] == '\r') {
+                    if (end + 1 < code.Length &&
+                        code[end + 1] == '\n') {
+                        end += 2;
+                    } else {
+                        end++;
+                    }
+                } else if (code[end] == '\n') {
+                    end++;
+                }
+
+                return new AP.MethodInsertionLocationResponse() {
+                    line = ast.IndexToLocation(end).Line,
+                    column = classDef.Body.GetStart(ast).Column,
+                    version = version
+                };
+            }
+
+            throw new InvalidOperationException("Failed to find class definition");
         }
 
         private static IEnumerable<ClassDefinition> FindClassDef(string name, PythonAst ast) {
@@ -509,14 +501,13 @@ namespace Microsoft.PythonTools.Intellisense {
         }
 
         private Response GetMethodInfo(AP.MethodInfoRequest request) {
-            var analysis = _projectFiles[request.fileId] as IPythonProjectEntry;
+            var analysis = GetPythonEntry(request.documentUri);
 
             if (analysis != null) {
                 int version;
                 string code;
                 var ast = analysis.GetVerbatimAstAndCode(
                     Project.LanguageVersion,
-                    request.bufferId,
                     out version,
                     out code
                 );
@@ -550,96 +541,99 @@ namespace Microsoft.PythonTools.Intellisense {
         }
 
         private Response GetAnalysisClassifications(AP.AnalysisClassificationsRequest request) {
-            var projEntry = _projectFiles[request.fileId] as IPythonProjectEntry;
+            var projEntry = GetPythonEntry(request.documentUri);
 
-            AP.AnalysisClassification[] classifications = Array.Empty<AP.AnalysisClassification>();
-            var bufferVersion = GetBufferVersion(request.fileId, request.bufferId);
-            if (bufferVersion != null && bufferVersion.Ast != null) {
-                var moduleAnalysis = request.colorNames ? projEntry.Analysis : null;
-
-                var walker = new ClassifierWalker(bufferVersion.Ast, moduleAnalysis);
-                bufferVersion.Ast.Walk(walker);
-
-                classifications = walker.Spans.ToArray();
+            if (projEntry == null) {
+                return IncorrectFileType();
             }
 
+            var bufferVersion = GetPythonBuffer(request.documentUri);
+            if (bufferVersion.Ast == null) {
+                return new AP.AnalysisClassificationsResponse();
+            }
+
+            var moduleAnalysis = request.colorNames ? projEntry.Analysis : null;
+
+            var walker = new ClassifierWalker(bufferVersion.Ast, moduleAnalysis);
+            bufferVersion.Ast.Walk(walker);
+
             return new AP.AnalysisClassificationsResponse() {
-                version = bufferVersion?.Version ?? -1,
-                classifications = classifications
+                version = bufferVersion.Version,
+                classifications = walker.Spans.Select(s => new AP.AnalysisClassification {
+                    startLine = s.Span.Start.Line,
+                    startColumn = s.Span.Start.Column,
+                    endLine = s.Span.End.Line,
+                    endColumn = s.Span.End.Column,
+                    type = s.Tag
+                }).ToArray()
             };
         }
 
         private Response GetProximityExpressions(AP.ProximityExpressionsRequest request) {
-            var projEntry = _projectFiles[request.fileId] as IPythonProjectEntry;
+            var projEntry = GetPythonEntry(request.documentUri);
 
-            string[] res = Array.Empty<string>();
-            if (projEntry != null) {
-                PythonAst tree = projEntry.Tree;
-                if (tree != null) {
-                    int startLine = Math.Max(request.line - request.lineCount + 1, 0);
-                    if (startLine <= request.line) {
-                        var walker = new ProximityExpressionWalker(tree, startLine, request.line);
-                        tree.Walk(walker);
-                        res = walker.GetExpressions().ToArray();
-                    }
-                }
+            var res = new AP.ProximityExpressionsResponse();
+
+            var tree = projEntry?.Tree;
+            if (tree == null) {
+                return res;
             }
-            return new AP.ProximityExpressionsResponse() {
-                names = res
-            };
+
+            int startLine = Math.Max(request.line - request.lineCount + 1, 0);
+            if (startLine <= request.line) {
+                var walker = new ProximityExpressionWalker(tree, startLine, request.line);
+                tree.Walk(walker);
+                res.names = walker.GetExpressions().ToArray();
+            }
+
+            return res;
         }
 
         private Response GetLocationName(AP.LocationNameRequest request) {
-            var projEntry = _projectFiles[request.fileId] as IPythonProjectEntry;
+            var projEntry = GetPythonEntry(request.documentUri);
 
-            string name = "";
-            int column = 0;
-            if (projEntry != null) {
-                PythonAst tree = projEntry.Tree;
-                if (tree != null) {
-                    string foundName = FindNodeInTree(tree, tree.Body as SuiteStatement, request.line);
-                    if (foundName != null) {
-                        name = projEntry.ModuleName + "." + foundName;
-                        column = request.column;
-                    } else {
-                        name = projEntry.ModuleName;
-                        column = request.column;
-                    }
-                }
+            var res = new AP.LocationNameResponse();
+
+            var tree = projEntry?.Tree;
+            if (tree == null) {
+                return res;
             }
 
-            return new AP.LocationNameResponse() {
-                name = name,
-                lineOffset = column
-            };
+            string foundName = FindNodeInTree(tree, tree.Body as SuiteStatement, request.line);
+            if (foundName != null) {
+                res.name = projEntry.ModuleName + "." + foundName;
+                res.lineOffset = request.column;
+            } else {
+                res.name = projEntry.ModuleName;
+                res.lineOffset = request.column;
+            }
+
+            return res;
         }
 
         private static string FindNodeInTree(PythonAst tree, SuiteStatement statement, int line) {
-            if (statement != null) {
-                foreach (var node in statement.Statements) {
-                    FunctionDefinition funcDef = node as FunctionDefinition;
-                    if (funcDef != null) {
-                        var span = funcDef.GetSpan(tree);
-                        if (span.Start.Line <= line && line <= span.End.Line) {
-                            var res = FindNodeInTree(tree, funcDef.Body as SuiteStatement, line);
-                            if (res != null) {
-                                return funcDef.Name + "." + res;
-                            }
-                            return funcDef.Name;
-                        }
-                        continue;
-                    }
+            if (statement == null) {
+                return null;
+            }
 
-                    ClassDefinition classDef = node as ClassDefinition;
-                    if (classDef != null) {
-                        var span = classDef.GetSpan(tree);
-                        if (span.Start.Line <= line && line <= span.End.Line) {
-                            var res = FindNodeInTree(tree, classDef.Body as SuiteStatement, line);
-                            if (res != null) {
-                                return classDef.Name + "." + res;
-                            }
-                            return classDef.Name;
+            foreach (var node in statement.Statements) {
+                if (node is FunctionDefinition funcDef) {
+                    var span = funcDef.GetSpan(tree);
+                    if (span.Start.Line <= line && line <= span.End.Line) {
+                        var res = FindNodeInTree(tree, funcDef.Body as SuiteStatement, line);
+                        if (res != null) {
+                            return funcDef.Name + "." + res;
                         }
+                        return funcDef.Name;
+                    }
+                } else if (node is ClassDefinition classDef) {
+                    var span = classDef.GetSpan(tree);
+                    if (span.Start.Line <= line && line <= span.End.Line) {
+                        var res = FindNodeInTree(tree, classDef.Body as SuiteStatement, line);
+                        if (res != null) {
+                            return classDef.Name + "." + res;
+                        }
+                        return classDef.Name;
                     }
                 }
             }
@@ -648,20 +642,21 @@ namespace Microsoft.PythonTools.Intellisense {
 
 
         private Response AnalysisStatus() {
-            QueueActivityEvent.WaitOne(100);
-
             return new AP.AnalysisStatusResponse() {
-                itemsLeft = ParsePending + _analysisQueue.AnalysisPending
+                itemsLeft = _server.EstimateRemainingWork()
             };
         }
 
         private Response ExtractMethod(AP.ExtractMethodRequest request) {
-            var projectFile = _projectFiles[request.fileId] as IPythonProjectEntry;
+            var projectFile = GetPythonEntry(request.documentUri);
+            if (projectFile == null) {
+                return IncorrectFileType();
+            }
+
             int version;
             string code;
             var ast = projectFile.GetVerbatimAstAndCode(
                 Project.LanguageVersion,
-                request.bufferId,
                 out version,
                 out code
             );
@@ -673,104 +668,94 @@ namespace Microsoft.PythonTools.Intellisense {
         }
 
         private Response RemoveImports(AP.RemoveImportsRequest request) {
-            var projectFile = _projectFiles[request.fileId] as IPythonProjectEntry;
+            var projectFile = GetPythonEntry(request.documentUri);
+            if (projectFile == null) {
+                return IncorrectFileType();
+            }
+
             int version;
             string code;
             var ast = projectFile.GetVerbatimAstAndCode(
                 Project.LanguageVersion,
-                request.bufferId,
                 out version,
                 out code
             );
-            if (ast != null) {
-                var remover = new ImportRemover(ast, code, request.allScopes, request.index);
-
-                return new AP.RemoveImportsResponse() {
-                    changes = remover.RemoveImports(),
-                    version = version
-                };
+            if (ast == null) {
+                return new AP.RemoveImportsResponse();
             }
+            var remover = new ImportRemover(ast, code, request.allScopes, ast.LocationToIndex(new SourceLocation(request.line, request.column)));
 
             return new AP.RemoveImportsResponse() {
-                changes = Array.Empty<AP.ChangeInfo>(),
-                version = -1
+                changes = remover.RemoveImports().Select(AP.ChangeInfo.FromDocumentChange).ToArray(),
+                version = version
             };
         }
 
         private Response FormatCode(AP.FormatCodeRequest request) {
-            var projectFile = _projectFiles[request.fileId] as IPythonProjectEntry;
+            var projectFile = GetPythonEntry(request.documentUri);
+            if (projectFile == null) {
+                return IncorrectFileType();
+            }
 
             int version;
             string code;
             var ast = projectFile.GetVerbatimAstAndCode(
                 Project.LanguageVersion,
-                request.bufferId,
                 out version,
                 out code
             );
-            if (ast != null) {
-                var walker = new EnclosingNodeWalker(ast, request.startIndex, request.endIndex);
-                ast.Walk(walker);
-
-                if (walker.Target == null || !walker.Target.IsValidSelection) {
-                    return new AP.FormatCodeResponse() {
-                        changes = new AnalysisProtocol.ChangeInfo[0]
-                    };
-                }
-
-                var body = walker.Target.GetNode(ast);
-
-
-                int whitspaceStart = walker.Target.StartIncludingIndentation;
-
-                int start;
-                if (request.startIndex <= walker.Target.StartIncludingLeadingWhiteSpace) {
-                    // we've selected the leading comments, format them too...
-                    start = walker.Target.StartIncludingLeadingWhiteSpace;
-                } else {
-                    // the user didn't have any comments selected, don't reformat them
-                    body.SetLeadingWhiteSpace(ast, body.GetIndentationLevel(ast));
-
-                    start = walker.Target.StartIncludingIndentation;
-                }
-
-                int length = walker.Target.End - start;
-                if (walker.Target.End < code.Length) {
-                    if (code[walker.Target.End] == '\r') {
-                        length++;
-                        if (walker.Target.End + 1 < code.Length &&
-                            code[walker.Target.End + 1] == '\n') {
-                            length++;
-                        }
-                    } else if (code[walker.Target.End] == '\n') {
-                        length++;
-                    }
-                }
-
-                var selectedCode = code.Substring(start, length);
-
-                return new AP.FormatCodeResponse() {
-                    startIndex = start,
-                    endIndex = walker.Target.End,
-                    version = version,
-                    changes = selectedCode.ReplaceByLines(
-                        body.ToCodeString(ast, request.options),
-                        request.newLine
-                    ).Select(
-                        x => new AP.ChangeInfo() {
-                            start = x.start + start,
-                            length = x.length,
-                            newText = x.newText
-                        }
-                    ).ToArray()
-                };
+            if (ast == null) {
+                return new AP.FormatCodeResponse();
             }
 
+            int startIndex = ast.LocationToIndex(new SourceLocation(request.startLine, request.startColumn));
+            int endIndex = ast.LocationToIndex(new SourceLocation(request.endLine, request.endColumn));
+
+            var walker = new EnclosingNodeWalker(ast, startIndex, endIndex);
+            ast.Walk(walker);
+
+            if (walker.Target == null || !walker.Target.IsValidSelection) {
+                return new AP.FormatCodeResponse();
+            }
+
+            var body = walker.Target.GetNode();
+
+
+            var whitspaceStart = walker.Target.StartIncludingIndentation;
+
+            int start = ast.LocationToIndex(walker.Target.StartIncludingLeadingWhiteSpace);
+            int end = ast.LocationToIndex(walker.Target.End);
+            if (startIndex > start) {
+                // the user didn't have any comments selected, don't reformat them
+                body.SetLeadingWhiteSpace(ast, body.GetIndentationLevel(ast));
+
+                start = ast.LocationToIndex(walker.Target.StartIncludingIndentation);
+            }
+
+            int length = end - start;
+            if (end < code.Length) {
+                if (code[end] == '\r') {
+                    end++;
+                    length++;
+                    if (end < code.Length &&
+                        code[end] == '\n') {
+                        end++;
+                        length++;
+                    }
+                } else if (code[end] == '\n') {
+                    length++;
+                }
+            }
+
+            var selectedCode = code.Substring(start, length);
+
             return new AP.FormatCodeResponse() {
-                startIndex = 0,
-                endIndex = 0,
-                version = -1,
-                changes = Array.Empty<AP.ChangeInfo>()
+                version = version,
+                changes = selectedCode.ReplaceByLines(
+                    walker.Target.StartIncludingLeadingWhiteSpace,
+                    body.ToCodeString(ast, request.options),
+                    request.newLine
+                ).Select(AP.ChangeInfo.FromDocumentChange).ToArray()
             };
         }
 
@@ -783,54 +768,56 @@ namespace Microsoft.PythonTools.Intellisense {
                             fromName = x.FromName
                         }
                     )
+                    .Distinct()
                     .ToArray()
             };
         }
 
         private Response IsMissingImport(AP.IsMissingImportRequest request) {
-            var entry = _projectFiles[request.fileId] as IPythonProjectEntry;
-            var analysis = entry.Analysis;
-            if (analysis != null) {
-                var location = new SourceLocation(request.index, request.line, request.column);
-                var nameExpr = GetFirstNameExpression(
-                    analysis.GetAstFromText(
-                        request.text,
-                        location
-                    ).Body
-                );
+            var entry = GetPythonEntry(request.documentUri);
+            var analysis = entry?.Analysis;
+            if (analysis == null) {
+                return new AP.IsMissingImportResponse();
+            }
 
-                if (nameExpr != null && !IsImplicitlyDefinedName(nameExpr)) {
-                    var name = nameExpr.Name;
-                    var hasVariables = analysis.GetVariables(name, location).Any(IsDefinition);
-                    var hasValues = analysis.GetValues(name, location).Any();
+            var location = new SourceLocation(request.line, request.column);
+            var nameExpr = GetFirstNameExpression(
+                analysis.GetAstFromText(
+                    request.text,
+                    location
+                ).Body
+            );
 
-                    // if we have type information or an assignment to the variable we won't offer 
-                    // an import smart tag.
-                    if (!hasValues && !hasVariables) {
-                        return new AP.IsMissingImportResponse() {
-                            isMissing = true
-                        };
-                    }
+            if (nameExpr != null && !IsImplicitlyDefinedName(nameExpr)) {
+                var name = nameExpr.Name;
+                var hasVariables = analysis.GetVariables(name, location).Any(IsDefinition);
+                var hasValues = analysis.GetValues(name, location).Any();
+
+                // if we have type information or an assignment to the variable we won't offer 
+                // an import smart tag.
+                if (!hasValues && !hasVariables) {
+                    return new AP.IsMissingImportResponse() {
+                        isMissing = true
+                    };
                 }
             }
 
-            return new AP.IsMissingImportResponse() {
-                isMissing = false
-            };
+            return new AP.IsMissingImportResponse();
         }
 
         private Response AddImportRequest(AP.AddImportRequest request) {
-            var projectFile = _projectFiles[request.fileId] as IPythonProjectEntry;
+            var projectFile = GetPythonEntry(request.documentUri);
+            if (projectFile == null) {
+                return IncorrectFileType();
+            }
+
             string name = request.name;
             string fromModule = request.fromModule;
 
             int version;
-            PythonAst curAst = projectFile.GetVerbatimAst(Project.LanguageVersion, request.bufferId, out version);
+            var curAst = projectFile.GetVerbatimAst(Project.LanguageVersion, out version);
             if (curAst == null) {
-                return new AP.AddImportResponse() {
-                    changes = Array.Empty<AP.ChangeInfo>(),
-                    version = -1
-                };
+                return new AP.AddImportResponse();
             }
 
             var suiteBody = curAst.Body as SuiteStatement;
@@ -858,7 +845,8 @@ namespace Microsoft.PythonTools.Intellisense {
                         if (fromModule != "__future__" && fromImport.Root.MakeString() == fromModule) {
                             // update the existing from ... import statement to include the new name.
                             return new AP.AddImportResponse() {
-                                changes = new[] { UpdateFromImport(curAst, fromImport, name) }
+                                changes = new[] { UpdateFromImport(curAst, fromImport, name) },
+                                version = version
                             };
                         }
 
@@ -882,11 +870,7 @@ namespace Microsoft.PythonTools.Intellisense {
 
             return new AP.AddImportResponse() {
                 changes = new[] {
-                    new AP.ChangeInfo() {
-                        start = start,
-                        length = 0,
-                        newText = newText
-                    }
+                    AP.ChangeInfo.FromDocumentChange(DocumentChange.Insert(newText, curAst.IndexToLocation(start)))
                 },
                 version = version
             };
@@ -919,18 +903,19 @@ namespace Microsoft.PythonTools.Intellisense {
                 }
             }
 
-            var newImport = new FromImportStatement((ModuleName)fromImport.Root, names, asNames, fromImport.IsFromFuture, fromImport.ForceAbsolute);
+            var newImport = new FromImportStatement((ModuleName)fromImport.Root, names, asNames, fromImport.IsFromFuture, fromImport.ForceAbsolute, -1);
             curAst.CopyAttributes(fromImport, newImport);
 
             var newCode = newImport.ToCodeString(curAst);
 
             var span = fromImport.GetSpan(curAst);
             int leadingWhiteSpaceLength = (fromImport.GetLeadingWhiteSpace(curAst) ?? "").Length;
-            return new AP.ChangeInfo() {
-                start = span.Start.Index - leadingWhiteSpaceLength,
-                length = span.Length + leadingWhiteSpaceLength,
-                newText = newCode
-            };
+            return AP.ChangeInfo.FromDocumentChange(DocumentChange.Replace(
+                new SourceSpan(
+                    span.Start.AddColumns(-leadingWhiteSpaceLength),
+                    span.End
+                ), newCode
+            ));
         }
 
         private static bool IsDocString(ExpressionStatement exprStmt) {
@@ -940,311 +925,177 @@ namespace Microsoft.PythonTools.Intellisense {
                     (constExpr.Value is string || constExpr.Value is AsciiString);
         }
 
-        private Response GetUnresolvedImports(AP.UnresolvedImportsRequest request) {
-            var bufferVersion = GetBufferVersion(request.fileId, request.bufferId);
-
-            AP.UnresolvedImport[] unresolved = Array.Empty<AP.UnresolvedImport>();
-            if (bufferVersion != null && bufferVersion.Ast != null) {
-                var entry = _projectFiles[request.fileId] as IPythonProjectEntry;
-
-                var walker = new ImportStatementWalker(
-                    bufferVersion.Ast,
-                    entry,
-                    Analyzer
-                );
-
-                bufferVersion.Ast.Walk(walker);
-                unresolved = walker.Imports.ToArray();
+        private IPythonProjectEntry GetPythonEntry(Uri documentUri) {
+            if (documentUri == null) {
+                return null;
             }
-
-            return new AP.UnresolvedImportsResponse() {
-                unresolved = unresolved,
-                version = bufferVersion?.Version ?? -1
-            };
+            return _server.GetEntry(documentUri) as IPythonProjectEntry;
         }
 
-        private BufferVersion GetBufferVersion(int fileId, int bufferId) {
-            var entry = _projectFiles[fileId] as IPythonProjectEntry;
-            if (entry != null) {
-                PythonAst ast;
-                IAnalysisCookie cookie;
-                entry.GetTreeAndCookie(out ast, out cookie);
+        private VersionedAst GetPythonBuffer(Uri documentUri) {
+            var entry = GetPythonEntry(documentUri);
+            if (entry == null) {
+                return default(VersionedAst);
+            }
 
-                var versions = cookie as VersionCookie;
-                BufferVersion versionInfo;
-                if (versions != null && versions.Buffers.TryGetValue(bufferId, out versionInfo)) {
-                    return versionInfo;
+            var parse = entry.GetCurrentParse();
+            var ast = parse?.Tree;
+            var cookie = parse?.Cookie;
+
+            if (cookie is VersionCookie vc) {
+                int i = _server.GetPart(documentUri);
+                if (vc.Versions.TryGetValue(i, out var bv)) {
+                    return new VersionedAst { Ast = bv.Ast, Version = bv.Version };
                 }
             }
-            return null;
+            return new VersionedAst { Ast = ast, Version = 0 };
         }
 
-        class ImportStatementWalker : PythonWalker {
-            public readonly List<AP.UnresolvedImport> Imports = new List<AP.UnresolvedImport>();
-
-            readonly IPythonProjectEntry _entry;
-            readonly PythonAnalyzer _analyzer;
-            private readonly PythonAst _ast;
-
-            public ImportStatementWalker(PythonAst ast, IPythonProjectEntry entry, PythonAnalyzer analyzer) {
-                _ast = ast;
-                _entry = entry;
-                _analyzer = analyzer;
-            }
-
-            public override bool Walk(FromImportStatement node) {
-                var name = node.Root.MakeString();
-                if (!_analyzer.IsModuleResolved(_entry, name, node.ForceAbsolute)) {
-                    Imports.Add(MakeUnresolvedImport(name, node.Root));
-                }
-                return base.Walk(node);
-            }
-
-            private AP.UnresolvedImport MakeUnresolvedImport(string name, Node spanNode) {
-                var span = spanNode.GetSpan(_ast);
-                return new AP.UnresolvedImport() {
-                    name = name,
-                    startLine = span.Start.Line,
-                    startColumn = span.Start.Column,
-                    startIndex = span.Start.Index,
-                    endLine = span.End.Line,
-                    endColumn = span.End.Column,
-                    endIndex = span.End.Index
-                };
-            }
-
-            public override bool Walk(ImportStatement node) {
-                foreach (var nameNode in node.Names) {
-                    var name = nameNode.MakeString();
-                    if (!_analyzer.IsModuleResolved(_entry, name, node.ForceAbsolute)) {
-                        Imports.Add(MakeUnresolvedImport(name, nameNode));
-                    }
-                }
-                return base.Walk(node);
-            }
-
-            private static bool IsImportError(Expression expr) {
-                var name = expr as NameExpression;
-                if (name != null) {
-                    return name.Name == "Exception" || name.Name == "BaseException" || name.Name == "ImportError";
-                }
-
-                var tuple = expr as TupleExpression;
-                if (tuple != null) {
-                    return tuple.Items.Any(IsImportError);
-                }
-
-                return false;
-            }
-
-            private static bool ShouldWalkNormally(TryStatement node) {
-                if (node.Handlers == null) {
-                    return true;
-                }
-
-                foreach (var handler in node.Handlers) {
-                    if (handler.Test == null || IsImportError(handler.Test)) {
-                        return false;
-                    }
-                }
-
-                return true;
-            }
-
-            public override bool Walk(TryStatement node) {
-                if (ShouldWalkNormally(node)) {
-                    return base.Walk(node);
-                }
-
-                // Don't walk 'try' body, but walk everything else
-                if (node.Handlers != null) {
-                    foreach (var handler in node.Handlers) {
-                        handler.Walk(this);
-                    }
-                }
-                if (node.Else != null) {
-                    node.Else.Walk(this);
-                }
-                if (node.Finally != null) {
-                    node.Finally.Walk(this);
-                }
-
-                return false;
-            }
+        private struct VersionedAst {
+            public PythonAst Ast;
+            public int Version;
         }
 
-        private Response GetOutliningRegions(AP.OutlingRegionsRequest request) {
-            AP.OutliningTag[] tags = Array.Empty<AP.OutliningTag>();
-            var bufferVersion = GetBufferVersion(request.fileId, request.bufferId);
-            if (bufferVersion != null && bufferVersion.Ast != null) {
-                var walker = new OutliningWalker(bufferVersion.Ast);
-
-                bufferVersion.Ast.Walk(walker);
-
-                tags = walker.GetTags();
+        private Response GetOutliningRegions(AP.OutliningRegionsRequest request) {
+            var bufferVersion = GetPythonBuffer(request.documentUri);
+            if (bufferVersion.Ast == null) {
+                return IncorrectBufferId(request.documentUri);
             }
+
+            var walker = new OutliningWalker(bufferVersion.Ast);
+            bufferVersion.Ast.Walk(walker);
 
             return new AP.OutliningRegionsResponse() {
-                tags = tags.ToArray(),
-                version = bufferVersion?.Version ?? -1
+                tags = walker.GetTags().Select(t => new AP.OutliningTag {
+                    startLine = t.Span.Start.Line,
+                    startCol = t.Span.Start.Column,
+                    endLine = t.Span.End.Line,
+                    endCol = t.Span.End.Column
+                }).ToArray(),
+                version = bufferVersion.Version
             };
         }
 
-        private Response GetNavigations(AP.NavigationRequest request) {
-            List<AP.Navigation> navs = new List<AP.Navigation>();
-            var bufferVersion = GetBufferVersion(request.fileId, request.bufferId);
+        private async Task<Response> GetNavigationsAsync(AP.NavigationRequest request) {
+            var symbols = await _server.HierarchicalDocumentSymbol(new LS.DocumentSymbolParams {
+                textDocument = new LS.TextDocumentIdentifier { uri = request.documentUri }
+            }, CancellationToken.None);
 
-            if (bufferVersion != null && bufferVersion.Ast != null) {
-                var suite = bufferVersion.Ast.Body as SuiteStatement;
-                if (suite != null) {
-                    foreach (var stmt in suite.Statements) {
-                        var classDef = stmt as ClassDefinition;
-                        if (classDef != null) {
-                            // classes have nested defs
-                            var classSuite = classDef.Body as SuiteStatement;
-                            var nestedNavs = new List<AP.Navigation>();
-                            if (classSuite != null) {
-                                foreach (var child in classSuite.Statements) {
-                                    if (child is ClassDefinition || child is FunctionDefinition) {
-                                        nestedNavs.Add(GetNavigation(child));
-                                    }
-                                }
-                            }
-
-                            navs.Add(new AP.Navigation() {
-                                type = "class",
-                                name = classDef.Name,
-                                startIndex = classDef.StartIndex,
-                                endIndex = classDef.EndIndex,
-                                children = nestedNavs.ToArray()
-                            });
-
-                        } else if (stmt is FunctionDefinition) {
-                            navs.Add(GetNavigation(stmt));
-                        }
-                    }
-                }
-            }
-            
-
+            var navs = symbols.Select(ToNavigation).ToArray();
+            var bufferVersion = GetPythonBuffer(request.documentUri);
             return new AP.NavigationResponse() {
-                version = bufferVersion?.Version ?? -1,
-                navigations = navs.ToArray()
+                version = bufferVersion.Version,
+                navigations = navs
             };
         }
 
-        private static AP.Navigation GetNavigation(Statement stmt) {
-            string type, name;
-            FunctionDefinition funcDef = stmt as FunctionDefinition;
-            if (funcDef != null) {
-                name = funcDef.Name;
-                type = "function";
-                if (funcDef.Decorators != null && funcDef.Decorators.Decorators.Count == 1) {
-                    foreach (var decorator in funcDef.Decorators.Decorators) {
-                        NameExpression nameExpr = decorator as NameExpression;
-                        if (nameExpr != null) {
-                            if (nameExpr.Name == "property") {
-                                type = "property";
-                                break;
-                            } else if (nameExpr.Name == "staticmethod") {
-                                type = "staticmethod";
-                                break;
-                            } else if (nameExpr.Name == "classmethod") {
-                                type = "classmethod";
-                                break;
-                            }
-                        }
-                    }
-                }
-            } else {
-                name = ((ClassDefinition)stmt).Name;
-                type = "class";
-            }
-            return new AP.Navigation() {
-                type = type,
-                name = name,
-                startIndex = stmt.StartIndex,
-                endIndex = stmt.EndIndex
-            };
-        }
-
-        private Response ExpressionForDataTip(AP.ExpressionForDataTipRequest request) {
-            var pyEntry = _projectFiles[request.fileId] as IPythonProjectEntry;
-
-            string dataTipExpression = null;
-            var options = new CodeFormattingOptions() {
-                UseVerbatimImage = false
+        private AP.Navigation ToNavigation(LS.DocumentSymbol symbol) =>
+            new AP.Navigation {
+                name = symbol.name,
+                startLine = symbol.range.start.line + 1,
+                startColumn = symbol.range.start.character + 1,
+                endLine = symbol.range.end.line + 1,
+                endColumn = symbol.range.end.character + 1,
+                type = symbol._functionKind,
+                children = symbol.children.Select(ToNavigation).ToArray()
             };
 
-            if (pyEntry != null && pyEntry.Analysis != null) {
-                var ast = pyEntry.Analysis.GetAstFromText(request.expr, new SourceLocation(request.index, request.line, request.column));
-                var expr = Statement.GetExpression(ast.Body);
-
-                if (ast != null) {
-                    var walker = new DetectSideEffectsWalker();
-                    ast.Walk(walker);
-                    if (!walker.HasSideEffects) {
-                        dataTipExpression = expr?.ToCodeString(ast, new CodeFormattingOptions() { UseVerbatimImage = false });
-                    }
-                }
+        private Response ExpressionAtPoint(AP.ExpressionAtPointRequest request) {
+            var buffer = GetPythonBuffer(request.documentUri);
+            if (buffer.Ast == null) {
+                return null;
             }
 
-            return new AP.ExpressionForDataTipResponse() {
-                expression = dataTipExpression
-            };
+            var res = new AP.ExpressionAtPointResponse();
+            if (!GetExpressionAtPoint(buffer.Ast, request.line, request.column, request.purpose, out SourceSpan span, out res.type)) {
+                return null;
+            }
+            res.startLine = span.Start.Line;
+            res.startColumn = span.Start.Column;
+            res.endLine = span.End.Line;
+            res.endColumn = span.End.Column;
+            res.bufferVersion = buffer.Version;
+            return res;
         }
 
-        private Response AnalyzeExpression(AP.AnalyzeExpressionRequest request) {
-            var pyEntry = _projectFiles[request.fileId] as IPythonProjectEntry;
-            AP.AnalysisReference[] references;
-            string privatePrefix = null;
-            string memberName = null;
-            if (pyEntry.Analysis != null) {
-                var variables = pyEntry.Analysis.GetVariables(
-                    request.expr,
-                    new SourceLocation(
-                        request.index,
-                        request.line,
-                        request.column
-                    )
-                );
+        private bool GetExpressionAtPoint(PythonAst ast, int line, int column, AP.ExpressionAtPointPurpose purpose, out SourceSpan span, out string type) {
+            span = default(SourceSpan);
+            type = null;
 
-                var ast = variables.Ast;
-                var expr = Statement.GetExpression(ast.Body);
-
-                NameExpression ne = expr as NameExpression;
-                MemberExpression me;
-                if (ne != null) {
-                    memberName = ne.Name;
-                } else if ((me = expr as MemberExpression) != null) {
-                    memberName = me.Name;
-                }
-
-                privatePrefix = variables.Ast.PrivatePrefix;
-                references = variables.Select(MakeReference).ToArray();
-            } else {
-                references = new AP.AnalysisReference[0];
+            if (ast == null) {
+                return false;
             }
 
-            return new AP.AnalyzeExpressionResponse() {
-                variables = references,
-                privatePrefix = privatePrefix,
-                memberName = memberName
+            GetExpressionOptions options;
+            switch (purpose) {
+                case AP.ExpressionAtPointPurpose.Evaluate:
+                    options = GetExpressionOptions.Evaluate;
+                    break;
+                case AP.ExpressionAtPointPurpose.EvaluateMembers:
+                    options = GetExpressionOptions.EvaluateMembers;
+                    break;
+                case AP.ExpressionAtPointPurpose.Hover:
+                    options = GetExpressionOptions.Hover;
+                    break;
+                case AP.ExpressionAtPointPurpose.FindDefinition:
+                    options = GetExpressionOptions.FindDefinition;
+                    break;
+                case AP.ExpressionAtPointPurpose.Rename:
+                    options = GetExpressionOptions.Rename;
+                    break;
+                default:
+                    options = new GetExpressionOptions();
+                    break;
+            }
+
+            var exprFinder = new ExpressionFinder(ast, options);
+            var expr = exprFinder.GetExpression(new SourceLocation(line, column));
+            if (expr == null) {
+                return false;
+            }
+
+            span = expr.GetSpan(ast);
+            type = expr.NodeName;
+            return true;
+        }
+
+        private async Task<Response> AnalyzeExpression(AP.AnalyzeExpressionRequest request) {
+            var entry = GetPythonEntry(request.documentUri);
+            if (entry == null) {
+                return IncorrectFileType();
+            }
+
+            var references = await _server.FindReferences(new LS.ReferencesParams {
+                textDocument = request.documentUri,
+                position = new SourceLocation(request.line, request.column),
+                context = new LS.ReferenceContext {
+                    includeDeclaration = true,
+                    _includeValues = true
+                }
+            });
+
+            var privatePrefix = entry.Analysis.GetPrivatePrefix(new SourceLocation(request.line, request.column));
+
+            return new AP.AnalyzeExpressionResponse {
+                variables = references.Select(MakeReference).ToArray(),
+                privatePrefix = privatePrefix
             };
         }
 
-        private AP.AnalysisReference MakeReference(IAnalysisVariable arg) {
-            return MakeReference(arg.Location, arg.Type);
-        }
+        private AP.AnalysisReference MakeReference(LS.Reference r) {
+            var range = (SourceSpan)r.range;
 
-        private AP.AnalysisReference MakeReference(LocationInfo location, VariableType type) {
-            return new AP.AnalysisReference() {
-                column = location.StartColumn,
-                line = location.StartLine,
-                kind = GetVariableType(type),
-                file = location?.FilePath
+            return new AP.AnalysisReference {
+                documentUri = r.uri,
+                file = (_server.GetEntry(r.uri, throwIfMissing: false)?.FilePath) ?? r.uri?.LocalPath,
+                startLine = range.Start.Line,
+                startColumn = range.Start.Column,
+                endLine = range.End.Line,
+                endColumn = range.End.Column,
+                kind = GetVariableType(r._kind),
+                version = r._version
             };
-        }        
+        }
 
         private static string GetVariableType(VariableType type) {
             switch (type) {
@@ -1255,320 +1106,303 @@ namespace Microsoft.PythonTools.Intellisense {
             return null;
         }
 
-        private Response GetQuickInfo(AP.QuickInfoRequest request) {
-            var pyEntry = _projectFiles[request.fileId] as IPythonProjectEntry;
-            string text = null;
-            if (pyEntry.Analysis != null) {
-                var values = pyEntry.Analysis.GetValues(
-                    request.expr,
-                    new SourceLocation(
-                        request.index,
-                        request.line,
-                        request.column
-                    )
-                );
+        private static string GetVariableType(LS.ReferenceKind? type) {
+            if (!type.HasValue) {
+                return null;
+            }
+            switch (type.Value) {
+                case LS.ReferenceKind.Definition: return "definition";
+                case LS.ReferenceKind.Reference: return "reference";
+                case LS.ReferenceKind.Value: return "value";
+            }
+            return null;
+        }
 
-                bool first = true;
-                var result = new StringBuilder();
-                int count = 0;
-                List<AnalysisValue> listVars = new List<AnalysisValue>(values);
-                HashSet<string> descriptions = new HashSet<string>();
-                bool multiline = false;
-                foreach (var v in listVars) {
-                    string description = null;
-                    if (listVars.Count == 1) {
-                        if (!String.IsNullOrWhiteSpace(v.Description)) {
-                            description = v.Description;
-                        }
-                    } else {
-                        if (!String.IsNullOrWhiteSpace(v.ShortDescription)) {
-                            description = v.ShortDescription;
-                        }
-                    }
+        private async Task<Response> GetQuickInfo(AP.QuickInfoRequest request) {
+            LS.Hover hover;
+            using (new DebugTimer("QuickInfo")) {
+                hover = await _server.Hover(new LS.TextDocumentPositionParams {
+                    textDocument = request.documentUri,
+                    position = new SourceLocation(request.line, request.column),
+                    _expr = request.expr,
+                });
+            }
 
-                    description = LimitLines(description);
+            return new AP.QuickInfoResponse {
+                text = hover.contents.value
+            };
+        }
 
-                    if (description != null && descriptions.Add(description)) {
-                        if (first) {
-                            first = false;
-                        } else {
-                            if (result.Length == 0 || result[result.Length - 1] != '\n') {
-                                result.Append(", ");
-                            } else {
-                                multiline = true;
+        private async Task<Response> GetSignatures(AP.SignaturesRequest request) {
+            LS.SignatureHelp sigs;
+
+            using (new DebugTimer("SignatureHelp")) {
+                sigs = await _server.SignatureHelp(new LS.TextDocumentPositionParams {
+                    textDocument = request.documentUri,
+                    position = new SourceLocation(request.line, request.column),
+                    _expr = request.text
+                });
+            }
+
+            return new AP.SignaturesResponse {
+                sigs = sigs?.signatures?.Select(
+                    s => new AP.Signature {
+                        name = s.label,
+                        doc = s.documentation?.value,
+                        parameters = s.parameters.MaybeEnumerate().Select(
+                            p => new AP.Parameter {
+                                name = p.label,
+                                defaultValue = p._defaultValue,
+                                optional = p._isOptional ?? false,
+                                doc = p.documentation?.value,
+                                type = p._type
                             }
-                        }
-                        result.Append(description);
-                        count++;
+                        ).ToArray()
                     }
-                }
-
-                string expr = request.expr;
-                if (expr.Length > 4096) {
-                    expr = expr.Substring(0, 4093) + "...";
-                }
-                if (multiline) {
-                    result.Insert(0, expr + ": " + Environment.NewLine);
-                } else if (result.Length > 0) {
-                    result.Insert(0, expr + ": ");
-                } else {
-                    result.Append(expr);
-                    result.Append(": ");
-                    result.Append("<unknown type>");
-                }
-
-                text = result.ToString();
-            }
-
-            return new AP.QuickInfoResponse() {
-                text = text
+                ).ToArray()
             };
         }
 
-        internal static string LimitLines(
-            string str,
-            int maxLines = 30,
-            int charsPerLine = 200,
-            bool ellipsisAtEnd = true,
-            bool stopAtFirstBlankLine = false
-        ) {
-            if (string.IsNullOrEmpty(str)) {
-                return str;
-            }
-
-            int lineCount = 0;
-            var prettyPrinted = new StringBuilder();
-            bool wasEmpty = true;
-
-            using (var reader = new StringReader(str)) {
-                for (var line = reader.ReadLine(); line != null && lineCount < maxLines; line = reader.ReadLine()) {
-                    if (string.IsNullOrWhiteSpace(line)) {
-                        if (wasEmpty) {
-                            continue;
-                        }
-                        wasEmpty = true;
-                        if (stopAtFirstBlankLine) {
-                            lineCount = maxLines;
-                            break;
-                        }
-                        lineCount += 1;
-                        prettyPrinted.AppendLine();
-                    } else {
-                        wasEmpty = false;
-                        lineCount += (line.Length / charsPerLine) + 1;
-                        prettyPrinted.AppendLine(line);
-                    }
-                }
-            }
-            if (ellipsisAtEnd && lineCount >= maxLines) {
-                prettyPrinted.AppendLine("...");
-            }
-            return prettyPrinted.ToString().Trim();
-        }
-
-        private Response GetSignatures(AP.SignaturesRequest request) {
-            var pyEntry = _projectFiles[request.fileId] as IPythonProjectEntry;
-            IEnumerable<IOverloadResult> sigs;
-            if (pyEntry.Analysis != null) {
-                using (new DebugTimer("GetSignaturesByIndex")) {
-                    sigs = pyEntry.Analysis.GetSignaturesByIndex(
-                        request.text,
-                        request.location
-                    );
-                }
-            } else {
-                sigs = Enumerable.Empty<IOverloadResult>();
-            }
-
-            return new AP.SignaturesResponse() {
-                sigs = ToSignatures(sigs)
-            };
-        }
-
-        private Response GetTopLevelCompletions(Request request) {
-            var topLevelCompletions = (AP.TopLevelCompletionsRequest)request;
-
-            var pyEntry = _projectFiles[topLevelCompletions.fileId] as IPythonProjectEntry;
-            IEnumerable<MemberResult> members;
-            if (pyEntry.Analysis != null) {
-
-                members = pyEntry.Analysis.GetAllAvailableMembers(
-                    new SourceLocation(topLevelCompletions.location, 1, topLevelCompletions.column),
-                    topLevelCompletions.options
-                );
-            } else {
-                members = Enumerable.Empty<MemberResult>();
-            }
-
-            return new AP.CompletionsResponse() {
-                completions = ToCompletions(members.ToArray(), topLevelCompletions.options)
-            };
-        }
-
-        private Response GeModuleMembers(Request request) {
-            var getModuleMembers = (AP.GetModuleMembersRequest)request;
-
-            return new AP.CompletionsResponse() {
-                completions = ToCompletions(
-                    Analyzer.GetModuleMembers(
-                        _projectFiles[getModuleMembers.fileId].AnalysisContext,
-                        getModuleMembers.package,
-                        getModuleMembers.includeMembers
-                    ),
-                    GetMemberOptions.None
-                )
-            };
-        }
-
-        private Response GetModules(Request request) {
+        private async Task<Response> GetModules(Request request) {
             var getModules = (AP.GetModulesRequest)request;
+            var prefix = getModules.package == null ? null : (string.Join(".", getModules.package));
 
-            return new AP.CompletionsResponse() {
-                completions = ToCompletions(
-                    Analyzer.GetModules(getModules.topLevelOnly),
-                    GetMemberOptions.None
-                )
+            var modules = await _server.Completion(new LS.CompletionParams {
+                textDocument = getModules.documentUri,
+                _expr = prefix,
+                context = new LS.CompletionContext {
+                    triggerKind = LS.CompletionTriggerKind.Invoked,
+                    _filterKind = LS.CompletionItemKind.Module,
+                    //_includeAllModules = getModules.package == null
+                }
+            });
+
+            return new AP.CompletionsResponse {
+                completions = await ToCompletions(modules.items, GetMemberOptions.None)
             };
         }
 
-        private Response GetCompletions(Request request) {
-            var completions = (AP.CompletionsRequest)request;
+        private async Task<Response> GetCompletions(Request request) {
+            var req = (AP.CompletionsRequest)request;
 
-            var pyEntry = _projectFiles[completions.fileId] as IPythonProjectEntry;
-            IEnumerable<MemberResult> members;
-            if (pyEntry.Analysis != null) {
-                members = pyEntry.Analysis.GetMembersByIndex(
-                    completions.text,
-                    completions.location,
-                    completions.options
-                ).MaybeEnumerate();
-            } else {
-                members = Enumerable.Empty<MemberResult>();
-            }
+            var members = await _server.Completion(new LS.CompletionParams {
+                position = new LS.Position { line = req.line - 1, character = req.column - 1 },
+                textDocument = req.documentUri,
+                context = new LS.CompletionContext {
+                    _intersection = req.options.HasFlag(GetMemberOptions.IntersectMultipleResults),
+                    //_statementKeywords = req.options.HasFlag(GetMemberOptions.IncludeStatementKeywords),
+                    //_expressionKeywords = req.options.HasFlag(GetMemberOptions.IncludeExpressionKeywords),
+                    //_includeArgumentNames = true
+                },
+                _expr = req.text
+            });
 
             return new AP.CompletionsResponse() {
-                completions = ToCompletions(members.ToArray(), completions.options)
+                completions = await ToCompletions(members.items, req.options)
             };
         }
 
-        private Response GetAllMembers(Request request) {
+        private async Task<Response> GetAllMembers(Request request) {
             var req = (AP.GetAllMembersRequest)request;
 
-            var members = Enumerable.Empty<MemberResult>();
-            var opts = GetMemberOptions.ExcludeBuiltins | GetMemberOptions.DeclaredOnly | req.options;
-
-            foreach (var entry in _projectFiles) {
-                var analysis = (entry.Value as IPythonProjectEntry)?.Analysis;
-                if (analysis != null) {
-                    members = members.Concat(analysis.GetAllAvailableMembers(SourceLocation.None, opts)
-                        .Where(mr => mr.Values.Any(v => v.DeclaringModule == entry.Value)));
-                }
-            }
-
-            if (!string.IsNullOrEmpty(req.prefix)) {
-                members = members.Where(mr => mr.Name.StartsWith(req.prefix));
-            }
-            members = members.GroupBy(mr => mr.Name).Select(g => g.First());
+            var members = await _server.WorkspaceSymbols(new LS.WorkspaceSymbolParams {
+                query = req.prefix
+            }).ConfigureAwait(false);
 
             return new AP.CompletionsResponse() {
-                completions = ToCompletions(members.ToArray(), opts)
+                completions = await ToCompletions(members)
             };
         }
 
-        private AP.Signature[] ToSignatures(IEnumerable<IOverloadResult> sigs) {
-            return sigs.Select(
-                sig => new AP.Signature() {
-                    name = sig.Name,
-                    doc = sig.Documentation,
-                    parameters = sig.Parameters.Select(
-                        param => new AP.Parameter() {
-                            name = param.Name,
-                            defaultValue = param.DefaultValue,
-                            optional = param.IsOptional,
-                            doc = param.Documentation,
-                            type = param.Type,
-                            variables = param.Variables != null ? param.Variables.Select(MakeReference).ToArray() : null
+        private async Task<AP.Completion[]> ToCompletions(IEnumerable<LS.SymbolInformation> symbols) {
+            if (symbols == null) {
+                return null;
+            }
+
+            var res = new List<AP.Completion>();
+            foreach (var s in symbols) {
+                var m = new AP.Completion {
+                    name = s.name,
+                    memberType = ToMemberType(s._kind, s.kind)
+                };
+
+                if (s.location.uri != null) {
+                    m.detailedValues = new[] {
+                        new AP.CompletionValue {
+                            locations = new [] {
+                                new AP.AnalysisReference {
+                                    file = s.location.uri.AbsolutePath,
+                                    documentUri = s.location.uri,
+                                    startLine = s.location.range.start.line + 1,
+                                    startColumn = s.location.range.start.character + 1,
+                                    endLine = s.location.range.end.line + 1,
+                                    endColumn = s.location.range.end.character + 1,
+                                    kind = "definition",
+                                }
+                            }
                         }
-                    ).ToArray()
+                    };
                 }
-            ).ToArray();
+
+                res.Add(m);
+            }
+
+            return res.ToArray();
         }
 
-        private AP.Completion[] ToCompletions(MemberResult[] memberResult, GetMemberOptions options) {
-            AP.Completion[] res = new AP.Completion[memberResult.Length];
-            for (int i = 0; i < memberResult.Length; i++) {
-                var member = memberResult[i];
 
-                res[i] = new AP.Completion() {
-                    name = member.Name,
-                    completion = member.Completion,
-                    doc = member.Documentation,
-                    memberType = member.MemberType
+        private async Task<AP.Completion[]> ToCompletions(IEnumerable<LS.CompletionItem> completions, GetMemberOptions options) {
+            if (completions == null) {
+                return null;
+            }
+
+            var res = new List<AP.Completion>();
+            foreach (var c in completions) {
+                var m = new AP.Completion {
+                    name = c.label,
+                    completion = (c.label == c.insertText) ? null : c.insertText,
+                    doc = c.documentation?.value,
+                    memberType = ToMemberType(c._kind, c.kind)
                 };
 
                 if (options.HasFlag(GetMemberOptions.DetailedInformation)) {
-                    List<AP.CompletionValue> values = new List<AnalysisProtocol.CompletionValue>();
-
-                    foreach (var value in member.Values) {
-                        var descComps = Array.Empty<AP.DescriptionComponent>();
-                        var hasDesc = value as IHasRichDescription;
-                        if (hasDesc != null) {
-                            descComps = hasDesc
-                                .GetRichDescription()
-                                .Select(kv => new AP.DescriptionComponent(kv.Value, kv.Key))
-                                .ToArray();
-                        }
-                        values.Add(
-                            new AP.CompletionValue() {
-                                description = descComps,
-                                doc = value.Documentation,
-                                locations = value.Locations.Select(x => MakeReference(x, VariableType.Definition)).ToArray()
-                            }
-                        );
+                    var c2 = await _server.CompletionItemResolve(c);
+                    var vars = new List<AP.CompletionValue>();
+                    foreach (var v in c2._values.MaybeEnumerate()) {
+                        vars.Add(new AP.CompletionValue {
+                            description = new[] { new AP.DescriptionComponent { kind = null, text = v.description } },
+                            doc = v.documentation,
+                            locations = v.references?.Where(r => r.uri.IsFile).Select(r => new AP.AnalysisReference {
+                                file = r.uri.AbsolutePath,
+                                documentUri = r.uri,
+                                startLine = r.range.start.line + 1,
+                                startColumn = r.range.start.character + 1,
+                                endLine = r.range.end.line + 1,
+                                endColumn = r.range.end.character + 1,
+                                kind = GetVariableType(r._kind)
+                            }).ToArray()
+                        });
                     }
-                    res[i].detailedValues = values.ToArray();
                 }
+
+                res.Add(m);
             }
-            return res;
+
+            return res.ToArray();
+        }
+
+        private PythonMemberType ToMemberType(string originalKind, LS.CompletionItemKind kind) {
+            PythonMemberType res;
+            if (!string.IsNullOrEmpty(originalKind) && Enum.TryParse(originalKind, true, out res)) {
+                return res;
+            }
+
+            switch (kind) {
+                case LS.CompletionItemKind.None: return PythonMemberType.Unknown;
+                case LS.CompletionItemKind.Text: return PythonMemberType.Constant;
+                case LS.CompletionItemKind.Method: return PythonMemberType.Method;
+                case LS.CompletionItemKind.Function: return PythonMemberType.Function;
+                case LS.CompletionItemKind.Constructor: return PythonMemberType.Function;
+                case LS.CompletionItemKind.Field: return PythonMemberType.Field;
+                case LS.CompletionItemKind.Variable: return PythonMemberType.Instance;
+                case LS.CompletionItemKind.Class: return PythonMemberType.Class;
+                case LS.CompletionItemKind.Interface: return PythonMemberType.Class;
+                case LS.CompletionItemKind.Module: return PythonMemberType.Module;
+                case LS.CompletionItemKind.Property: return PythonMemberType.Property;
+                case LS.CompletionItemKind.Unit: return PythonMemberType.Unknown;
+                case LS.CompletionItemKind.Value: return PythonMemberType.Instance;
+                case LS.CompletionItemKind.Enum: return PythonMemberType.Enum;
+                case LS.CompletionItemKind.Keyword: return PythonMemberType.Keyword;
+                case LS.CompletionItemKind.Snippet: return PythonMemberType.CodeSnippet;
+                case LS.CompletionItemKind.Color: return PythonMemberType.Instance;
+                case LS.CompletionItemKind.File: return PythonMemberType.Module;
+                case LS.CompletionItemKind.Reference: return PythonMemberType.Unknown;
+                case LS.CompletionItemKind.Folder: return PythonMemberType.Module;
+                case LS.CompletionItemKind.EnumMember: return PythonMemberType.EnumInstance;
+                case LS.CompletionItemKind.Constant: return PythonMemberType.Constant;
+                case LS.CompletionItemKind.Struct: return PythonMemberType.Class;
+                case LS.CompletionItemKind.Event: return PythonMemberType.Delegate;
+                case LS.CompletionItemKind.Operator: return PythonMemberType.Unknown;
+                case LS.CompletionItemKind.TypeParameter: return PythonMemberType.Class;
+                default: return PythonMemberType.Unknown;
+            }
+        }
+
+        private PythonMemberType ToMemberType(string originalKind, LS.SymbolKind kind) {
+            PythonMemberType res;
+            if (!string.IsNullOrEmpty(originalKind) && Enum.TryParse(originalKind, true, out res)) {
+                return res;
+            }
+
+            switch (kind) {
+                case LS.SymbolKind.None: return PythonMemberType.Unknown;
+                case LS.SymbolKind.File: return PythonMemberType.Module;
+                case LS.SymbolKind.Module: return PythonMemberType.Module;
+                case LS.SymbolKind.Namespace: return PythonMemberType.Namespace;
+                case LS.SymbolKind.Package: return PythonMemberType.Module;
+                case LS.SymbolKind.Class: return PythonMemberType.Class;
+                case LS.SymbolKind.Method: return PythonMemberType.Method;
+                case LS.SymbolKind.Property: return PythonMemberType.Property;
+                case LS.SymbolKind.Field: return PythonMemberType.Field;
+                case LS.SymbolKind.Constructor: return PythonMemberType.Method;
+                case LS.SymbolKind.Enum: return PythonMemberType.Enum;
+                case LS.SymbolKind.Interface: return PythonMemberType.Class;
+                case LS.SymbolKind.Function: return PythonMemberType.Function;
+                case LS.SymbolKind.Variable: return PythonMemberType.Field;
+                case LS.SymbolKind.Constant: return PythonMemberType.Constant;
+                case LS.SymbolKind.String: return PythonMemberType.Constant;
+                case LS.SymbolKind.Number: return PythonMemberType.Constant;
+                case LS.SymbolKind.Boolean: return PythonMemberType.Constant;
+                case LS.SymbolKind.Array: return PythonMemberType.Instance;
+                case LS.SymbolKind.Object: return PythonMemberType.Instance;
+                case LS.SymbolKind.Key: return PythonMemberType.Unknown;
+                case LS.SymbolKind.Null: return PythonMemberType.Unknown;
+                case LS.SymbolKind.EnumMember: return PythonMemberType.EnumInstance;
+                case LS.SymbolKind.Struct: return PythonMemberType.Class;
+                case LS.SymbolKind.Event: return PythonMemberType.Event;
+                case LS.SymbolKind.Operator: return PythonMemberType.Method;
+                case LS.SymbolKind.TypeParameter: return PythonMemberType.NamedArgument;
+                default: return PythonMemberType.Unknown;
+            }
         }
 
         private async Task AnalyzeFileAsync(AP.AddFileRequest request, Func<Response, Task> done) {
-            int fileId;
-            var entry = AddNewFile(request.path, request.addingFromDir, out fileId);
+            var uri = request.uri ?? ProjectEntry.MakeDocumentUri(request.path);
+            var entry = await AddNewFile(uri, request.path, request.addingFromDir);
 
-            await done(new AP.AddFileResponse { fileId = fileId });
-
-            if (entry != null) {
-                await BeginAnalyzingFileAsync(entry, fileId, request.isTemporaryFile, request.suppressErrorLists);
-            }
+            await done(new AP.AddFileResponse { documentUri = uri });
         }
 
         private async Task AnalyzeFileAsync(AP.AddBulkFileRequest request, Func<Response, Task> done) {
             var entries = new IProjectEntry[request.path.Length];
             var response = new AP.AddBulkFileResponse {
-                fileId = Enumerable.Repeat(-1, request.path.Length).ToArray()
+                documentUri = new Uri[request.path.Length]
             };
 
-            for(int i = 0; i < request.path.Length; ++i) {
-                entries[i] = AddNewFile(request.path[i], request.addingFromDir, out response.fileId[i]);
+            for (int i = 0; i < request.path.Length; ++i) {
+                if (!string.IsNullOrEmpty(request.path[i])) {
+                    var documentUri = ProjectEntry.MakeDocumentUri(request.path[i]);
+                    entries[i] = await AddNewFile(documentUri, request.path[i], request.addingFromDir);
+                    response.documentUri[i] = documentUri;
+                }
             }
 
             await done(response);
-
-            for (int i = 0; i < entries.Length; ++i) {
-                if (entries[i] != null) {
-                    await BeginAnalyzingFileAsync(entries[i], response.fileId[i], false, false);
-                }
-            }
         }
 
-        private Response UnloadFile(AP.UnloadFileRequest command) {
-            var entry = _projectFiles[command.fileId];
-            if (entry == null) {
-                throw new InvalidOperationException("Unknown project entry");
+        private async Task<IProjectEntry> AddNewFile(Uri documentUri, string path, string addingFromDir) {
+            if (documentUri.IsFile && Path.GetExtension(documentUri.LocalPath).Equals(".xaml", StringComparison.OrdinalIgnoreCase) && Project.Interpreter is IDotNetPythonInterpreter interpreter) {
+                return interpreter.AddXamlEntry(path, documentUri);
             }
 
-            UnloadFile(entry);
+            return await _server.LoadFileAsync(
+                documentUri,
+                string.IsNullOrEmpty(addingFromDir) ? null : new Uri(PathUtils.NormalizePath(addingFromDir))
+            ).ConfigureAwait(false);
+        }
+
+        private async Task<Response> UnloadFile(AP.UnloadFileRequest command) {
+            await _server.UnloadFileAsync(command.documentUri);
             return new Response();
         }
 
@@ -1586,12 +1420,18 @@ namespace Microsoft.PythonTools.Intellisense {
 
         class StreamCodeInfo : CodeInfo {
             private readonly Stream _stream;
+            private readonly bool _isStubFile;
 
-            public StreamCodeInfo(int version, Stream stream) : base(version) {
+            public StreamCodeInfo(int version, Stream stream, bool isStubFile) : base(version) {
                 _stream = stream;
+                _isStubFile = isStubFile;
             }
 
             public override Parser CreateParser(PythonLanguageVersion version, ParserOptions options) {
+                if (_isStubFile) {
+                    options = options?.Clone() ?? new ParserOptions();
+                    options.StubFile = true;
+                }
                 return Parser.CreateParser(_stream, version, options);
             }
 
@@ -1602,11 +1442,18 @@ namespace Microsoft.PythonTools.Intellisense {
 
         class TextCodeInfo : CodeInfo {
             private readonly TextReader _text;
-            public TextCodeInfo(int version, TextReader text) : base(version) {
+            private readonly bool _isStubFile;
+
+            public TextCodeInfo(int version, TextReader text, bool isStubFile) : base(version) {
                 _text = text;
+                _isStubFile = isStubFile;
             }
 
             public override Parser CreateParser(PythonLanguageVersion version, ParserOptions options) {
+                if (_isStubFile) {
+                    options = options?.Clone() ?? new ParserOptions();
+                    options.StubFile = true;
+                }
                 return Parser.CreateParser(_text, version, options);
             }
 
@@ -1615,318 +1462,90 @@ namespace Microsoft.PythonTools.Intellisense {
             }
         }
 
-        private Response GetOverrides(AP.OverridesCompletionRequest request) {
-            var projectFile = _projectFiles[request.fileId] as IPythonProjectEntry;
-            var analysis = projectFile.Analysis;
-            if (analysis != null) {
-
-                var location = new SourceLocation(request.index, request.line, request.column);
-
-                var cls = analysis.GetDefinitionTree(location).LastOrDefault(member => member.MemberType == PythonMemberType.Class);
-                var members = analysis.GetOverrideable(location).ToArray();
-
-                return new AP.OverridesCompletionResponse() {
-                    overrides = members
-                        .Select(member => new AP.Override() {
-                            name = member.Name,
-                            doc = member.Documentation,
-                            completion = MakeCompletionString(request, member, cls.Name)
-                        }).ToArray()
-                };
-            }
-            return new AP.OverridesCompletionResponse() {
-                overrides = Array.Empty<AP.Override>()
-            };
-        }
-
-        private static readonly Regex ValidParameterName = new Regex(@"^(\*|\*\*)?[a-z_][a-z0-9_]*", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-
-        private static string GetSafeParameterName(ParameterResult result, int index) {
-            if (!string.IsNullOrEmpty(result.DefaultValue)) {
-                return GetSafeArgumentName(result, index) + " = " + result.DefaultValue;
-            }
-            return GetSafeArgumentName(result, index);
-        }
-
-        private static string GetSafeArgumentName(ParameterResult result, int index) {
-            var match = ValidParameterName.Match(result.Name);
-
-            if (match.Success) {
-                return match.Value;
-            } else if (result.Name.StartsWith("**")) {
-                return "**kwargs";
-            } else if (result.Name.StartsWith("*")) {
-                return "*args";
-            } else {
-                return "arg" + index.ToString();
-            }
-        }
-
-        private string MakeCompletionString(AP.OverridesCompletionRequest request, IOverloadResult result, string className) {
-            var sb = new StringBuilder();
-
-            sb.AppendLine(result.Name + "(" + string.Join(", ", result.Parameters.Select((p, i) => GetSafeParameterName(p, i))) + "):");
-
-            sb.Append(request.indentation);
-
-            if (result.Parameters.Length > 0) {
-                var parameterString = string.Join(", ", result.Parameters.Skip(1).Select((p, i) => GetSafeArgumentName(p, i + 1)));
-
-                if (InterpreterFactory.GetLanguageVersion().Is3x()) {
-                    sb.AppendFormat("return super().{0}({1})",
-                        result.Name,
-                        parameterString);
-                } else if (!string.IsNullOrEmpty(className)) {
-                    sb.AppendFormat("return super({0}, {1}).{2}({3})",
-                        className,
-                        result.Parameters.First().Name,
-                        result.Name,
-                        parameterString);
+        private async Task<Response> UpdateContent(AP.FileUpdateRequest request) {
+            int version = -1;
+            foreach (var fileChange in request.updates) {
+                var changes = new List<LS.TextDocumentContentChangedEvent>();
+                if (fileChange.kind == AP.FileUpdateKind.reset) {
+                    changes.Add(new LS.TextDocumentContentChangedEvent {
+                        text = fileChange.content
+                    });
+                    version = fileChange.version;
+                } else if (fileChange.kind == AP.FileUpdateKind.changes) {
+                    changes.AddRange(fileChange.changes.Select(c => new LS.TextDocumentContentChangedEvent {
+                        range = new SourceSpan(
+                            new SourceLocation(c.startLine, c.startColumn),
+                            new SourceLocation(c.endLine, c.endColumn)
+                        ),
+                        text = c.newText
+                    }));
+                    version = fileChange.version;
                 } else {
-                    sb.Append("pass");
+                    continue;
                 }
-            } else {
-                sb.Append("pass");
+                _server.DidChangeTextDocument(new LS.DidChangeTextDocumentParams {
+                    textDocument = new LS.VersionedTextDocumentIdentifier {
+                        uri = request.documentUri,
+                        version = version,
+                        _fromVersion = Math.Max(version - 1, 0)
+                    },
+                    contentChanges = changes.ToArray()
+                });
             }
 
-            return sb.ToString();
-        }
-
-        private Response UpdateContent(AP.FileUpdateRequest request) {
-            var entry = _projectFiles[request.fileId];
-            if (entry == null) {
-                return new AP.FileUpdateResponse() {
-                    failed = true
-                };
-            }
-
-            SortedDictionary<int, CodeInfo> codeByBuffer = new SortedDictionary<int, CodeInfo>();
 #if DEBUG
-            Dictionary<int, string> newCode = new Dictionary<int, string>();
-#endif
-            foreach (var update in request.updates) {
-                switch (update.kind) {
-                    case AP.FileUpdateKind.changes:
-                        if (entry != null) {
-                            var newCodeStr = entry.UpdateCode(
-                                update.versions,
-                                update.bufferId,
-                                update.version
-                            );
-
-                            codeByBuffer[update.bufferId] = new TextCodeInfo(
-                                update.version,
-                                new StringReader(newCodeStr)
-                            );
-#if DEBUG
-                            newCode[update.bufferId] = newCodeStr;
-#endif
-                        }
-                        break;
-                    case AP.FileUpdateKind.reset:
-                        entry.SetCurrentCode(update.content, update.bufferId, update.version);
-                        codeByBuffer[update.bufferId] = new TextCodeInfo(
-                            update.version,
-                            new StringReader(update.content)
-                        );
-#if DEBUG
-                        newCode[update.bufferId] = update.content;
-#endif
-                        break;
-                    default:
-                        throw new InvalidOperationException("unsupported update kind");
-                }
-            }
-
-            EnqueWorker(() => ParseFile(entry, codeByBuffer));
-
-            return new AP.FileUpdateResponse() {
-#if DEBUG
-                newCode = newCode
-#endif
+            var entry = _server.GetEntry(request.documentUri);
+            int part = _server.GetPart(request.documentUri);
+            return new AP.FileUpdateResponse {
+                version = version,
+                newCode = (entry as IDocument)?.ReadDocument(part, out _)?.ReadToEnd()
             };
+#else
+            return new AP.FileUpdateResponse {
+                version = version
+            };
+#endif
         }
 
-        /// <summary>
-        /// Gets a CompletionList providing a list of possible members the user can dot through.
-        /// </summary>
-        internal AP.CompletionsResponse GetCompletions(AP.CompletionsRequest request) {
-            var file = _projectFiles[request.fileId];
-            if (file == null) {
-                throw new InvalidOperationException("Unknown project entry");
-            }
-
-            using (new DebugTimer("GetCompletions")) {
-                return GetNormalCompletions(file, request);
-            }
-        }
-
-        internal Task ProcessMessages() {
+        public Task ProcessMessages() {
             return _connection.ProcessMessages();
         }
 
-        public AP.OptionsChangedEvent Options {
-            get {
-                return _options;
-            }
+        private Response SetAnalysisOptions(AP.SetAnalysisOptionsRequest request) {
+            Options = request.options ?? new AP.AnalysisOptions();
+
+            Project.Limits = AnalysisLimitsConverter.FromDictionary(Options.analysisLimits);
+            _server._parseQueue.InconsistentIndentation = LS.DiagnosticsErrorSink.GetSeverity(Options.indentationInconsistencySeverity);
+            _server._parseQueue.TaskCommentMap = Options.commentTokens;
+            _server.Analyzer.SetTypeStubPaths(Options.typeStubPaths);
+
+            return new Response();
         }
 
-        private async void AnalysisQueue_Complete(object sender, EventArgs e) {
-            if (_connection == null) {
-                return;
-            }
-            await _connection.SendEventAsync(new AP.AnalysisCompleteEvent()).ConfigureAwait(false);
+
+        public AP.AnalysisOptions Options { get; set; }
+
+        private void AnalysisQueue_Complete(object sender, EventArgs e) {
+            _connection?.SendEventAsync(new AP.AnalysisCompleteEvent()).DoNotWait();
         }
 
-        private async void OnModulesChanged(object sender, EventArgs args) {
-            if (_pyAnalyzer == null) {
-                Debug.Fail("Should not have null _pyAnalyzer here");
-                return;
-            }
-
-            await _pyAnalyzer.ReloadModulesAsync();
-
-            // re-analyze all of the modules when we get a new set of modules loaded...
-            foreach (var entry in _pyAnalyzer.ModulesByFilename) {
-                _analysisQueue.Enqueue(entry.Value.ProjectEntry, AnalysisPriority.Normal);
-            }
+        private void OnModulesChanged(object sender, EventArgs args) {
+            _server.DidChangeConfiguration(new LS.DidChangeConfigurationParams()).DoNotWait();
         }
 
-        private bool ShouldAnalyzePath(string path) {
-            foreach (var config in _allConfigs) {
-                if (PathUtils.IsValidPath(config.InterpreterPath) &&
-                    PathUtils.IsSubpathOf(Path.GetDirectoryName(config.InterpreterPath), path)) {
-                    return false;
+        private void OnFileChanged(AP.FileChangedEvent e) {
+            _server.DidChangeWatchedFiles(new LS.DidChangeWatchedFilesParams {
+                changes = e.changes.MaybeEnumerate().Select(c => new LS.FileEvent { uri = c.documentUri, type = c.kind }).ToArray()
+            }).DoNotWait();
+        }
+
+        private void OnAnalysisComplete(object sender, LS.AnalysisCompleteEventArgs e) {
+            _connection.SendEventAsync(
+                new AP.FileAnalysisCompleteEvent {
+                    documentUri = e.uri,
+                    version = e.version
                 }
-            }
-            return true;
-        }
-
-        private IProjectEntry AddNewFile(string path, string addingFromDirectory, out int fileId) {
-            if (_pyAnalyzer == null) {
-                Debug.Fail("AnalyzeNewFile should only be called when _pyAnalyzer exists");
-                fileId = -1;
-                return null;
-            }
-
-            IProjectEntry item = null;
-            IPythonProjectEntry pyItem = null;
-            if (_projectFiles.TryGetValue(path, out item)) {
-                // If the module exists, we may be adding an alias to it.
-                if (addingFromDirectory != null &&
-                    (pyItem = item as IPythonProjectEntry) != null &&
-                    ModulePath.IsPythonSourceFile(path)) {
-                    string modName = null;
-                    try {
-                        modName = ModulePath.FromFullPath(path, addingFromDirectory).ModuleName;
-                    } catch (ArgumentException) {
-                        // Module does not have a valid name, so we can't make
-                        // an alias for it.
-                        fileId = -1;
-                        return null;
-                    }
-
-                    if (modName != null && pyItem.ModuleName != modName) {
-                        _pyAnalyzer.AddModuleAlias(pyItem.ModuleName, modName);
-
-                        var reanalyzeEntries = _pyAnalyzer.GetEntriesThatImportModule(modName, true).ToArray();
-                        foreach (var entryRef in reanalyzeEntries) {
-                            _analysisQueue.Enqueue(entryRef, AnalysisPriority.Low);
-                        }
-                    }
-                }
-
-                fileId = ProjectEntryMap.GetId(item);
-                return item;
-            }
-
-            if (Path.GetExtension(path).Equals(".xaml", StringComparison.OrdinalIgnoreCase)) {
-                item = _pyAnalyzer.AddXamlFile(path, null);
-
-            } else if (ModulePath.IsPythonSourceFile(path)) {
-                // assume it's a Python file...
-                string modName;
-                try {
-                    modName = ModulePath.FromFullPath(path, addingFromDirectory).ModuleName;
-                } catch (ArgumentException) {
-                    // File is not a valid module, but we can still add an
-                    // entry for it.
-                    modName = null;
-                }
-
-                IPythonProjectEntry[] reanalyzeEntries = null;
-                if (!string.IsNullOrEmpty(modName)) {
-                    reanalyzeEntries = _pyAnalyzer.GetEntriesThatImportModule(modName, true).ToArray();
-                }
-
-                pyItem = _pyAnalyzer.AddModule(modName, path, null);
-                pyItem.OnNewAnalysis += OnNewAnalysis;
-
-                pyItem.BeginParsingTree();
-
-                if (reanalyzeEntries != null) {
-                    foreach (var entryRef in reanalyzeEntries) {
-                        _analysisQueue.Enqueue(entryRef, AnalysisPriority.Low);
-                    }
-                }
-
-                item = pyItem;
-            }
-
-            if (item != null) {
-                fileId = _projectFiles.Add(path, item);
-            } else {
-                fileId = -1;
-            }
-
-            return item;
-        }
-
-        internal async Task BeginAnalyzingFileAsync(IProjectEntry item, int fileId, bool isTemporaryFile, bool suppressErrorList) {
-            if (_pyAnalyzer == null) {
-                // We aren't able to analyze code, so don't create an entry.
-                return;
-            }
-
-            var pyItem = item as IPythonProjectEntry;
-            if (pyItem == null) {
-                return;
-            }
-
-            // Send a notification for this file before starting analysis
-            // An AnalyzeFile event will send the same details in its
-            // response.
-            await _connection.SendEventAsync(new AP.ChildFileAnalyzed() {
-                fileId = fileId >= 0 ? fileId : ProjectEntryMap.GetId(pyItem),
-                filename = pyItem.FilePath,
-                isTemporaryFile = isTemporaryFile,
-                suppressErrorList = suppressErrorList
-            });
-
-            EnqueueFile(item, pyItem.FilePath);
-        }
-
-        private async void OnNewAnalysis(object sender, EventArgs e) {
-            var projEntry = sender as IPythonProjectEntry;
-            if (projEntry != null) {
-                var fileId = ProjectEntryMap.GetId(projEntry);
-                PythonAst dummy;
-                IAnalysisCookie cookieTmp;
-                projEntry.GetTreeAndCookie(out dummy, out cookieTmp);
-                var cookie = (VersionCookie)cookieTmp;
-
-                var versions = cookie.Buffers.Select(x => new AP.BufferVersion() {
-                    bufferId = x.Key,
-                    version = x.Value.Version
-                }).ToArray();
-
-                await _connection.SendEventAsync(
-                    new AP.FileAnalysisCompleteEvent() {
-                        fileId = fileId,
-                        versions = versions
-                    }
-                );
-            }
+            ).DoNotWait();
         }
 
         private static NameExpression GetFirstNameExpression(Statement stmt) {
@@ -1962,45 +1581,9 @@ namespace Microsoft.PythonTools.Intellisense {
                 nameExpr.Name == "__name__";
         }
 
-        internal bool IsAnalyzing {
-            get {
-                return IsParsing || _analysisQueue.IsAnalyzing;
-            }
-        }
+        internal IPythonInterpreterFactory InterpreterFactory => Project?.InterpreterFactory;
 
-        internal void WaitForCompleteAnalysis(Func<int, bool> itemsLeftUpdated) {
-            if (IsAnalyzing) {
-                while (IsAnalyzing) {
-                    QueueActivityEvent.WaitOne(100);
-
-                    int itemsLeft = ParsePending + _analysisQueue.AnalysisPending;
-
-                    if (!itemsLeftUpdated(itemsLeft)) {
-                        break;
-                    }
-                }
-            } else {
-                itemsLeftUpdated(0);
-            }
-        }
-
-        internal AutoResetEvent QueueActivityEvent {
-            get {
-                return _queueActivityEvent;
-            }
-        }
-
-        internal IPythonInterpreterFactory InterpreterFactory {
-            get {
-                return _interpreterFactory;
-            }
-        }
-
-        internal IPythonInterpreter Interpreter {
-            get {
-                return _pyAnalyzer?.Interpreter;
-            }
-        }
+        internal IPythonInterpreter Interpreter => Project?.Interpreter;
 
         // Returns the current analyzer or throws InvalidOperationException.
         // This should be used in request handlers that should fail when
@@ -2008,11 +1591,11 @@ namespace Microsoft.PythonTools.Intellisense {
         // use should use _pyAnalyzer directly.
         private PythonAnalyzer Analyzer {
             get {
-                if (_pyAnalyzer == null) {
+                if (Project == null) {
                     throw new InvalidOperationException("Unable to analyze code");
                 }
 
-                return _pyAnalyzer;
+                return Project;
             }
         }
 
@@ -2023,339 +1606,53 @@ namespace Microsoft.PythonTools.Intellisense {
         /// This is for public consumption only and should not be used within
         /// <see cref="OutOfProcProjectAnalyzer"/>.
         /// </remarks>
-        public PythonAnalyzer Project {
-            get {
-                return _pyAnalyzer;
-            }
-        }
+        public PythonAnalyzer Project => _server.Analyzer;
 
-        class ParseResult {
-            public readonly PythonAst Ast;
-            public readonly CollectingErrorSink Errors;
-            public readonly List<AP.TaskItem> Tasks;
-            public readonly int Version;
-
-            public ParseResult(PythonAst ast, CollectingErrorSink errors, List<AP.TaskItem> tasks, int version) {
-                Ast = ast;
-                Errors = errors;
-                Tasks = tasks;
-                Version = version;
-            }
-        }
-
-
-        private void ParseFile(IProjectEntry entry, IDictionary<int, CodeInfo> buffers) {
-            IPythonProjectEntry pyEntry;
-            IExternalProjectEntry externalEntry;
-
-            SortedDictionary<int, ParseResult> parseResults = new SortedDictionary<int, ParseResult>();
-
-            if ((pyEntry = entry as IPythonProjectEntry) != null) {
-                foreach (var buffer in buffers) {
-                    var errorSink = new CollectingErrorSink();
-                    var tasks = new List<AP.TaskItem>();
-                    ParserOptions options = MakeParserOptions(errorSink, tasks);
-
-                    using (var parser = buffer.Value.CreateParser(Project.LanguageVersion, options)) {
-                        var ast = ParseOneFile(parser);
-                        parseResults[buffer.Key] = new ParseResult(
-                            ast,
-                            errorSink,
-                            tasks,
-                            buffer.Value.Version
-                        );
-                    }
+        private void OnPublishDiagnostics(object sender, LS.PublishDiagnosticsEventArgs e) {
+            _connection.SendEventAsync(
+                new AP.DiagnosticsEvent {
+                    documentUri = e.uri,
+                    version = e._version ?? -1,
+                    diagnostics = e.diagnostics?.ToArray()
                 }
+            ).DoNotWait();
+        }
 
-                // Save the single or combined tree into the project entry
-                UpdateAnalysisTree(pyEntry, parseResults);
-
-                // update squiggles for the buffer. snapshot may be null if we
-                // are analyzing a file that is not open
-                SendParseComplete(pyEntry, parseResults);
-
-                // enqueue analysis of the file
-                if (parseResults.Where(x => x.Value.Ast != null).Any()) {
-                    _analysisQueue.Enqueue(pyEntry, AnalysisPriority.Normal);
+        private void OnParseComplete(object sender, LS.ParseCompleteEventArgs e) {
+            _connection.SendEventAsync(
+                new AP.FileParsedEvent {
+                    documentUri = e.uri,
+                    version = e.version
                 }
-            } else if ((externalEntry = entry as IExternalProjectEntry) != null) {
-                foreach (var keyValue in buffers) {
-                    externalEntry.ParseContent(keyValue.Value.GetReader(), null);
-                    _analysisQueue.Enqueue(entry, AnalysisPriority.Normal);
-                }
-            }
+            ).DoNotWait();
         }
 
-        private static void UpdateAnalysisTree(IPythonProjectEntry pyEntry, SortedDictionary<int, ParseResult> parseResults) {
-            IAnalysisCookie cookie = new VersionCookie(
-                parseResults.ToDictionary(
-                    x => x.Key,
-                    x => new BufferVersion(x.Value.Version, x.Value.Ast)
-                )
-            );
-
-            var asts = parseResults.Where(x => x.Value.Ast != null).Select(x => x.Value.Ast).ToArray();
-            PythonAst finalAst;
-            if (asts.Length == 1) {
-                finalAst = asts[0];
-            } else if (asts.Length > 0) {
-                // multiple ASTs, merge them together
-                finalAst = new PythonAst(
-                    new SuiteStatement(
-                        asts.Select(ast => ast.Body).ToArray()
-                    ),
-                    new NewLineLocation[0],
-                    asts[0].LanguageVersion
-                );
-            } else {
-                // we failed to get any sort of AST out, so we can't analyze...
-                // But we need to balance the UpdateTree call, so just fetch the
-                // last valid ast and cookie.
-                pyEntry.GetTreeAndCookie(out finalAst, out cookie);
-            }
-
-            pyEntry.UpdateTree(finalAst, cookie);
-        }
-
-        private async void SendParseComplete(IPythonProjectEntry entry, SortedDictionary<int, ParseResult> parseResults) {
-            await _connection.SendEventAsync(
-                new AP.FileParsedEvent() {
-                    fileId = ProjectEntryMap.GetId(entry),
-                    buffers = parseResults.Select(
-                        x => new AP.BufferParseInfo() {
-                            bufferId = x.Key,
-                            version = x.Value.Version,
-                            errors = x.Value.Errors.Errors.Select(MakeError).ToArray(),
-                            warnings = x.Value.Errors.Warnings.Select(MakeError).ToArray(),
-                            hasErrors = x.Value.Errors.Errors.Any(),
-                            tasks = x.Value.Tasks.ToArray()
-                        }
-                    ).ToArray()
-                }
-            );
-        }
-
-        private static AP.Error MakeError(ErrorResult error) {
-            return new AP.Error() {
-                message = error.Message,
-                startLine = error.Span.Start.Line,
-                startColumn = error.Span.Start.Column,
-                startIndex = error.Span.Start.Index,
-                endLine = error.Span.End.Line,
-                endColumn = error.Span.End.Column,
-                length = error.Span.Length
-            };
-        }
-
-        private ParserOptions MakeParserOptions(CollectingErrorSink errorSink, List<AP.TaskItem> tasks) {
-            var options = new ParserOptions {
-                ErrorSink = errorSink,
-                IndentationInconsistencySeverity = _options.indentation_inconsistency_severity,
-                BindReferences = true
-            };
-            options.ProcessComment += (sender, e) => ProcessComment(tasks, e.Span, e.Text);
-            return options;
-        }
-
-        private static PythonAst ParseOneFile(Parser parser) {
-            if (parser != null) {
-                try {
-                    return parser.ParseFile();
-                } catch (BadSourceException) {
-                } catch (Exception e) {
-                    if (e.IsCriticalException()) {
-                        throw;
-                    }
-                    Debug.Assert(false, String.Format("Failure in Python parser: {0}", e.ToString()));
-                }
-
-            }
-            return null;
-        }
-
-        // Tokenizer callback. Extracts comment tasks (like "TODO" or "HACK") from comments.
-        private void ProcessComment(List<AP.TaskItem> commentTasks, SourceSpan span, string text) {
-            if (text.Length > 0) {
-                var tokens = _commentPriorityMap;
-                if (tokens != null) {
-                    foreach (var kv in tokens) {
-                        if (text.IndexOf(kv.Key, StringComparison.OrdinalIgnoreCase) >= 0) {
-                            commentTasks.Add(
-                                new AP.TaskItem() {
-                                    message = text.Substring(1).Trim(),
-                                    startLine = span.Start.Line,
-                                    startColumn = span.Start.Column,
-                                    startIndex = span.Start.Index,
-                                    endLine = span.End.Line,
-                                    endColumn = span.End.Column,
-                                    length = span.Length,
-                                    priority = kv.Value,
-                                    category = AP.TaskCategory.comments,
-                                    squiggle = false
-                                }
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        #region Implementation Details
-
-
-        private AP.CompletionsResponse GetNormalCompletions(IProjectEntry projectEntry, AP.CompletionsRequest request) {
-            int version;
-            var code = projectEntry.GetCurrentCode(request.bufferId, out version);
-
-            if (IsSpaceCompletion(code, request.location) && !request.forceCompletions) {
-                return new AP.CompletionsResponse() {
-                    completions = new AP.Completion[0]
-                };
-            }
-
-            var analysis = ((IPythonProjectEntry)projectEntry).Analysis;
-            if (analysis != null) {
-                var members = analysis.GetMembers(
-                    request.text,
-                    new SourceLocation(
-                        request.location,
-                        1,
-                        request.column
-                    ),
-                    request.options
-                ).MaybeEnumerate();
-
-                return new AP.CompletionsResponse() {
-                    completions = ToCompletions(members.ToArray(), request.options)
-                };
-            }
-            return new AP.CompletionsResponse() {
-                completions = Array.Empty<AP.Completion>()
-            };
-        }
-
-        private bool IsSpaceCompletion(string text, int location) {
-            if (location > 0 && location < text.Length - 1) {
-                return text[location - 1] == ' ';
-            }
-            return false;
-        }
-
-        internal void Cancel() {
-            _analysisQueue.Stop();
-        }
-
-        internal void UnloadFile(IProjectEntry entry) {
-            if (entry != null) {
-                // If we remove a Python module, reanalyze any other modules
-                // that referenced it.
-                IPythonProjectEntry[] reanalyzeEntries = null;
-                var pyEntry = entry as IPythonProjectEntry;
-                if (pyEntry != null && !string.IsNullOrEmpty(pyEntry.ModuleName)) {
-                    reanalyzeEntries = Analyzer.GetEntriesThatImportModule(pyEntry.ModuleName, false).ToArray();
-                }
-
-                Analyzer.RemoveModule(entry);
-                _projectFiles.Remove(entry);
-
-                if (reanalyzeEntries != null) {
-                    foreach (var existing in reanalyzeEntries) {
-                        _analysisQueue.Enqueue(existing, AnalysisPriority.Normal);
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Parses the specified file on disk.
-        /// </summary>
-        /// <param name="filename"></param>
-        public void EnqueueFile(IProjectEntry projEntry, string filename) {
-            EnqueWorker(() => {
-                for (int i = 0; i < 10; i++) {
-                    try {
-                        if (!File.Exists(filename)) {
-                            break;
-                        }
-                        using (var reader = new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {
-                            ParseFile(
-                                projEntry,
-                                new Dictionary<int, CodeInfo> {
-                                    { 0, new StreamCodeInfo(0, reader) }
-                                }
-                            );
-                            return;
-                        }
-                    } catch (IOException) {
-                        // file being copied, try again...
-                        Thread.Sleep(100);
-                    } catch (UnauthorizedAccessException) {
-                        // file is inaccessible, try again...
-                        Thread.Sleep(100);
-                    }
-                }
-
-                IPythonProjectEntry pyEntry = projEntry as IPythonProjectEntry;
-                if (pyEntry != null) {
-                    SendParseComplete(pyEntry, new SortedDictionary<int, ParseResult>());
-                    // failed to parse, keep the UpdateTree calls balanced
-                    pyEntry.UpdateTree(null, null);
-                }
-            });
-        }
-
-        private void EnqueWorker(Action parser) {
-            Interlocked.Increment(ref _analysisPending);
-
-            ThreadPool.QueueUserWorkItem(
-                dummy => {
-                    try {
-                        parser();
-                    } finally {
-                        Interlocked.Decrement(ref _analysisPending);
-                    }
-                }
-            );
-        }
-
-        public bool IsParsing {
-            get {
-                return _analysisPending > 0;
-            }
-        }
-
-        public int ParsePending {
-            get {
-                return _analysisPending;
-            }
-        }
-
-        #endregion
 
         #region IDisposable Members
 
         public void Dispose() {
-            _analysisQueue.AnalysisComplete -= AnalysisQueue_Complete;
-            _analysisQueue.Dispose();
-            if (_pyAnalyzer != null) {
-                _pyAnalyzer.Interpreter.ModuleNamesChanged -= OnModulesChanged;
-                _pyAnalyzer.Dispose();
+            if (_isDisposed) {
+                return;
             }
 
-            _queueActivityEvent.Dispose();
+            _isDisposed = true;
+            _server._queue.AnalysisComplete -= AnalysisQueue_Complete;
+            if (Project != null) {
+                Project.Interpreter.ModuleNamesChanged -= OnModulesChanged;
+                Project.Dispose();
+            }
+
+            lock (_extensions) {
+                foreach (var extension in _extensions.Values) {
+                    (extension as IDisposable)?.Dispose();
+                }
+            }
+
+            _server.Dispose();
+
             _connection.Dispose();
-            _container.Dispose();
-            _catalog.Dispose();
         }
 
         #endregion
-
-        internal void RemoveReference(ProjectAssemblyReference reference) {
-            var interp = Interpreter as IPythonInterpreterWithProjectReferences;
-            if (interp != null) {
-                interp.RemoveReference(reference);
-            }
-        }
-
     }
 }

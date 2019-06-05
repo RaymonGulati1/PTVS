@@ -9,15 +9,15 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 
-namespace Microsoft.PythonTools.DkmDebugger {
-    public static class Guids {
+namespace Microsoft.PythonTools.Debugger {
+    internal static class Guids {
         public const string RemoteComponentId = "BCFD7074-A4D3-42A9-B1B6-C975304C882A";
         public static readonly Guid RemoteComponentGuid = new Guid(RemoteComponentId);
 
@@ -34,7 +34,10 @@ namespace Microsoft.PythonTools.DkmDebugger {
         public static readonly Guid UnknownPythonModuleGuid = new Guid("42A6F911-9997-4504-861C-91015BDCE588");
         public static readonly Guid CppLanguageGuid = new Guid("3A12D0B7-C26C-11D0-B442-00A0244A1DD2");
 
-        public const string PythonExceptionCategoryId = "EC1375B7-E2CE-43E8-BF75-DC638DE1F1F9";
+        public const string PythonDebugEngineId = "EC1375B7-E2CE-43E8-BF75-DC638DE1F1F9";
+        public static readonly Guid PythonDebugEngineGuid = new Guid(PythonDebugEngineId);
+
+        public const string PythonExceptionCategoryId = PythonDebugEngineId;
         public static readonly Guid PythonExceptionCategoryGuid = new Guid(PythonExceptionCategoryId);
 
         public const string PythonNativeVisualizerId = "C85DBEDF-48BA-4BC8-ADC7-B3A7B70D692A";
@@ -52,5 +55,8 @@ namespace Microsoft.PythonTools.DkmDebugger {
         public const string ProgramProviderCLSID = "FA452F5D-539E-4B55-BCC6-5DE7E342BC44";
         public const string DebugEngineCLSID = "0DA53AFE-069E-47A3-AE34-32610A8253A3";
         public const string RemoteDebugPortSupplierCLSID = "B8CBA3DE-4A20-4DD7-8709-EC66A6A256D3";
-    };
+
+        public const string PythonToolsPackageID = "6dbd7c1e-1f1b-496d-ac7c-c55dae66c783";
+        public static readonly Guid PythonToolsPackageGUID = new Guid(PythonToolsPackageID);
+    }
 }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -187,14 +187,14 @@ namespace Microsoft.VisualStudioTools.Project.Automation {
         public virtual object get_Extender(string name) {
             Utilities.ArgumentNotNull("name", name);
 
-            return DTE.ObjectExtenders.GetExtender(project.NodeProperties.ExtenderCATID.ToUpper(), name, project.NodeProperties);
+            return DTE.ObjectExtenders.GetExtender(project.NodeProperties.ExtenderCATID.ToUpperInvariant(), name, project.NodeProperties);
         }
 
         /// <summary>
         /// Gets a list of available Extenders for the object.
         /// </summary>
         public virtual object ExtenderNames {
-            get { return DTE.ObjectExtenders.GetExtenderNames(project.NodeProperties.ExtenderCATID.ToUpper(), project.NodeProperties); }
+            get { return DTE.ObjectExtenders.GetExtenderNames(project.NodeProperties.ExtenderCATID.ToUpperInvariant(), project.NodeProperties); }
         }
 
         /// <summary>

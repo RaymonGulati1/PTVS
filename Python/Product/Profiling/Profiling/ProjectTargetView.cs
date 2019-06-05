@@ -9,20 +9,19 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
-using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell.Interop;
 
 namespace Microsoft.PythonTools.Profiling {
     /// <summary>
     /// Provides a view model for the ProjectTarget class.
     /// </summary>
-    public class ProjectTargetView {
+    class ProjectTargetView {
         readonly string _name;
         readonly Guid _guid;
         
@@ -30,18 +29,8 @@ namespace Microsoft.PythonTools.Profiling {
         /// Create a ProjectTargetView with values from an EnvDTE.Project.
         /// </summary>
         public ProjectTargetView(IVsHierarchy project) {
-            object value;
-            ErrorHandler.ThrowOnFailure(project.GetProperty(
-                (uint)VSConstants.VSITEMID.Root,
-                (int)__VSHPROPID.VSHPROPID_Name,
-                out value
-            ));
-            _name = value as string ?? Strings.ProjectTargetUnknownName;
-            ErrorHandler.ThrowOnFailure(project.GetGuidProperty(
-                (uint)VSConstants.VSITEMID.Root,
-                (int)__VSHPROPID.VSHPROPID_ProjectIDGuid,
-                out _guid
-            ));
+            _name = project.GetNameProperty() ?? Strings.ProjectTargetUnknownName;
+            _guid = project.GetProjectIDGuidProperty();
         }
 
         /// <summary>

@@ -9,37 +9,25 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
-using System;
 using System.Collections.Generic;
 
 namespace Microsoft.PythonTools.Parsing {
     public class CollectingErrorSink  : ErrorSink {
-        private readonly List<ErrorResult> _errors = new List<ErrorResult>();
-        private readonly List<ErrorResult> _warnings = new List<ErrorResult>();
-
-        public override void Add(string message, NewLineLocation[] lineLocations, int startIndex, int endIndex, int errorCode, Severity severity) {
+        public override void Add(string message, SourceSpan span, int errorCode, Severity severity) {
             if (severity == Severity.Error || severity == Severity.FatalError) {
-                _errors.Add(new ErrorResult(message, new SourceSpan(NewLineLocation.IndexToLocation(lineLocations, startIndex), NewLineLocation.IndexToLocation(lineLocations, endIndex))));
+                Errors.Add(new ErrorResult(message, span));
             } else if (severity == Severity.Warning) {
-                _warnings.Add(new ErrorResult(message, new SourceSpan(NewLineLocation.IndexToLocation(lineLocations, startIndex), NewLineLocation.IndexToLocation(lineLocations, endIndex))));
+                Warnings.Add(new ErrorResult(message, span));
             }
         }
 
-        public List<ErrorResult> Errors {
-            get {
-                return _errors;
-            }
-        }
+        public List<ErrorResult> Errors { get; } = new List<ErrorResult>();
 
-        public List<ErrorResult> Warnings {
-            get {
-                return _warnings;
-            }
-        }
+        public List<ErrorResult> Warnings { get; } = new List<ErrorResult>();
     }
 }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -22,18 +22,22 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Utilities;
+#if DEV16_OR_LATER
+using Microsoft.WebTools.Languages.Shared.Editor.Services;
+#else
 using Microsoft.Web.Editor.Services;
+#endif
 
 namespace Microsoft.PythonTools.Django.Intellisense {
     [Export(typeof(IIntellisenseControllerProvider)), ContentType(TemplateTagContentType.ContentTypeName), Order]
     internal class TemplateCompletionControllerProvider : IIntellisenseControllerProvider {
         private readonly ICompletionBroker _completionBroker;
-        private readonly IQuickInfoBroker _quickInfoBroker;
         private readonly ISignatureHelpBroker _signatureHelpBroker;
         private readonly PythonToolsService _pyService;
+        private readonly IAsyncQuickInfoBroker _quickInfoBroker;
 
         [ImportingConstructor]
-        public TemplateCompletionControllerProvider([Import(typeof(SVsServiceProvider))]IServiceProvider serviceProvider, ICompletionBroker completionBroker, IQuickInfoBroker quickInfoBroker, ISignatureHelpBroker signatureHelpBroker) {
+        public TemplateCompletionControllerProvider([Import(typeof(SVsServiceProvider))]IServiceProvider serviceProvider, ICompletionBroker completionBroker, IAsyncQuickInfoBroker quickInfoBroker, ISignatureHelpBroker signatureHelpBroker) {
             _completionBroker = completionBroker;
             _quickInfoBroker = quickInfoBroker;
             _signatureHelpBroker = signatureHelpBroker;

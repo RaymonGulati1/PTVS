@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -25,7 +25,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
     class ListInfo : SequenceInfo {
         private AnalysisValue _appendMethod, _popMethod, _insertMethod, _extendMethod;
 
-        public ListInfo(VariableDef[] indexTypes, BuiltinClassInfo seqType, Node node, ProjectEntry entry)
+        public ListInfo(VariableDef[] indexTypes, BuiltinClassInfo seqType, Node node, IPythonProjectEntry entry)
             : base(indexTypes, seqType, node, entry) {
         }
 
@@ -68,7 +68,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 AppendItem(node, unit, args[0]);
             }
 
-            return unit.ProjectState._noneInst;
+            return unit.State._noneInst;
         }
 
         private IAnalysisSet ListPop(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
@@ -80,7 +80,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 AppendItem(node, unit, args[1]);
             }
 
-            return unit.ProjectState._noneInst;
+            return unit.State._noneInst;
         }
 
         private IAnalysisSet ListExtend(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
@@ -90,7 +90,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 }
             }
 
-            return unit.ProjectState._noneInst;
+            return unit.State._noneInst;
         }
 
         private void AppendItem(Node node, AnalysisUnit unit, IAnalysisSet set) {
@@ -102,6 +102,16 @@ namespace Microsoft.PythonTools.Analysis.Values {
             IndexTypes[0].AddTypes(unit, set, true, DeclaringModule);
 
             UnionType = null;
+        }
+
+        internal override IAnalysisSet Resolve(AnalysisUnit unit, ResolutionContext context) {
+            var res = base.Resolve(unit, context);
+            if (res is ProtocolInfo pi) {
+                pi.RemoveProtocol<NameProtocol>(n => true);
+                pi.AddProtocol(new NameProtocol(pi, ProjectState.Types[BuiltinTypeId.List]));
+                pi.AddProtocol(new GetItemProtocol(pi, unit.State.ClassInfos[BuiltinTypeId.Int].Instance, pi.GetEnumeratorTypes(_node, unit)));
+            }
+            return res;
         }
     }
 }

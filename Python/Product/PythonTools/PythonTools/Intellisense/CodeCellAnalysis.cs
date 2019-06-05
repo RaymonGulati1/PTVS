@@ -9,13 +9,15 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
+using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using Microsoft.PythonTools.Infrastructure;
 using Microsoft.VisualStudio.Text;
 
 namespace Microsoft.PythonTools.Intellisense {
@@ -57,7 +59,7 @@ namespace Microsoft.PythonTools.Intellisense {
                     break;
                 } else if (string.IsNullOrWhiteSpace(text)) {
                     seenWhitespace = true;
-                } else if (text.TrimStart().StartsWith("#")) {
+                } else if (text.TrimStart().StartsWithOrdinal("#")) {
                     // In a comment that may precede a cell, so keep looking
                     seenComment = true;
                 } else {
@@ -75,10 +77,11 @@ namespace Microsoft.PythonTools.Intellisense {
                     var text = current.GetText();
                     if (IsCellMarker(text)) {
                         // In the cell we just found
-                        return current;
+                        start = current;
+                        break;
                     } else if (string.IsNullOrWhiteSpace(text)) {
                         // Still not sure
-                    } else if (text.TrimStart().StartsWith("#")) {
+                    } else if (text.TrimStart().StartsWithOrdinal("#")) {
                         // In the following cell
                         break;
                     } else {
@@ -105,7 +108,7 @@ namespace Microsoft.PythonTools.Intellisense {
                 } else if (string.IsNullOrWhiteSpace(text)) {
                     // Keep looking for top of the comment. If we don't find
                     // one, we won't want to have updated the start line.
-                } else if (text.TrimStart().StartsWith("#")) {
+                } else if (text.TrimStart().StartsWithOrdinal("#")) {
                     // Update the start to this line
                     start = current;
                 } else {
@@ -130,29 +133,43 @@ namespace Microsoft.PythonTools.Intellisense {
             line = cellStart;
 
             var snapshot = line.Snapshot;
-            ITextSnapshotLine end = null;
+            ITextSnapshotLine end = null, endInclWhitespace = null, endInclComment = null;
             foreach(var current in LinesForward(line)) {
                 var text = current.GetText();
                 if (IsCellMarker(text)) {
                     if (end == null) {
                         // Found the start of the current cell
-                        end = line;
+                        end = current;
                     } else {
                         // Found the start of the next cell, so we're finished
+
+                        // Don't want to include comments belonging to the next
+                        // cell.
+                        endInclComment = null;
                         break;
                     }
-                } else if (string.IsNullOrWhiteSpace(text) || text.TrimStart().StartsWith("#")) {
+                } else if (string.IsNullOrWhiteSpace(text)) {
                     // Keep looking for the next cell marker. If we find it, we
                     // won't want to have updated the end line.
-                    if (includeWhitespace) {
-                        end = current;
+                    if (endInclComment != null) {
+                        // Possibly within the next comment, so only update this
+                        // ending.
+                        endInclComment = current;
+                    } else {
+                        // Not inside the next comment yet, so keep the whitespace.
+                        endInclWhitespace = current;
                     }
+                } else if (text.TrimStart().StartsWithOrdinal("#")) {
+                    // Keep looking for the next cell marker. If we find it, we
+                    // won't want to have updated the end line.
+                    endInclComment = current;
                 } else {
                     end = current;
+                    endInclComment = endInclWhitespace = null;
                 }
             }
 
-            return end;
+            return endInclComment ?? (includeWhitespace ? endInclWhitespace : null) ?? end;
         }
 
     }

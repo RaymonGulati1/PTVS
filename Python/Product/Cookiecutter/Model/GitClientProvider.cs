@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -29,12 +29,6 @@ namespace Microsoft.CookiecutterTools.Model {
                 gitExeFilePath = GetTeamExplorerGitFilePathFromIdeFolderPath(commonIdeFolderPath);
             }
 
-            // Try to locate Team Explorer's git.exe using the Dev 15 install path from registry
-            // (for tests with no running instance of VS, or when running in Dev 14)
-            if (!File.Exists(gitExeFilePath)) {
-                gitExeFilePath = GetTeamExplorerGitFilePathFromRegistry();
-            }
-
             // Just use git.exe, and it will work if it's in PATH
             // If it's not, the error will be output in redirector at time of use
             if (!File.Exists(gitExeFilePath)) {
@@ -48,20 +42,6 @@ namespace Microsoft.CookiecutterTools.Model {
             get {
                 return "git.exe";
             }
-        }
-
-        private static string GetTeamExplorerGitFilePathFromRegistry() {
-            try {
-                using (var key = Registry.LocalMachine.OpenSubKey(@"Software\\Microsoft\VisualStudio\SxS\VS7")) {
-                    var installRoot = (string)key.GetValue(AssemblyVersionInfo.VSVersion);
-                    if (installRoot != null) {
-                        return GetTeamExplorerGitFilePathFromIdeFolderPath(Path.Combine(installRoot, @"Common7\IDE"));
-                    }
-                }
-            } catch (Exception e) when (!e.IsCriticalException()) {
-            }
-
-            return null;
         }
 
         private static string GetTeamExplorerGitFilePathFromIdeFolderPath(string ideFolderPath) {

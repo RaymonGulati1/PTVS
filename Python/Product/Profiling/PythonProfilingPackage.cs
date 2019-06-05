@@ -9,28 +9,35 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
-using System.ComponentModel;
 using System.ComponentModel.Design;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
+using Microsoft.PythonTools.Project;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Threading;
 using Microsoft.VisualStudioTools.Project;
+using Task = System.Threading.Tasks.Task;
 
 namespace Microsoft.PythonTools.Profiling {
+
+    using global::DiagnosticsHub.Packaging.Interop;
+    using Microsoft.DiagnosticsHub.Packaging.InteropEx;
+
     /// <summary>
     /// This is the class that implements the package exposed by this assembly.
     ///
@@ -43,7 +50,7 @@ namespace Microsoft.PythonTools.Profiling {
     /// </summary>
     // This attribute tells the PkgDef creation utility (CreatePkgDef.exe) that this class is
     // a package.
-    [PackageRegistration(UseManagedResourcesOnly = true)]
+    [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
     // This attribute is used to register the informations needed to show the this package
     // in the Help/About dialog of Visual Studio.
     [InstalledProductRegistration("#110", "#112", AssemblyVersionInfo.Version, IconResourceID = 400)]
@@ -52,19 +59,22 @@ namespace Microsoft.PythonTools.Profiling {
     [Guid(GuidList.guidPythonProfilingPkgString)]
     // set the window to dock where Toolbox/Performance Explorer dock by default
     [ProvideToolWindow(typeof(PerfToolWindow), Orientation = ToolWindowOrientation.Left, Style = VsDockStyle.Tabbed, Window = EnvDTE.Constants.vsWindowKindToolbox)]
-    [ProvideFileFilterAttribute("{81da0100-e6db-4783-91ea-c38c3fa1b81e}", "/1", "#113", 100)]
+    [ProvideFileFilter("{81da0100-e6db-4783-91ea-c38c3fa1b81e}", "/1", "#113", 100)]
     [ProvideEditorExtension(typeof(ProfilingSessionEditorFactory), ".pyperf", 50,
           ProjectGuid = "{81da0100-e6db-4783-91ea-c38c3fa1b81e}",
           NameResourceID = 105,
           DefaultName = "PythonPerfSession")]
     [ProvideAutomationObject("PythonProfiling")]
-    sealed class PythonProfilingPackage : Package {
+    internal sealed class PythonProfilingPackage : AsyncPackage {
         internal static PythonProfilingPackage Instance;
         private static ProfiledProcess _profilingProcess;   // process currently being profiled
         internal static readonly string PythonProjectGuid = "{888888a0-9f3d-457c-b088-3a5042f75d52}";
         internal static readonly string PerformanceFileFilter = Strings.PerformanceReportFilesFilter;
         private AutomationProfiling _profilingAutomation;
         private static OleMenuCommand _stopCommand, _startCommand;
+#if EXTERNAL_PROFILER_DRIVER
+        private const string ExternalProfilerDriverExe = "ExternalProfilerDriver.exe";
+#endif
 
         /// <summary>
         /// Default constructor of the package.
@@ -88,23 +98,32 @@ namespace Microsoft.PythonTools.Profiling {
             base.Dispose(disposing);
         }
 
-        /// <summary>
-        /// Initialization of the package; this method is called right after the package is sited, so this is the place
-        /// where you can put all the initilaization code that rely on services provided by VisualStudio.
-        /// </summary>
-        protected override void Initialize() {
-            Trace.WriteLine(string.Format(CultureInfo.CurrentCulture, "Entering Initialize() of: {0}", this.ToString()));
-            base.Initialize();
+        protected override int CreateToolWindow(ref Guid toolWindowType, int id)
+            => toolWindowType == PerfToolWindow.WindowGuid ? CreatePerfToolWindow(id) : base.CreateToolWindow(ref toolWindowType, id);
+
+        private int CreatePerfToolWindow(int id) {
+            try {
+                var type = typeof(PerfToolWindow);
+                var toolWindow = FindWindowPane(type, id, false) ?? CreateToolWindow(type, id, this);
+                return toolWindow != null ? VSConstants.S_OK : VSConstants.E_FAIL;
+            } catch (Exception ex) {
+                return Marshal.GetHRForException(ex);
+            }
+        }
+
+        protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress) {
+            Trace.WriteLine("Entering InitializeAsync() of: {0}".FormatUI(this));
+
+            await base.InitializeAsync(cancellationToken, progress);
+            await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
 
             // Ensure Python Tools package is loaded
-            var shell = (IVsShell)GetService(typeof(SVsShell));
+            var shell = (IVsShell7)GetService(typeof(SVsShell));
             var ptvsPackage = GuidList.guidPythonToolsPackage;
-            IVsPackage pkg;
-            ErrorHandler.ThrowOnFailure(shell.LoadPackage(ptvsPackage, out pkg));
+            await shell.LoadPackageAsync(ref ptvsPackage);
 
             // Add our command handlers for menu (commands must exist in the .vsct file)
-            OleMenuCommandService mcs = GetService(typeof(IMenuCommandService)) as OleMenuCommandService;
-            if (null != mcs) {
+            if (GetService(typeof(IMenuCommandService)) is OleMenuCommandService mcs) {
                 // Create the command for the menu item.
                 CommandID menuCommandID = new CommandID(GuidList.guidPythonProfilingCmdSet, (int)PkgCmdIDList.cmdidStartPythonProfiling);
                 MenuCommand menuItem = new MenuCommand(StartProfilingWizard, menuCommandID);
@@ -112,15 +131,15 @@ namespace Microsoft.PythonTools.Profiling {
 
                 // Create the command for the menu item.
                 menuCommandID = new CommandID(GuidList.guidPythonProfilingCmdSet, (int)PkgCmdIDList.cmdidPerfExplorer);
-                var oleMenuItem = new OleMenuCommand(ShowPeformanceExplorer, menuCommandID);
+                var oleMenuItem = new OleMenuCommand((o, e) => ShowPeformanceExplorerAsync().DoNotWait(), menuCommandID);
                 mcs.AddCommand(oleMenuItem);
 
                 menuCommandID = new CommandID(GuidList.guidPythonProfilingCmdSet, (int)PkgCmdIDList.cmdidAddPerfSession);
-                menuItem = new MenuCommand(AddPerformanceSession, menuCommandID);
+                menuItem = new MenuCommand((o, e) => AddPerformanceSessionAsync().DoNotWait(), menuCommandID);
                 mcs.AddCommand(menuItem);
 
                 menuCommandID = new CommandID(GuidList.guidPythonProfilingCmdSet, (int)PkgCmdIDList.cmdidStartProfiling);
-                oleMenuItem = _startCommand = new OleMenuCommand(StartProfiling, menuCommandID);
+                oleMenuItem = _startCommand = new OleMenuCommand((o, e) => StartProfilingAsync().DoNotWait(), menuCommandID);
                 oleMenuItem.BeforeQueryStatus += IsProfilingActive;
                 mcs.AddCommand(oleMenuItem);
 
@@ -132,13 +151,13 @@ namespace Microsoft.PythonTools.Profiling {
             }
 
             //Create Editor Factory. Note that the base Package class will call Dispose on it.
-            base.RegisterEditorFactory(new ProfilingSessionEditorFactory(this));
+            RegisterEditorFactory(new ProfilingSessionEditorFactory(this));
         }
 
         protected override object GetAutomationObject(string name) {
             if (name == "PythonProfiling") {
                 if (_profilingAutomation == null) {
-                    var pane = (PerfToolWindow)this.FindToolWindow(typeof(PerfToolWindow), 0, true);
+                    var pane = (PerfToolWindow)JoinableTaskFactory.Run(GetPerfToolWindowAsync);
                     _profilingAutomation = new AutomationProfiling(pane.Sessions);
                 }
                 return _profilingAutomation;
@@ -149,13 +168,11 @@ namespace Microsoft.PythonTools.Profiling {
 
         internal static Guid GetStartupProjectGuid(IServiceProvider serviceProvider) {
             var buildMgr = (IVsSolutionBuildManager)serviceProvider.GetService(typeof(IVsSolutionBuildManager));
-            IVsHierarchy hierarchy;
-            if (buildMgr != null && ErrorHandler.Succeeded(buildMgr.get_StartupProject(out hierarchy)) && hierarchy != null) {
-                Guid guid;
+            if (buildMgr != null && ErrorHandler.Succeeded(buildMgr.get_StartupProject(out var hierarchy)) && hierarchy != null) {
                 if (ErrorHandler.Succeeded(hierarchy.GetGuidProperty(
                     (uint)VSConstants.VSITEMID.Root,
                     (int)__VSHPROPID.VSHPROPID_ProjectIDGuid,
-                    out guid
+                    out var guid
                 ))) {
                     return guid;
                 }
@@ -176,7 +193,7 @@ namespace Microsoft.PythonTools.Profiling {
         /// </summary>
         private void StartProfilingWizard(object sender, EventArgs e) {
             if (!IsProfilingInstalled()) {
-                MessageBox.Show(Strings.ProfilingSupportMissingError);
+                MessageBox.Show(Strings.ProfilingSupportMissingError, Strings.ProductTitle);
                 return;
             }
 
@@ -192,10 +209,12 @@ namespace Microsoft.PythonTools.Profiling {
         }
 
         internal SessionNode ProfileTarget(ProfilingTarget target, bool openReport = true) {
-            return ThreadHelper.Generic.Invoke(() => {
-                bool save;
-                string name = target.GetProfilingName(this, out save);
-                var session = ShowPerformanceExplorer().Sessions.AddTarget(target, name, save);
+            return JoinableTaskFactory.Run(async () => {
+                await JoinableTaskFactory.SwitchToMainThreadAsync();
+
+                var name = target.GetProfilingName(this, out var save);
+                var explorer = await ShowPerformanceExplorerAsync();
+                var session = explorer.Sessions.AddTarget(target, name, save);
 
                 StartProfiling(target, session, openReport);
                 return session;
@@ -203,16 +222,18 @@ namespace Microsoft.PythonTools.Profiling {
         }
 
         internal void StartProfiling(ProfilingTarget target, SessionNode session, bool openReport = true) {
-            ThreadHelper.Generic.Invoke(() => {
+            JoinableTaskFactory.Run(async () => {
+                await JoinableTaskFactory.SwitchToMainThreadAsync();
+
                 if (!Utilities.SaveDirtyFiles()) {
                     // Abort
                     return;
                 }
 
                 if (target.ProjectTarget != null) {
-                    ProfileProjectTarget(session, target.ProjectTarget, openReport);
+                    ProfileProjectTarget(session, target.ProjectTarget, openReport, target.UseVTune);
                 } else if (target.StandaloneTarget != null) {
-                    ProfileStandaloneTarget(session, target.StandaloneTarget, openReport);
+                    ProfileStandaloneTarget(session, target.StandaloneTarget, openReport, target.UseVTune);
                 } else {
                     if (MessageBox.Show(Strings.ProfilingSessionNotConfigured, Strings.NoProfilingTargetTitle, MessageBoxButton.YesNo) == MessageBoxResult.Yes) {
                         var newTarget = session.OpenTargetProperties();
@@ -224,40 +245,23 @@ namespace Microsoft.PythonTools.Profiling {
             });
         }
 
-        private void ProfileProjectTarget(SessionNode session, ProjectTarget projectTarget, bool openReport) {
-            var targetGuid = projectTarget.TargetProject;
+        private void ProfileProjectTarget(SessionNode session, ProjectTarget projectTarget, bool openReport, bool useVTune) {
+            var project = Solution.EnumerateLoadedPythonProjects()
+                .SingleOrDefault(p => p.GetProjectIDGuidProperty() == projectTarget.TargetProject);
 
-            var dte = (EnvDTE.DTE)GetService(typeof(EnvDTE.DTE));
-            EnvDTE.Project projectToProfile = null;
-            foreach (EnvDTE.Project project in dte.Solution.Projects) {
-                var kind = project.Kind;
-
-                if (String.Equals(kind, PythonProfilingPackage.PythonProjectGuid, StringComparison.OrdinalIgnoreCase)) {
-                    var guid = project.Properties.Item("Guid").Value as string;
-
-                    Guid guidVal;
-                    if (Guid.TryParse(guid, out guidVal) && guidVal == projectTarget.TargetProject) {
-                        projectToProfile = project;
-                        break;
-                    }
-                }
-            }
-
-            if (projectToProfile != null) {
-                ProfileProject(session, projectToProfile, openReport);
+            if (project != null) {
+                ProfileProject(session, project, openReport, useVTune);
             } else {
                 MessageBox.Show(Strings.ProjectNotFoundInSolution, Strings.ProductTitle);
             }
         }
 
-        private static void ProfileProject(SessionNode session, EnvDTE.Project projectToProfile, bool openReport) {
-            var project = projectToProfile.GetPythonProject();
-
+        private static void ProfileProject(SessionNode session, PythonProjectNode project, bool openReport, bool useVTune) {
             LaunchConfiguration config = null;
             try {
                 config = project?.GetLaunchConfigurationOrThrow();
             } catch (NoInterpretersException ex) {
-                MessageBox.Show(ex.Message, Strings.ProductTitle);
+                PythonToolsPackage.OpenNoInterpretersHelpPage(session._serviceProvider, ex.HelpPage);
                 return;
             } catch (MissingInterpreterException ex) {
                 MessageBox.Show(ex.Message, Strings.ProductTitle);
@@ -267,7 +271,7 @@ namespace Microsoft.PythonTools.Profiling {
                 return;
             }
             if (config == null) {
-                MessageBox.Show(Strings.ProjectInterpreterNotFound.FormatUI(projectToProfile.Name), Strings.ProductTitle);
+                MessageBox.Show(Strings.ProjectInterpreterNotFound.FormatUI(project.GetNameProperty()), Strings.ProductTitle);
                 return;
             }
 
@@ -283,10 +287,18 @@ namespace Microsoft.PythonTools.Profiling {
                 }
             }
 
-            RunProfiler(session, config, openReport);
+#if EXTERNAL_PROFILER_DRIVER
+            if (useVTune) {
+                RunVTune(session, config, openReport);
+            } else {
+#endif
+                RunProfiler(session, config, openReport);
+#if EXTERNAL_PROFILER_DRIVER
+            }
+#endif
         }
 
-        private static void ProfileStandaloneTarget(SessionNode session, StandaloneTarget runTarget, bool openReport) {
+        private static void ProfileStandaloneTarget(SessionNode session, StandaloneTarget runTarget, bool openReport, bool useVTune) {
             LaunchConfiguration config;
             if (runTarget.PythonInterpreter != null) {
                 var registry = session._serviceProvider.GetComponentModel().GetService<IInterpreterRegistryService>();
@@ -304,9 +316,65 @@ namespace Microsoft.PythonTools.Profiling {
             config.ScriptArguments = runTarget.Arguments;
             config.WorkingDirectory = runTarget.WorkingDirectory;
 
-            RunProfiler(session, config, openReport);
+#if EXTERNAL_PROFILER_DRIVER
+            if (useVTune) {
+                RunVTune(session, config, openReport);
+            } else {
+#endif
+                RunProfiler(session, config, openReport);
+#if EXTERNAL_PROFILER_DRIVER
+            }
+#endif
         }
 
+#if EXTERNAL_PROFILER_DRIVER
+        private static void RunVTune(SessionNode session, LaunchConfiguration config, bool openReport) {
+
+            var interpreter = config.GetInterpreterPath();
+            if (!File.Exists(interpreter)) {
+                MessageBox.Show(Strings.CannotFindPythonInterpreter, Strings.ProductTitle);
+                return;
+            }
+
+            string outPathDir = Path.GetTempPath();
+            var subpath = Path.Combine(outPathDir, Path.GetRandomFileName());
+            while (Directory.Exists(subpath) || File.Exists(subpath)) {
+                subpath = Path.Combine(outPathDir, Path.GetRandomFileName());
+            }
+            outPathDir = subpath;
+
+            string outPath = Path.Combine(outPathDir, "pythontrace.diagsession");
+
+            var driver = PythonToolsInstallPath.GetFile(ExternalProfilerDriverExe, typeof(PythonProfilingPackage).Assembly);
+
+            var procInfo = new ProcessStartInfo(driver) {
+                CreateNoWindow = false,
+                Arguments = string.Join(" ", new[] {
+                    "-d",
+                    ProcessOutput.QuoteSingleArgument(outPathDir),
+                    "--",
+                    ProcessOutput.QuoteSingleArgument(interpreter),
+                    config.InterpreterArguments,
+                    string.IsNullOrEmpty(config.ScriptName) ? "" : ProcessOutput.QuoteSingleArgument(config.ScriptName),
+                    config.ScriptArguments
+                }),
+                WorkingDirectory = config.WorkingDirectory,
+            };
+
+            var proc = new Process { StartInfo = procInfo };
+            var dte = (EnvDTE.DTE)session._serviceProvider.GetService(typeof(EnvDTE.DTE));
+            proc.EnableRaisingEvents = true;
+            proc.Exited += (_, args) => {
+                if (!File.Exists(Path.Combine(outPathDir, "Sample.dwjson"))) {
+                    MessageBox.Show(Strings.CannotFindGeneratedFile, Strings.ProductTitle);
+                } else {
+                    PackageTrace(outPathDir);
+                    dte.ItemOperations.OpenFile(Path.Combine(outPathDir, "trace.diagsession"));
+                }
+            };
+            proc.Start();
+        }
+#endif
 
         private static void RunProfiler(SessionNode session, LaunchConfiguration config, bool openReport) {
             var process = new ProfiledProcess(
@@ -328,7 +396,6 @@ namespace Microsoft.PythonTools.Profiling {
             }
 
             process.ProcessExited += (sender, args) => {
-                var dte = (EnvDTE.DTE)session._serviceProvider.GetService(typeof(EnvDTE.DTE));
                 _profilingProcess = null;
                 _stopCommand.Enabled = false;
                 _startCommand.Enabled = true;
@@ -341,7 +408,8 @@ namespace Microsoft.PythonTools.Profiling {
                             Thread.Sleep(100);
                         }
                     }
-                    dte.ItemOperations.OpenFile(outPath);
+
+                    ((PythonProfilingPackage)session._serviceProvider).OpenFileAsync(outPath).DoNotWait();
                 }
             };
 
@@ -353,49 +421,67 @@ namespace Microsoft.PythonTools.Profiling {
             _startCommand.Enabled = false;
         }
 
+        private async Task OpenFileAsync(string outPath) {
+            await JoinableTaskFactory.SwitchToMainThreadAsync(DisposalToken);
+            var dte = (EnvDTE.DTE)GetService(typeof(EnvDTE.DTE));
+            dte.ItemOperations.OpenFile(outPath);
+        }
+
         /// <summary>
         /// This function is the callback used to execute a command when the a menu item is clicked.
         /// See the Initialize method to see how the menu item is associated to this function using
         /// the OleMenuCommandService service and the MenuCommand class.
         /// </summary>
-        private void ShowPeformanceExplorer(object sender, EventArgs e) {
+        private async Task ShowPeformanceExplorerAsync() {
             try {
-                ShowPerformanceExplorer();
+                await ShowPerformanceExplorerAsync();
             } catch (Exception ex) when (!ex.IsCriticalException()) {
-                MessageBox.Show(Strings.ProfilingSupportMissingError);
+                MessageBox.Show(Strings.ProfilingSupportMissingError, Strings.ProductTitle);
             }
         }
 
-        internal PerfToolWindow ShowPerformanceExplorer() {
+        internal async Task<PerfToolWindow> ShowPerformanceExplorerAsync() {
             if (!IsProfilingInstalled()) {
                 throw new InvalidOperationException();
             }
-            var pane = this.FindToolWindow(typeof(PerfToolWindow), 0, true);
-            if (pane == null) {
+
+            var windowPane = await GetPerfToolWindowAsync();
+
+            if (!(windowPane is PerfToolWindow pane)) {
                 throw new InvalidOperationException();
             }
-            IVsWindowFrame frame = pane.Frame as IVsWindowFrame;
-            if (frame == null) {
+
+            if (!(pane.Frame is IVsWindowFrame frame)) {
                 throw new InvalidOperationException();
             }
 
             ErrorHandler.ThrowOnFailure(frame.Show());
-            return pane as PerfToolWindow;
+            return pane;
         }
 
-        private void AddPerformanceSession(object sender, EventArgs e) {
+        private async Task<WindowPane> GetPerfToolWindowAsync() {
+            await JoinableTaskFactory.SwitchToMainThreadAsync(DisposalToken);
+            var type = typeof(PerfToolWindow);
+            return FindWindowPane(type, 0, false) ?? CreateToolWindow(type, 0, this);
+        }
+
+        private async Task AddPerformanceSessionAsync() {
+            await JoinableTaskFactory.SwitchToMainThreadAsync(DisposalToken);
             var dte = (EnvDTE.DTE)GetService(typeof(EnvDTE.DTE));
-            string filename = Strings.PerformanceBaseFileName + ".pyperf";
-            bool save = false;
-            if (dte.Solution.IsOpen && !String.IsNullOrEmpty(dte.Solution.FullName)) {
+            var filename = Strings.PerformanceBaseFileName + ".pyperf";
+            var save = false;
+            if (dte.Solution.IsOpen && !string.IsNullOrEmpty(dte.Solution.FullName)) {
                 filename = Path.Combine(Path.GetDirectoryName(dte.Solution.FullName), filename);
                 save = true;
             }
-            ShowPerformanceExplorer().Sessions.AddTarget(new ProfilingTarget(), filename, save);
+
+            var explorer = await ShowPerformanceExplorerAsync();
+            explorer.Sessions.AddTarget(new ProfilingTarget(), filename, save);
         }
 
-        private void StartProfiling(object sender, EventArgs e) {
-            ShowPerformanceExplorer().Sessions.StartProfiling();
+        private async Task StartProfilingAsync() {
+            var explorer = await ShowPerformanceExplorerAsync();
+            explorer.Sessions.StartProfiling();
         }
 
         private void StopProfiling(object sender, EventArgs e) {
@@ -440,5 +526,58 @@ namespace Microsoft.PythonTools.Profiling {
                 return _profilingProcess != null;
             }
         }
+
+#if EXTERNAL_PROFILER_DRIVER
+        public static bool CheckForExternalProfiler() {
+            var driver = PythonToolsInstallPath.TryGetFile(ExternalProfilerDriverExe, typeof(PythonProfilingPackage).Assembly);
+            if (string.IsNullOrEmpty(driver)) {
+                return false;
+            }
+
+            try {
+                var psi = new ProcessStartInfo(driver, "-p") {
+                    UseShellExecute = false,
+                    // Arguments = args,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = false,
+                    RedirectStandardError = false,
+                };
+
+                using (var process = Process.Start(psi)) {
+                    process.WaitForExit();
+                    return (process.ExitCode == 0);
+                }
+            } catch (Exception ex) {
+                Debug.Fail($"Failed to launch {driver} because {ex}");
+            }
+
+            return false;
+        }
+
+        public static void PackageTrace(string dirname) {
+            var cpuToolId = new Guid("96f1f3e8-f762-4cd2-8ed9-68ec25c2c722");
+            using (var package = DhPackage.CreateLegacyPackage()) {
+                package.AddTool(ref cpuToolId);
+
+                // Contains the data to analyze
+                package.CreateResourceFromPath(
+                    "DiagnosticsHub.Resource.DWJsonFile",
+                    Path.Combine(dirname, "Sample.dwjson"),
+                    null,
+                    CompressionOption.CompressionOption_Normal);
+
+                // Counter data to show in swimlane
+                package.CreateResourceFromPath(
+                    "DiagnosticsHub.Resource.CountersFile",
+                    Path.Combine(dirname, "Session.counters"),
+                    null,
+                    CompressionOption.CompressionOption_Normal);
+
+                // You can add the commit option (CommitOption.CommitOption_CleanUpResources) and it will delete
+                // the resources added from disk after they have been committed to the DiagSession
+                package.CommitToPath(Path.Combine(dirname, "trace"), CommitOption.CommitOption_Archive);
+            }
+        }
+#endif
     }
 }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,6 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.ExceptionServices;
@@ -38,12 +39,15 @@ namespace Microsoft.PythonTools.EnvironmentsList {
         public static readonly ICommand UpgradePackage = new RoutedCommand();
         public static readonly ICommand UninstallPackage = new RoutedCommand();
         public static readonly ICommand InstallPip = new RoutedCommand();
+        public static readonly ICommand PipSecurityLearnMore = new RoutedCommand();
 
         private readonly PipExtensionProvider _provider;
+        private readonly Timer _focusTimer;
 
         public PipExtension(PipExtensionProvider provider) {
             _provider = provider;
             DataContextChanged += PackageExtension_DataContextChanged;
+            _focusTimer = new Timer(FocusWaitExpired);
             InitializeComponent();
         }
 
@@ -51,19 +55,48 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             Dispatcher.BeginInvoke((Action)(() => {
                 try {
                     Focus();
-                    if (SearchQueryText.IsVisible) {
+                    if (SearchQueryText.IsVisible && SearchQueryText.IsEnabled) {
                         Keyboard.Focus(SearchQueryText);
                     } else {
-                        SearchQueryText.IsVisibleChanged += SearchQueryText_IsVisibleChanged;
+                        // Package manager may still be initializing itself
+                        // Search box is disabled if package manager is not ready
+                        if (!SearchQueryText.IsEnabled) {
+                            SearchQueryText.IsEnabledChanged += SearchQueryText_IsEnabledChanged;
+                        }
+                        if (!SearchQueryText.IsVisible) {
+                            SearchQueryText.IsVisibleChanged += SearchQueryText_IsVisibleChanged;
+                        }
+                        // It may never become ready/enabled, so don't wait for too long.
+                        _focusTimer.Change(1000, Timeout.Infinite);
                     }
                 } catch (Exception ex) when (!ex.IsCriticalException()) {
                 }
             }), DispatcherPriority.Loaded);
         }
 
+        private void FocusWaitExpired(object state) {
+            // Waited long enough, the user might start clicking around soon,
+            // so cancel focus operation.
+            SearchQueryText.IsEnabledChanged -= SearchQueryText_IsEnabledChanged;
+            SearchQueryText.IsVisibleChanged -= SearchQueryText_IsVisibleChanged;
+        }
+
         private void SearchQueryText_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e) {
             SearchQueryText.IsVisibleChanged -= SearchQueryText_IsVisibleChanged;
-            Keyboard.Focus(SearchQueryText);
+            if (SearchQueryText.IsVisible && SearchQueryText.IsEnabled) {
+                SearchQueryText.IsEnabledChanged -= SearchQueryText_IsEnabledChanged;
+                Keyboard.Focus(SearchQueryText);
+                _focusTimer.Change(Timeout.Infinite, Timeout.Infinite);
+            }
+        }
+
+        private void SearchQueryText_IsEnabledChanged(object sender, DependencyPropertyChangedEventArgs e) {
+            SearchQueryText.IsEnabledChanged -= SearchQueryText_IsEnabledChanged;
+            if (SearchQueryText.IsVisible && SearchQueryText.IsEnabled) {
+                SearchQueryText.IsVisibleChanged -= SearchQueryText_IsVisibleChanged;
+                Keyboard.Focus(SearchQueryText);
+                _focusTimer.Change(Timeout.Infinite, Timeout.Infinite);
+            }
         }
 
         private void PackageExtension_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e) {
@@ -80,11 +113,16 @@ namespace Microsoft.PythonTools.EnvironmentsList {
         }
 
         private void UninstallPackage_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
-            e.CanExecute = _provider.CanExecute && e.Parameter is PipPackageView;
+            var view = e.Parameter as PipPackageView;
+            e.CanExecute = _provider.CanExecute && view != null && _provider._packageManager.CanUninstall(view.Package);
             e.Handled = true;
         }
 
-        private async void UninstallPackage_Executed(object sender, ExecutedRoutedEventArgs e) {
+        private void UninstallPackage_Executed(object sender, ExecutedRoutedEventArgs e) {
+            UninstallPackage_ExecutedAsync(sender, e).DoNotWait();
+        }
+
+        private async Task UninstallPackage_ExecutedAsync(object sender, ExecutedRoutedEventArgs e) {
             try {
                 var view = (PipPackageView)e.Parameter;
                 await _provider.UninstallPackage(view.Package);
@@ -111,7 +149,11 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             e.CanExecute = !view.UpgradeVersion.IsEmpty && view.UpgradeVersion.CompareTo(view.Version) > 0;
         }
 
-        private async void UpgradePackage_Executed(object sender, ExecutedRoutedEventArgs e) {
+        private void UpgradePackage_Executed(object sender, ExecutedRoutedEventArgs e) {
+            UpgradePackage_ExecutedAsync(sender, e).DoNotWait();
+        }
+
+        private async Task UpgradePackage_ExecutedAsync(object sender, ExecutedRoutedEventArgs e) {
             try {
                 var view = (PipPackageView)e.Parameter;
                 // Construct a PackageSpec with the upgraded version.
@@ -123,11 +165,17 @@ namespace Microsoft.PythonTools.EnvironmentsList {
         }
 
         private void InstallPackage_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
-            e.CanExecute = _provider.CanExecute && !string.IsNullOrEmpty(e.Parameter as string);
+            e.CanExecute = _provider.CanExecute &&
+                !string.IsNullOrEmpty(e.Parameter as string) &&
+                (_provider.IsPipInstalled ?? false);
             e.Handled = true;
         }
 
-        private async void InstallPackage_Executed(object sender, ExecutedRoutedEventArgs e) {
+        private void InstallPackage_Executed(object sender, ExecutedRoutedEventArgs e) {
+            InstallPackage_ExecutedAsync(sender, e).DoNotWait();
+        }
+
+        private async Task InstallPackage_ExecutedAsync(object sender, ExecutedRoutedEventArgs e) {
             try {
                 await _provider.InstallPackage(new PackageSpec((string)e.Parameter));
             } catch (OperationCanceledException) {
@@ -136,12 +184,25 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             }
         }
 
+        private void PipSecurityLearnMore_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
+            e.CanExecute = true;
+            e.Handled = true;
+        }
+
+        private void PipSecurityLearnMore_Executed(object sender, ExecutedRoutedEventArgs e) {
+            Process.Start("https://go.microsoft.com/fwlink/?linkid=874576");
+        }
+
         private void InstallPip_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
             e.CanExecute = _provider.CanExecute;
             e.Handled = true;
         }
 
-        private async void InstallPip_Executed(object sender, ExecutedRoutedEventArgs e) {
+        private void InstallPip_Executed(object sender, ExecutedRoutedEventArgs e) {
+            InstallPip_ExecutedAsync(sender, e).DoNotWait();
+        }
+
+        private async Task InstallPip_ExecutedAsync(object sender, ExecutedRoutedEventArgs e) {
             try {
                 await _provider.InstallPip();
             } catch (OperationCanceledException) {
@@ -201,6 +262,12 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             _provider.IsPipInstalledChanged += PipExtensionProvider_IsPipInstalledChanged;
             _provider.InstalledPackagesChanged += PipExtensionProvider_InstalledPackagesChanged;
 
+            IsPipInstalled = _provider.IsPipInstalled ?? true;
+            ShowSecurityWarning =
+                provider._packageManager.UniqueKey == "pip" &&
+                view.Configuration.Version != new Version(2, 7) &&
+                view.Configuration.Version < new Version(3, 3);
+
             _installCommandView = new InstallPackageView(this);
 
             _matcher = new FuzzyStringMatcher(FuzzyMatchMode.FuzzyIgnoreCase);
@@ -215,11 +282,16 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             _installableView.View.CurrentChanged += InstallableView_CurrentChanged;
             _installableViewRefreshTimer = new Timer(InstallablePackages_Refresh);
 
-            FinishInitialization();
+            FinishInitialization().DoNotWait();
         }
 
-        private async void PipExtensionProvider_IsPipInstalledChanged(object sender, EventArgs e) {
+        private void PipExtensionProvider_IsPipInstalledChanged(object sender, EventArgs e) {
+            PipExtensionProvider_IsPipInstalledChangedAsync(sender, e).DoNotWait();
+        }
+
+        private async Task PipExtensionProvider_IsPipInstalledChangedAsync(object sender, EventArgs e) {
             await Dispatcher.InvokeAsync(() => { IsPipInstalled = _provider.IsPipInstalled ?? true; });
+            await RefreshPackages();
         }
 
         private void InstalledView_CurrentChanged(object sender, EventArgs e) {
@@ -234,7 +306,7 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             }
         }
 
-        private async void FinishInitialization() {
+        private async Task FinishInitialization() {
             try {
                 await RefreshPackages();
             } catch (OperationCanceledException) {
@@ -259,7 +331,11 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             get { return _installCommandView; }
         }
 
-        private async void PipExtensionProvider_UpdateStarted(object sender, EventArgs e) {
+        private void PipExtensionProvider_UpdateStarted(object sender, EventArgs e) {
+            PipExtensionProvider_UpdateStartedAsync(sender, e).DoNotWait();
+        }
+
+        private async Task PipExtensionProvider_UpdateStartedAsync(object sender, EventArgs e) {
             try {
                 await Dispatcher.InvokeAsync(() => { IsListRefreshing = true; });
             } catch (Exception ex) when (!ex.IsCriticalException()) {
@@ -267,7 +343,11 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             }
         }
 
-        private async void PipExtensionProvider_UpdateComplete(object sender, EventArgs e) {
+        private void PipExtensionProvider_UpdateComplete(object sender, EventArgs e) {
+            PipExtensionProvider_UpdateCompleteAsync(sender, e).DoNotWait();
+        }
+
+        private async Task PipExtensionProvider_UpdateCompleteAsync(object sender, EventArgs e) {
             try {
                 await RefreshPackages();
             } catch (Exception ex) when (!ex.IsCriticalException()) {
@@ -275,14 +355,17 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             }
         }
 
-        private async void PipExtensionProvider_InstalledPackagesChanged(object sender, EventArgs e) {
+        private void PipExtensionProvider_InstalledPackagesChanged(object sender, EventArgs e) {
+            PipExtensionProvider_InstalledPackagesChangedAsync(sender, e).DoNotWait();
+        }
+
+        private async Task PipExtensionProvider_InstalledPackagesChangedAsync(object sender, EventArgs e) {
             try {
                 await RefreshPackages();
             } catch (Exception ex) when (!ex.IsCriticalException()) {
                 ToolWindow.SendUnhandledException(_provider.WpfObject, ExceptionDispatchInfo.Capture(ex));
             }
         }
-
 
         public bool IsPipInstalled {
             get { return (bool)GetValue(IsPipInstalledProperty); }
@@ -298,6 +381,19 @@ namespace Microsoft.PythonTools.EnvironmentsList {
 
         public static readonly DependencyProperty IsPipInstalledProperty = IsPipInstalledPropertyKey.DependencyProperty;
 
+        public bool ShowSecurityWarning {
+            get { return (bool)GetValue(ShowSecurityWarningProperty); }
+            private set { SetValue(ShowSecurityWarningPropertyKey, value); }
+        }
+
+        private static readonly DependencyPropertyKey ShowSecurityWarningPropertyKey = DependencyProperty.RegisterReadOnly(
+            "ShowSecurityWarning",
+            typeof(bool),
+            typeof(PipEnvironmentView),
+            new PropertyMetadata(true)
+        );
+
+        public static readonly DependencyProperty ShowSecurityWarningProperty = ShowSecurityWarningPropertyKey.DependencyProperty;
 
         public string SearchQuery {
             get { return (string)GetValue(SearchQueryProperty); }
@@ -311,18 +407,37 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             new PropertyMetadata(Filter_Changed)
         );
 
+        public string InstallPackageText {
+            get { return (string)GetValue(InstallPackageTextProperty); }
+            set { SetValue(InstallPackageTextProperty, value); }
+        }
+
+        public static readonly DependencyProperty InstallPackageTextProperty = DependencyProperty.Register(
+            "InstallPackageText",
+            typeof(string),
+            typeof(PipEnvironmentView)
+        );
+
+        public string SearchWatermark => _provider._packageManager.SearchHelpText;
+
         private static void Filter_Changed(DependencyObject d, DependencyPropertyChangedEventArgs e) {
             var view = d as PipEnvironmentView;
             if (view != null) {
                 try {
                     view._installedView.View.Refresh();
                     view._installableViewRefreshTimer.Change(500, Timeout.Infinite);
+
+                    view.InstallPackageText = view._provider._packageManager.GetInstallCommandDisplayName(view.SearchQuery);
                 } catch (ObjectDisposedException) {
                 }
             }
         }
 
-        private async void InstallablePackages_Refresh(object state) {
+        private void InstallablePackages_Refresh(object state) {
+            InstallablePackages_RefreshAsync(state).DoNotWait();
+        }
+
+        private async Task InstallablePackages_RefreshAsync(object state) {
             string query = null;
             try {
                 query = await Dispatcher.InvokeAsync(() => SearchQuery);
@@ -500,8 +615,6 @@ namespace Microsoft.PythonTools.EnvironmentsList {
         }
 
         public PipEnvironmentView View { get; }
-
-        public string IndexName => View._provider.IndexName;
     }
 
     class PackageResultView : INotifyPropertyChanged {

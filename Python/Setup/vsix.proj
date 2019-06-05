@@ -1,0 +1,34 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="SetupProjectBefore.settings" />
+
+  <ItemDefinitionGroup>
+    <ProjectFile>
+      <Properties>RebuildVsixOnly=true;%(Properties)</Properties>
+      <BuildTarget>CreateVsixContainer</BuildTarget>
+    </ProjectFile>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ProjectFile Include="..\Product\VCDebugLauncher\VCDebugLauncher.csproj" Condition="'$(IncludeVCDebugLauncher)' == 'True'">
+      <OutputName>Microsoft.PythonTools.Debugger.VCLauncher.vsix</OutputName>
+    </ProjectFile>
+    <ProjectFile Include="..\Product\Wsl\Wsl.csproj" Condition="'$(IncludeWsl)' == 'True'">
+      <OutputName>Microsoft.PythonTools.Wsl.vsix</OutputName>
+    </ProjectFile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <FilesToSign Include="@(ProjectFile->'$(OutputPath)%(OutputName)')">
+      <Authenticode>VsixSHA2</Authenticode>
+    </FilesToSign>
+  </ItemGroup>
+
+  <Target Name="ListFiles">
+    <Message Text="OutputPath: $(OutputPath)" Importance="high" />
+    <Message Text="@(FilesToSign->'%(Identity) (%(Authenticode))', '
+')" Importance="high" />
+  </Target>
+
+  <Import Project="$(TargetsPath)\Common.Build.Traversal.targets" />
+  <Import Project="$(TargetsPath)\MicroBuild.targets" />
+</Project>

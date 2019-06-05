@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -42,7 +42,11 @@ namespace Microsoft.PythonTools.Analysis {
                 bool enumeratorReturned = false;
 
                 try {
-                    Monitor.Enter(_lockObject, ref lockTaken);
+                    if (_lockObject == null) {
+                        lockTaken = false;
+                    } else {
+                        Monitor.Enter(_lockObject, ref lockTaken);
+                    }
 
                     var enumerator = new LockedEnumeratorObject<T>(_source.GetEnumerator(), _lockObject);
                     enumeratorReturned = true;
@@ -84,7 +88,9 @@ namespace Microsoft.PythonTools.Analysis {
                 try {
                     _source.Dispose();
                 } finally {
-                    Monitor.Exit(_lockObject);
+                    if (_lockObject != null) {
+                        Monitor.Exit(_lockObject);
+                    }
                 }
             }
 

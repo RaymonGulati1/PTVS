@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,29 +19,14 @@ using System.Collections.Generic;
 
 namespace Microsoft.PythonTools.Analysis {
     public class ParameterResult : IEquatable<ParameterResult> {
-        public string Name { get; private set; }
-        public string Documentation { get; private set; }
-        public string Type { get; private set; }
-        public string DefaultValue { get; private set; }
-        public bool IsOptional { get; private set; }
-        public IEnumerable<IAnalysisVariable> Variables { get; private set; }
+        public string Name { get; }
+        public string Documentation { get; }
+        public string Type { get; }
+        public string DefaultValue { get; }
+        public bool IsOptional { get; }
+        public IEnumerable<IAnalysisVariable> Variables { get; }
 
-        public ParameterResult(string name)
-            : this(name, String.Empty, "object") {
-        }
-        public ParameterResult(string name, string doc)
-            : this(name, doc, "object") {
-        }
-        public ParameterResult(string name, string doc, string type)
-            : this(name, doc, type, false) {
-        }
-        public ParameterResult(string name, string doc, string type, bool isOptional)
-            : this(name, doc, type, isOptional, null) {
-        }
-        public ParameterResult(string name, string doc, string type, bool isOptional, IEnumerable<IAnalysisVariable> variable) :
-            this(name, doc, type, isOptional, variable, null) {
-        }
-        public ParameterResult(string name, string doc, string type, bool isOptional, IEnumerable<IAnalysisVariable> variable, string defaultValue) {
+        public ParameterResult(string name, string doc = "", string type = "object", bool isOptional = false, IEnumerable<IAnalysisVariable> variable = null, string defaultValue = "") {
             Name = name;
             Documentation = doc;
             Type = type;

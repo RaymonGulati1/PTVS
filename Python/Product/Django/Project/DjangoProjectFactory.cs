@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -22,16 +22,13 @@ namespace Microsoft.PythonTools.Django.Project {
     [Guid(DjangoProjectGuid)]
     public class DjangoProjectFactory : FlavoredProjectFactoryBase {
         internal const string DjangoProjectGuid = "5F0BE9CA-D677-4A4D-8806-6076C0FAAD37";
-        private DjangoPackage _package;
+        private readonly DjangoPackage _package;
 
         public DjangoProjectFactory(DjangoPackage package) {
             _package = package;
         }
 
-        protected override object PreCreateForOuter(IntPtr outerProjectIUnknown) {
-            var res = new DjangoProject();
-            res._package = _package;
-            return res;
-        }
+        protected override object PreCreateForOuter(IntPtr outerProjectIUnknown) 
+            => new DjangoProject(_package);
     }
 }

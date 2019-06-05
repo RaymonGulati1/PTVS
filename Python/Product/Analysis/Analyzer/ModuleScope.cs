@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -25,6 +25,10 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
 
         private ModuleScope(ModuleScope scope)
             : base(scope.AnalysisValue, scope, true) {
+        }
+
+        internal void SetModuleVariable(string name, IAnalysisSet value) {
+            CreateVariable(null, null, name, addRef: false).AddTypes(Module.ProjectEntry, value);
         }
 
         public ModuleInfo Module { get { return AnalysisValue as ModuleInfo; } }

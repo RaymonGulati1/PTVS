@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,21 +17,14 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
-using System.ComponentModel.Composition.Hosting;
 using System.IO;
 using System.Linq;
-using System.Reflection;
-using System.Text;
 using System.Text.RegularExpressions;
-using Microsoft.PythonTools;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
-using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using TestUtilities;
-using TestUtilities.Mocks;
-using TestUtilities.Python;
 
 namespace VSInterpretersTests {
     [TestClass]
@@ -39,7 +32,6 @@ namespace VSInterpretersTests {
         [ClassInitialize]
         public static void DoDeployment(TestContext context) {
             AssertListener.Initialize();
-            PythonTestData.Deploy(includeTestData: false);
         }
 
         private static readonly List<string> _tempFiles = new List<string>();
@@ -63,6 +55,7 @@ namespace VSInterpretersTests {
             };
             parameters.ReferencedAssemblies.Add(typeof(ExportAttribute).Assembly.Location);
             parameters.ReferencedAssemblies.Add(typeof(IPythonInterpreterFactoryProvider).Assembly.Location);
+            parameters.ReferencedAssemblies.Add(typeof(InterpreterConfiguration).Assembly.Location);
             var result = provider.CompileAssemblyFromSource(parameters, csharpCode);
             if (result.Errors.HasErrors) {
                 foreach (var err in result.Errors) {
@@ -106,7 +99,7 @@ namespace FactoryProviderSuccess {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void ProviderLoadLog_Success() {
             var path = FactoryProviderTypeLoadErrorPath;
 
@@ -133,7 +126,7 @@ namespace FactoryProviderSuccess {
             Assert.AreEqual(0, log.AllItems.Count);
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void ProviderLoadLog_FileNotFound() {
             var catalogLog = new MockLogger();
 
@@ -190,7 +183,7 @@ namespace FactoryProviderSuccess {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void ProviderLoadLog_CorruptImage() {
             var catalogLog = new MockLogger();
 
@@ -252,7 +245,7 @@ namespace FactoryProviderTypeLoadException {
             }
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void ProviderLoadLog_TypeLoadException() {
             var path = FactoryProviderTypeLoadErrorPath;
 
@@ -284,7 +277,7 @@ namespace FactoryProviderTypeLoadException {
             Assert.IsNotNull(registry.Configurations.FirstOrDefault());
         }
 
-        [TestMethod, Priority(1)]
+        [TestMethod, Priority(0)]
         public void ProviderLoadLog_SuccessAndFailure() {
             var path = FactoryProviderTypeLoadErrorPath;
 

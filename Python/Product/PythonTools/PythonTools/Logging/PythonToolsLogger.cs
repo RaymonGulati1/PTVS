@@ -9,10 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
+
+using System;
+using System.ComponentModel.Design;
+using System.Linq;
 
 namespace Microsoft.PythonTools.Logging {
     /// <summary>
@@ -30,6 +34,20 @@ namespace Microsoft.PythonTools.Logging {
             foreach (var logger in _loggers) {
                 logger.LogEvent(logEvent, data);
             }
+        }
+
+        public void LogFault(Exception ex, string description, bool dumpProcess) {
+            foreach (var logger in _loggers) {
+                logger.LogFault(ex, description, dumpProcess);
+            }
+        }
+
+        internal static object CreateService(IServiceContainer container, Type serviceType) {
+            if (serviceType.IsEquivalentTo(typeof(IPythonToolsLogger))) {
+                var model = container.GetComponentModel();
+                return new PythonToolsLogger(model.GetExtensions<IPythonToolsLogger>().ToArray());
+            }
+            return null;
         }
     }
 }

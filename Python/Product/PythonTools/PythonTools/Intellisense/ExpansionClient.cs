@@ -9,17 +9,22 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
+using System.Xml.Linq;
+using Microsoft.PythonTools.Editor;
+using Microsoft.PythonTools.Editor.Core;
+using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.VisualStudio;
-using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Text.Editor.OptionsExtensionMethods;
@@ -27,13 +32,11 @@ using Microsoft.VisualStudio.TextManager.Interop;
 
 namespace Microsoft.PythonTools.Intellisense {
     class ExpansionClient : IVsExpansionClient {
+        private readonly PythonEditorServices _services;
         private readonly IVsTextLines _lines;
         private readonly IVsExpansion _expansion;
         private readonly IVsTextView _view;
         private readonly ITextView _textView;
-        private readonly IVsEditorAdaptersFactoryService _adapterFactory;
-        private readonly AnalysisEntryService _entryService;
-        private readonly IServiceProvider _serviceProvider;
         private IVsExpansionSession _session;
         private bool _sessionEnded, _selectEndSpan;
         private ITrackingPoint _selectionStart, _selectionEnd;
@@ -42,17 +45,15 @@ namespace Microsoft.PythonTools.Intellisense {
         public const string SurroundsWithStatement = "SurroundsWithStatement";
         public const string Expansion = "Expansion";
 
-        public ExpansionClient(ITextView textView, IVsEditorAdaptersFactoryService adapterFactory, IServiceProvider serviceProvider) {
+        public ExpansionClient(ITextView textView, PythonEditorServices services) {
             _textView = textView;
-            _serviceProvider = serviceProvider;
-            _adapterFactory = adapterFactory;
-            _view = _adapterFactory.GetViewAdapter(_textView);
-            _lines = (IVsTextLines)_adapterFactory.GetBufferAdapter(_textView.TextBuffer);
+            _services = services;
+            _view = _services.EditorAdaptersFactoryService.GetViewAdapter(_textView);
+            _lines = (IVsTextLines)_services.EditorAdaptersFactoryService.GetBufferAdapter(_textView.TextBuffer);
             _expansion = _lines as IVsExpansion;
             if (_expansion == null) {
                 throw new ArgumentException("TextBuffer does not support expansions");
             }
-            _entryService = serviceProvider.GetEntryService();
         }
 
         public bool InSession {
@@ -68,50 +69,65 @@ namespace Microsoft.PythonTools.Intellisense {
             return VSConstants.S_OK;
         }
 
-        public int FormatSpan(IVsTextLines pBuffer, TextSpan[] ts) {
-            MSXML.IXMLDOMNode codeNode, snippetTypes, declarations, imports;
-
+        private static int TryGetXmlNodes(IVsExpansionSession session, out XElement header, out XElement snippet) {
+            MSXML.IXMLDOMNode headerNode, snippetNode;
             int hr;
-            if (ErrorHandler.Failed(hr = _session.GetSnippetNode("CodeSnippet:Code", out codeNode))) {
+            header = null;
+            snippet = null;
+
+            if (ErrorHandler.Failed(hr = session.GetHeaderNode(null, out headerNode))) {
                 return hr;
             }
 
-            if (ErrorHandler.Failed(hr = _session.GetHeaderNode("CodeSnippet:SnippetTypes", out snippetTypes))) {
+            if (ErrorHandler.Failed(hr = session.GetSnippetNode(null, out snippetNode))) {
                 return hr;
             }
 
-            List<string> declList = new List<string>();
-            if (ErrorHandler.Succeeded(hr = _session.GetSnippetNode("CodeSnippet:Declarations", out declarations)) 
-                && declarations != null) {
-                foreach (MSXML.IXMLDOMNode declType in declarations.childNodes) {
-                    var id = declType.selectSingleNode("./CodeSnippet:ID");
-                    if (id != null) {
-                        declList.Add(id.text);
-                    }
-                }
+            header = XElement.Parse(headerNode.xml);
+            snippet = XElement.Parse(snippetNode.xml);
+
+            return VSConstants.S_OK;
+        }
+
+        public int FormatSpan(IVsTextLines pBuffer, TextSpan[] ts) {
+            XElement header, snippet;
+
+            int hr = TryGetXmlNodes(_session, out header, out snippet);
+            if (ErrorHandler.Failed(hr)) {
+                return hr;
             }
 
-            List<string> importList = new List<string>();
-            if (ErrorHandler.Succeeded(hr = _session.GetSnippetNode("CodeSnippet:Imports", out imports)) 
-                && imports != null) {
-                foreach (MSXML.IXMLDOMNode import in imports.childNodes) {
-                    var id = import.selectSingleNode("./CodeSnippet:Namespace");
-                    if (id != null) {
-                        importList.Add(id.text);
-                    }
-                }
-            }
+            var ns = header.Name.NamespaceName;
+            bool surroundsWith = header
+                .Elements(XName.Get("SnippetTypes", ns))
+                .Elements(XName.Get("SnippetType", ns))
+                .Any(n => n.Value == SurroundsWith);
 
-            bool surroundsWith = false, surroundsWithStatement = false;
-            foreach (MSXML.IXMLDOMNode snippetType in snippetTypes.childNodes) {
-                if (snippetType.nodeName == "SnippetType") {
-                    if (snippetType.text == SurroundsWith) {
-                        surroundsWith = true;
-                    } else if (snippetType.text == SurroundsWithStatement) {
-                        surroundsWithStatement = true;
-                    }
-                }
-            }
+            bool surroundsWithStatement = header
+                .Elements(XName.Get("SnippetTypes", ns))
+                .Elements(XName.Get("SnippetType", ns))
+                .Any(n => n.Value == SurroundsWithStatement);
+
+            ns = snippet.Name.NamespaceName;
+            var declList = snippet
+                .Element(XName.Get("Declarations", ns))?
+                .Elements()
+                .Elements(XName.Get("ID", ns))
+                .Select(n => n.Value)
+                .Where(n => !string.IsNullOrEmpty(n))
+                .ToList() ?? new List<string>();
+
+            var importList = snippet
+                .Element(XName.Get("Imports", ns))?
+                .Elements(XName.Get("Import", ns))
+                .Elements(XName.Get("Namespace", ns))
+                .Select(n => n.Value)
+                .Where(n => !string.IsNullOrEmpty(n))
+                .ToList() ?? new List<string>();
+
+            var codeText = snippet
+                .Element(XName.Get("Code", ns))?
+                .Value ?? string.Empty;
 
             // get the indentation of where we're inserting the code...
             string baseIndentation = GetBaseIndentation(ts);
@@ -135,7 +151,7 @@ namespace Microsoft.PythonTools.Intellisense {
                     //
                     // Also, the text has \n, but the inserted text has been replaced with the appropriate newline
                     // character for the buffer.
-                    var templateText = codeNode.text.Replace("\n", _textView.Options.GetNewLineCharacter());
+                    var templateText = codeText.Replace("\n", _textView.Options.GetNewLineCharacter());
                     foreach (var decl in declList) {
                         string defaultValue;
                         if (ErrorHandler.Succeeded(_session.GetFieldValue(decl, out defaultValue))) {
@@ -145,7 +161,7 @@ namespace Microsoft.PythonTools.Intellisense {
                     templateText = templateText.Replace("$end$", "");
 
                     // we can finally figure out where the selected text began witin the original template...
-                    int selectedIndex = templateText.IndexOf("$selected$");
+                    int selectedIndex = templateText.IndexOfOrdinal("$selected$", ignoreCase: true);
                     if (selectedIndex != -1) {
                         var selection = _textView.Selection;
                         
@@ -206,45 +222,44 @@ namespace Microsoft.PythonTools.Intellisense {
             if (endSpan != null) {
                 _session.SetEndSpan(endSpan.Value);
             }
-            
+
             // add any missing imports...
             AddMissingImports(
                 importList,
                 insertTrackingPoint.GetPoint(_textView.TextBuffer.CurrentSnapshot)
-            ).Wait();
+            );
 
             return hr;
         }
 
-        private async Task AddMissingImports(List<string> importList, SnapshotPoint point) {
+        private void AddMissingImports(List<string> importList, SnapshotPoint point) {
             if (importList.Count == 0) {
                 return;
             }
 
-            AnalysisEntry entry;
-            if (_entryService == null || !_entryService.TryGetAnalysisEntry(_textView, _textView.TextBuffer, out entry)) {
+            var bi = _services.GetBufferInfo(_textView.TextBuffer);
+            var entry = bi?.AnalysisEntry;
+            if (entry == null) {
+                return;
+            }
+
+            SourceLocation loc;
+            try {
+                loc = point.ToSourceLocation();
+            } catch (ArgumentException ex) {
+                Debug.Fail(ex.ToUnhandledExceptionMessage(GetType()));
                 return;
             }
 
             foreach (var import in importList) {
-                var isMissing = await entry.Analyzer.IsMissingImportAsync(
-                    entry,
-                    import,
-                    new SourceLocation(
-                        point.Position,
-                        point.Position - point.GetContainingLine().Start + 1,
-                        point.GetContainingLine().LineNumber
-                    )
+                var isMissing = entry.Analyzer.WaitForRequest(
+                    entry.Analyzer.IsMissingImportAsync(entry, import, loc),
+                    "ExpansionClient.IsMissingImportAsync",
+                    false
                 );
 
                 if (isMissing) {
-                    await VsProjectAnalyzer.AddImportAsync(
-                        entry,
-                        null,
-                        import,
-                        _textView,
-                        _textView.TextBuffer
-                    );
+                    VsProjectAnalyzer.AddImport(_textView.TextBuffer, null, import);
                 }
             }
         }

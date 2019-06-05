@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -53,7 +53,6 @@ namespace Microsoft.PythonTools.Repl {
         private static readonly byte[] SetModuleCommandBytes = MakeCommand("setm");
         private static readonly byte[] InputLineCommandBytes = MakeCommand("inpl");
         private static readonly byte[] ExecuteFileCommandBytes = MakeCommand("excx");
-        private static readonly byte[] DebugAttachCommandBytes = MakeCommand("dbga");
 
         private static byte[] MakeCommand(string cmd) {
             var b = Encoding.ASCII.GetBytes(cmd);
@@ -63,8 +62,7 @@ namespace Microsoft.PythonTools.Repl {
             return b;
         }
 
-
-        protected virtual Task<CommandProcessorThread> ConnectAsync(CancellationToken ct) {
+        private async Task<CommandProcessorThread> ConnectAsync(CancellationToken ct) {
             _serviceProvider.GetUIThread().MustBeCalledFromUIThreadOrThrow();
 
             var interpreterPath = Configuration?.GetInterpreterPath();
@@ -77,17 +75,16 @@ namespace Microsoft.PythonTools.Repl {
             }
 
             var processInfo = new ProcessStartInfo(interpreterPath);
+            processInfo.UseShellExecute = false;
 
 #if DEBUG
             bool debugMode = Environment.GetEnvironmentVariable("_PTVS_DEBUG_REPL") != null;
             processInfo.CreateNoWindow = !debugMode;
-            processInfo.UseShellExecute = debugMode;
             processInfo.RedirectStandardOutput = !debugMode;
             processInfo.RedirectStandardError = !debugMode;
             processInfo.RedirectStandardInput = !debugMode;
 #else
             processInfo.CreateNoWindow = true;
-            processInfo.UseShellExecute = false;
             processInfo.RedirectStandardOutput = true;
             processInfo.RedirectStandardError = true;
             processInfo.RedirectStandardInput = true;
@@ -104,6 +101,9 @@ namespace Microsoft.PythonTools.Repl {
             } else {
                 processInfo.WorkingDirectory = CommonUtils.GetParent(processInfo.FileName);
             }
+
+            // Ensure that pydoc doesn't use redirection through an external process to display help
+            processInfo.Environment["TERM"] = "dumb";
 
 #if DEBUG
             if (!debugMode) {
@@ -122,7 +122,7 @@ namespace Microsoft.PythonTools.Repl {
                 args.Add(interpreterArguments);
             }
 
-            args.Add(ProcessOutput.QuoteSingleArgument(PythonToolsInstallPath.GetFile("visualstudio_py_repl.py")));
+            args.Add(ProcessOutput.QuoteSingleArgument(PythonToolsInstallPath.GetFile("ptvsd_repl_launcher.py")));
             args.Add("--port");
             args.Add(portNum.ToString());
 
@@ -148,10 +148,11 @@ namespace Microsoft.PythonTools.Repl {
                 }
                 return null;
             } catch (Exception e) when(!e.IsCriticalException()) {
+                Debug.Fail(e.ToUnhandledExceptionMessage(GetType()));
                 return null;
             }
 
-            return Task.FromResult(CommandProcessorThread.Create(this, conn, process));
+            return CommandProcessorThread.Create(this, conn, process);
         }
 
 
@@ -203,18 +204,6 @@ namespace Microsoft.PythonTools.Repl {
                 thread._listenerSocket = listenerSocket;
                 thread._currentWorkingDirectory = process.StartInfo.WorkingDirectory;
                 thread.StartOutputThread(process.StartInfo.RedirectStandardOutput);
-                return thread;
-            }
-
-            public static CommandProcessorThread Create(
-                PythonInteractiveEvaluator evaluator,
-                Stream stream
-            ) {
-                var thread = new CommandProcessorThread(evaluator, null);
-                thread._stream = stream;
-                // Should be quickly replaced, but it's the best guess we have
-                thread._currentWorkingDirectory = Environment.CurrentDirectory;
-                thread.StartOutputThread(false);
                 return thread;
             }
 
@@ -288,7 +277,10 @@ namespace Microsoft.PythonTools.Repl {
             private void StdErrReceived(object sender, DataReceivedEventArgs e) {
                 if (e.Data != null) {
                     if (!AppendPreConnectionOutput(e)) {
-                        _eval.WriteError(FixNewLines(e.Data));
+                        try {
+                            _eval.WriteError(FixNewLines(e.Data));
+                        } catch (Exception ex) when (!ex.IsCriticalException() && HasShutdownStarted()) {
+                        }
                     }
                 }
             }
@@ -296,9 +288,16 @@ namespace Microsoft.PythonTools.Repl {
             private void StdOutReceived(object sender, DataReceivedEventArgs e) {
                 if (e.Data != null) {
                     if (!AppendPreConnectionOutput(e)) {
-                        _eval.WriteOutput(FixNewLines(e.Data));
+                        try {
+                            _eval.WriteOutput(FixNewLines(e.Data));
+                        } catch (Exception ex) when (!ex.IsCriticalException() && HasShutdownStarted()) {
+                        }
                     }
                 }
+            }
+
+            private bool HasShutdownStarted() {
+                return _eval.CurrentWindow.TextView.VisualElement.Dispatcher?.HasShutdownStarted ?? true;
             }
 
             private bool AppendPreConnectionOutput(DataReceivedEventArgs e) {
@@ -327,8 +326,6 @@ namespace Microsoft.PythonTools.Repl {
                             _stream = new NetworkStream(socket, ownsSocket: true);
                         }
                     }
-
-                    _eval.OnConnected();
 
                     using (new StreamLock(this, throwIfDisconnected: true)) {
                         if (_deferredExecute != null) {
@@ -363,7 +360,6 @@ namespace Microsoft.PythonTools.Repl {
                                 case "MODC": HandleModulesChanged(); break;
                                 case "PRPC": HandlePromptChanged(); break;
                                 case "RDLN": HandleReadLine(); break;
-                                case "DETC": HandleDebuggerDetach(); break;
                                 case "DPNG": HandleDisplayPng(); break;
                                 case "DXAM": HandleDisplayXaml(); break;
                                 case "CHWD": HandleWorkingDirectoryChanged(); break;
@@ -383,12 +379,16 @@ namespace Microsoft.PythonTools.Repl {
                     }
                 }
 
+                TaskCompletionSource<ExecutionResult> completion;
                 lock (_completionLock) {
-                    if (_completion != null) {
-                        bool success = _completion.TrySetCanceled();
-                        Debug.Assert(success);
-                        _completion = null;
-                    }
+                    completion = _completion;
+                    _completion = null;
+                }
+
+                if (completion != null) {
+                    bool success = completion.TrySetCanceled();
+                    Debug.Assert(success);
+                    completion = null;
                 }
             }
 
@@ -421,10 +421,6 @@ namespace Microsoft.PythonTools.Repl {
                     } catch (IOException) {
                     }
                 });
-            }
-
-            private void HandleDebuggerDetach() {
-                _eval.OnDetach();
             }
 
             private void HandleDisplayPng() {
@@ -629,30 +625,36 @@ namespace Microsoft.PythonTools.Repl {
 
             private void HandleExecutionError() {
                 // ERRE command
+                TaskCompletionSource<ExecutionResult> completion;
                 lock (_completionLock) {
-                    if (_completion != null) {
-                        _completion.SetResult(ExecutionResult.Failure);
-                        _completion = null;
-                    } else {
-                        Debug.Fail("No completion task");
-                    }
+                    completion = _completion;
+                    _completion = null;
+                }
+
+                if (completion != null) {
+                    completion.SetResult(ExecutionResult.Failure);
+                } else {
+                    Debug.Fail("No completion task");
                 }
             }
 
             private void HandleExecutionDone() {
                 // DONE command
+                TaskCompletionSource<ExecutionResult> completion;
                 lock (_completionLock) {
-                    if (_completion != null) {
-                        _completion.SetResult(ExecutionResult.Success);
-                        _completion = null;
-                    } else {
-                        Debug.Fail("No completion task");
-                    }
+                    completion = _completion;
+                    _completion = null;
+                }
+
+                if (completion != null) {
+                    completion.SetResult(ExecutionResult.Success);
+                } else {
+                    Debug.Fail("No completion task");
                 }
             }
 
             public Task<ExecutionResult> ExecuteText(string text) {
-                if (text.StartsWith("$")) {
+                if (text.StartsWithOrdinal("$")) {
                     _eval.WriteError(Strings.ReplUnknownCommand.FormatUI(text.Trim()));
                     return ExecutionResult.Failed;
                 }
@@ -669,6 +671,11 @@ namespace Microsoft.PythonTools.Repl {
                     SendString(text);
                 };
 
+                var tcs = new TaskCompletionSource<ExecutionResult>();
+                lock (_completionLock) {
+                    _completion = tcs;
+                }
+
                 Trace.TraceInformation("Executing text: {0}", text);
                 using (new StreamLock(this, throwIfDisconnected: false)) {
                     if (_stream == null) {
@@ -678,6 +685,9 @@ namespace Microsoft.PythonTools.Repl {
                             _deferredExecute = send;
                         } else {
                             _eval.WriteError(Strings.ReplDisconnectedReset);
+                            lock (_completionLock) {
+                                _completion = null;
+                            }
                             return ExecutionResult.Failed;
                         }
                     } else {
@@ -685,14 +695,14 @@ namespace Microsoft.PythonTools.Repl {
                             send();
                         } catch (IOException) {
                             _eval.WriteError(Strings.ReplDisconnectedReset);
+                            lock (_completionLock) {
+                                _completion = null;
+                            }
                             return ExecutionResult.Failed;
                         }
                     }
                 }
-                var tcs = new TaskCompletionSource<ExecutionResult>();
-                lock (_completionLock) {
-                    _completion = tcs;
-                }
+
                 return tcs.Task;
             }
 
@@ -708,6 +718,11 @@ namespace Microsoft.PythonTools.Repl {
                     SendString(extraArgs ?? string.Empty);
                 };
 
+                var tcs = new TaskCompletionSource<ExecutionResult>();
+                lock (_completionLock) {
+                    _completion = tcs;
+                }
+
                 using (new StreamLock(this, throwIfDisconnected: false)) {
                     if (_stream == null) {
                         // If we're still waiting for debuggee to connect to us, postpone the actual execution until we have the command stream.
@@ -715,6 +730,9 @@ namespace Microsoft.PythonTools.Repl {
                             _deferredExecute = send;
                         } else {
                             _eval.WriteError(Strings.ReplDisconnectedReset);
+                            lock (_completionLock) {
+                                _completion = null;
+                            }
                             return false;
                         }
                     } else {
@@ -722,34 +740,20 @@ namespace Microsoft.PythonTools.Repl {
                             send();
                         } catch (IOException) {
                             _eval.WriteError(Strings.ReplDisconnectedReset);
+                            lock (_completionLock) {
+                                _completion = null;
+                            }
                             return false;
                         }
                     }
                 }
 
-                var tcs = new TaskCompletionSource<ExecutionResult>();
-                lock (_completionLock) {
-                    _completion = tcs;
-                }
                 return (await tcs.Task).IsSuccessful;
             }
 
             public void AbortCommand() {
                 using (new StreamLock(this, throwIfDisconnected: true)) {
                     _stream.Write(AbortCommandBytes);
-                }
-            }
-
-            public void SetThreadAndFrameCommand(long thread, int frame, FrameKind frameKind) {
-                using (new StreamLock(this, throwIfDisconnected: true)) {
-                    _stream.Write(SetThreadAndFrameCommandBytes);
-                    _stream.WriteInt64(thread);
-                    _stream.WriteInt32(frame);
-                    _stream.WriteInt32((int)frameKind);
-                    // TODO: Localization: we may need to do something with <CurrentFrame> string. Is it displayed?
-                    // It also appears visualstudio_py_repl.py so it probably needs to be in sync with it.
-                    _currentScope = "<CurrentFrame>";
-                    _currentScopeFileName = null;
                 }
             }
 
@@ -827,16 +831,6 @@ namespace Microsoft.PythonTools.Repl {
                 }
 
                 return new CompletionResult(name, PythonMemberType.Field);
-            }
-
-            public async Task<string> GetScopeByFilenameAsync(string path) {
-                await GetAvailableScopesAndPathsAsync();
-
-                string res;
-                if (_fileToModuleName != null && _fileToModuleName.TryGetValue(path, out res)) {
-                    return res;
-                }
-                return null;
             }
 
             public void SetScope(string scopeName) {
@@ -940,16 +934,20 @@ namespace Microsoft.PythonTools.Repl {
                     }
                 }
 
+                TaskCompletionSource<ExecutionResult> completion;
                 lock (_completionLock) {
-                    if (_completion != null) {
-                        bool success = _completion.TrySetResult(ExecutionResult.Failure);
-                        Debug.Assert(success);
-                        _completion = null;
-                    }
+                    completion = _completion;
+                    _completion = null;
+
                     if (_completionResultEvent != null) {
                         _completionResultEvent.Dispose();
                         _completionResultEvent = null;
                     }
+                }
+
+                if (completion != null) {
+                    bool success = completion.TrySetResult(ExecutionResult.Failure);
+                    Debug.Assert(success);
                 }
             }
 

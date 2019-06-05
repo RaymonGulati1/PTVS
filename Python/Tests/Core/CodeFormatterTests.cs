@@ -9,37 +9,35 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
+extern alias pythontools;
 using System;
-using System.Linq;
-using Microsoft.PythonTools;
-using Microsoft.PythonTools.Intellisense;
+using System.Threading.Tasks;
 using Microsoft.PythonTools.Interpreter;
-using Microsoft.PythonTools.Interpreter.Default;
+using Microsoft.PythonTools.Options;
 using Microsoft.PythonTools.Parsing;
-using Microsoft.PythonTools.Parsing.Ast;
-using Microsoft.PythonTools.Refactoring;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.VisualStudio.Text;
+using pythontools::Microsoft.PythonTools.Intellisense;
+using pythontools::Microsoft.PythonTools.Language;
 using TestUtilities;
-using TestUtilities.Mocks;
 using TestUtilities.Python;
 
 namespace PythonToolsTests {
     [TestClass]
     public class CodeFormatterTests {
-        [ClassInitialize]
-        public static void DoDeployment(TestContext context) {
-            AssertListener.Initialize();
-            PythonTestData.Deploy();
-        }
+        [TestInitialize]
+        public void TestInitialize() => TestEnvironmentImpl.TestInitialize();
 
-        [TestMethod, Priority(1)]
-        public void TestCodeFormattingSelection() {
+        [TestCleanup]
+        public void TestCleanup() => TestEnvironmentImpl.TestCleanup();
+
+        [TestMethod, Priority(0)]
+        public async Task TestCodeFormattingSelection() {
             var input = @"print('Hello World')
 
 class SimpleTest(object):
@@ -73,11 +71,36 @@ class Oar(object):
                 SpaceWithinFunctionDeclarationParens = true 
             };
 
-            CodeFormattingTest(input, selection, expected, "    def say_hello .. method_end", options);
+            await CodeFormattingTest(input, selection, expected, "    def say_hello .. method_end", options);
         }
 
-        [TestMethod, Priority(1)]
-        public void TestCodeFormattingEndOfFile() {
+        [TestMethod, Priority(0)]
+        public async Task TestCodeFormattingMidLineSelection() {
+            var input = @"
+def f(x):
+    f( x+1)
+    pass
+";
+
+            string selection = "x+1";
+
+            string expected = @"
+def f(x):
+    f( x + 1)
+    pass
+";
+
+            var options = new CodeFormattingOptions() {
+                SpacesAroundBinaryOperators = true,
+                // Even though true, we aren't formatting the call, so it shouldn't apply
+                SpaceWithinCallParens = true
+            };
+
+            await CodeFormattingTest(input, selection, expected, " x + 1", options);
+        }
+
+        [TestMethod, Priority(0)]
+        public async Task TestCodeFormattingEndOfFile() {
             var input = @"print('Hello World')
 
 class SimpleTest(object):
@@ -97,11 +120,11 @@ class Oar(object):
                 SpaceWithinFunctionDeclarationParens = false
             };
 
-            CodeFormattingTest(input, new Span(input.Length, 0), input, null, options);
+            await CodeFormattingTest(input, new Span(input.Length, 0), input, null, options);
         }
 
-        [TestMethod, Priority(1)]
-        public void TestCodeFormattingInMethodExpression() {
+        [TestMethod, Priority(0)]
+        public async Task TestCodeFormattingInMethodExpression() {
             var input = @"print('Hello World')
 
 class SimpleTest(object):
@@ -121,11 +144,11 @@ class Oar(object):
                 SpaceWithinFunctionDeclarationParens = true
             };
 
-            CodeFormattingTest(input, "method_end", input, null, options);
+            await CodeFormattingTest(input, "method_end", input, null, options);
         }
 
-        [TestMethod, Priority(1)]
-        public void TestCodeFormattingStartOfMethodSelection() {
+        [TestMethod, Priority(0)]
+        public async Task TestCodeFormattingStartOfMethodSelection() {
             var input = @"print('Hello World')
 
 class SimpleTest(object):
@@ -139,7 +162,7 @@ class Oar(object):
     def say_hello(self):
         method_end";
 
-            string selection = "def say_hello";
+            string selection = "def say_hello(s";
 
             string expected = @"print('Hello World')
 
@@ -159,38 +182,116 @@ class Oar(object):
                 SpaceWithinFunctionDeclarationParens = true
             };
 
-            CodeFormattingTest(input, selection, expected, "    def say_hello .. method_end", options);
+            await CodeFormattingTest(input, selection, expected, "    def say_hello .. ):", options);
         }
 
-        [TestMethod, Priority(1)]
-        public void FormatDocument() {
+        [TestMethod, Priority(0)]
+        public async Task FormatDocument() {
             var input = @"fob('Hello World')";
             var expected = @"fob( 'Hello World' )";
             var options = new CodeFormattingOptions() { SpaceWithinCallParens = true };
 
-            CodeFormattingTest(input, new Span(0, input.Length), expected, null, options, false);
+            await CodeFormattingTest(input, new Span(0, input.Length), expected, null, options, false);
         }
 
-        private static void CodeFormattingTest(string input, object selection, string expected, object expectedSelection, CodeFormattingOptions options, bool selectResult = true) {
-            var fact = InterpreterFactoryCreator.CreateAnalysisInterpreterFactory(new Version(2, 7));
-            var serviceProvider = PythonToolsTestUtilities.CreateMockServiceProvider();
-            using (var analyzer = new VsProjectAnalyzer(serviceProvider, fact)) {
-                var buffer = new MockTextBuffer(input, PythonCoreConstants.ContentType, "C:\\fob.py");
-                buffer.AddProperty(typeof(VsProjectAnalyzer), analyzer);
-                var view = new MockTextView(buffer);
-                analyzer.MonitorTextBufferAsync(buffer).Wait();
-                var selectionSpan = new SnapshotSpan(
-                    buffer.CurrentSnapshot,
-                    ExtractMethodTests.GetSelectionSpan(input, selection)
-                );
-                view.Selection.Select(selectionSpan, false);
+        [TestMethod, Priority(0)]
+        public async Task FormatDocument2() {
+            var input = @"import sys
+import abc
 
-                analyzer.FormatCodeAsync(
-                    selectionSpan,
-                    view,
-                    options,
-                    selectResult
-                ).Wait();
+#ABC
+
+foo()
+foo()
+
+x = 34;
+
+y = x;z = y
+goo(y)
+x = 34;
+
+y = x;z = y";
+            var expected = @"import sys
+import abc
+
+#ABC
+foo()
+foo()
+
+x = 34
+
+y = x
+z = y
+goo(y)
+x = 34
+
+y = x
+z = y";
+            var options = new CodeFormattingOptions {
+                BreakMultipleStatementsPerLine = true,
+                NewLineFormat = NewLineKind.CarriageReturnLineFeed.GetString(),
+                RemoveTrailingSemicolons = true,
+                ReplaceMultipleImportsWithMultipleStatements = true,
+                SpaceAroundAnnotationArrow = true,
+                SpaceAroundDefaultValueEquals = false,
+                SpaceBeforeCallParen = false,
+                SpaceBeforeClassDeclarationParen = false,
+                SpaceBeforeFunctionDeclarationParen = false,
+                SpaceBeforeIndexBracket = false,
+                SpaceWithinCallParens = false,
+                SpaceWithinClassDeclarationParens = false,
+                SpaceWithinEmptyBaseClassList = false,
+                SpaceWithinEmptyCallArgumentList = false,
+                SpaceWithinEmptyParameterList = false,
+                SpaceWithinEmptyTupleExpression = false,
+                SpaceWithinFunctionDeclarationParens = false,
+                SpaceWithinIndexBrackets = false,
+                SpacesAroundAssignmentOperator = true,
+                SpacesAroundBinaryOperators = true,
+                SpacesWithinEmptyListExpression = false,
+                SpacesWithinListExpression = false,
+                SpacesWithinParenthesisExpression = false,
+                SpacesWithinParenthesisedTupleExpression = false,
+                WrapComments = true,
+                WrappingWidth = 80
+            };
+
+            await CodeFormattingTest(input, new Span(0, input.Length), expected, null, options, false);
+        }
+
+        private static async Task CodeFormattingTest(string input, object selection, string expected, object expectedSelection, CodeFormattingOptions options, bool formatSelected = true) {
+            var fact = InterpreterFactoryCreator.CreateAnalysisInterpreterFactory(new Version(2, 7));
+            var editorTestToolset = new EditorTestToolset().WithPythonToolsService();
+
+            var services = editorTestToolset.GetPythonEditorServices();
+            editorTestToolset.GetService<IPythonToolsOptionsService>().ImportFrom(options);
+
+            using (var analyzer = await VsProjectAnalyzer.CreateForTestsAsync(services, fact)) {
+                var analysisStartedTask = EventTaskSources.VsProjectAnalyzer.AnalysisStarted.Create(analyzer);
+                var buffer = editorTestToolset.CreatePythonTextBuffer(input, analyzer);
+                var view = editorTestToolset.CreateTextView(buffer);
+                await analysisStartedTask;
+
+                var bi = services.GetBufferInfo(buffer);
+                var entry = await analyzer.AnalyzeFileAsync(bi.Filename);
+                Assert.AreEqual(entry, bi.TrySetAnalysisEntry(entry, null), "Failed to set analysis entry");
+                entry.GetOrCreateBufferParser(services).AddBuffer(buffer);
+
+                if (formatSelected) {
+                    var selectionSpan = new SnapshotSpan(
+                        buffer.CurrentSnapshot,
+                        ExtractMethodTests.GetSelectionSpan(input, selection)
+                    );
+
+                    await editorTestToolset.UIThread.InvokeTask(async () => {
+                        view.Selection.Select(selectionSpan, false);
+                        await EditFilter.GetOrCreate(services, view).FormatSelectionAsync();
+                    });
+                } else {
+                    await editorTestToolset.UIThread.InvokeTask(async () => {
+                        await EditFilter.GetOrCreate(services, view).FormatDocumentAsync();
+                    });
+                }
 
                 Assert.AreEqual(expected, view.TextBuffer.CurrentSnapshot.GetText());
                 if (expectedSelection != null) {

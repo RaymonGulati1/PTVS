@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -23,11 +23,15 @@ namespace Microsoft.PythonTools.Parsing {
             ErrorSink = ErrorSink.Null;
         }
 
+        public ParserOptions Clone() {
+            return (ParserOptions)MemberwiseClone();
+        }
+
         public ErrorSink ErrorSink { get; set; }
 
         public Severity IndentationInconsistencySeverity { set; get; }
 
-        public bool Verbatim { get; set; }
+        public bool Verbatim { get; set; } = false;
 
         /// <summary>
         /// True if references to variables should be bound in the AST.  The root node must be
@@ -42,6 +46,11 @@ namespace Microsoft.PythonTools.Parsing {
         /// For example __fob would turn into _C__fob if PrivatePrefix is set to C.
         /// </summary>
         public string PrivatePrefix { get; set; }
+
+        /// <summary>
+        /// When true, parses with all stub file features.
+        /// </summary>
+        public bool StubFile { get; set; }
 
         /// <summary>
         /// An event that is raised for every comment in the source as it is parsed.

@@ -9,13 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Microsoft.PythonTools.Analysis;
 
@@ -28,18 +29,40 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         private readonly PythonLanguageVersion _langVersion;
         private readonly Statement _body;
         internal readonly NewLineLocation[] _lineLocations;
+        internal readonly SourceLocation[] _commentLocations;
         private readonly Dictionary<Node, Dictionary<object, object>> _attributes = new Dictionary<Node, Dictionary<object, object>>();
         private string _privatePrefix;
 
-        public PythonAst(Statement body, NewLineLocation[] lineLocations, PythonLanguageVersion langVersion) {
+        internal PythonAst(Statement body, NewLineLocation[] lineLocations, PythonLanguageVersion langVersion, SourceLocation[] commentLocations) {
             if (body == null) {
-                throw new ArgumentNullException("body");
+                throw new ArgumentNullException(nameof(body));
             }
             _langVersion = langVersion;
             _body = body;
             _lineLocations = lineLocations;
+            _commentLocations = commentLocations;
         }
-        
+
+        internal PythonAst(IEnumerable<PythonAst> existingAst) {
+            var asts = existingAst.ToArray();
+            _body = new SuiteStatement(asts.Select(a => a.Body).ToArray());
+            _langVersion = asts.Select(a => a._langVersion).Distinct().Single();
+            var locs = new List<NewLineLocation>();
+            var comments = new List<SourceLocation>();
+            int offset = 0;
+            foreach (var a in asts) {
+                locs.AddRange(a._lineLocations.Select(ll => new NewLineLocation(ll.EndIndex + offset, ll.Kind)));
+                offset = locs.LastOrDefault().EndIndex;
+            }
+            _lineLocations = locs.ToArray();
+            offset = 0;
+            foreach (var a in asts) {
+                comments.AddRange(a._commentLocations.Select(cl => new SourceLocation(cl.Line + offset, cl.Column)));
+                offset += a._lineLocations.Length + 1;
+            }
+            _commentLocations = comments.ToArray();
+        }
+
         public override string Name {
             get {
                 return "<module>";
@@ -80,18 +103,15 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         }
 
         internal bool TryGetAttribute(Node node, object key, out object value) {
-            Dictionary<object, object> nodeAttrs;
-            if (_attributes.TryGetValue(node, out nodeAttrs)) {
+            if (_attributes.TryGetValue(node, out var nodeAttrs)) {
                 return nodeAttrs.TryGetValue(key, out value);
-            } else {
-                value = null;
             }
+            value = null;
             return false;
         }
 
         internal void SetAttribute(Node node, object key, object value) {
-            Dictionary<object, object> nodeAttrs;
-            if (!_attributes.TryGetValue(node, out nodeAttrs)) {
+            if (!_attributes.TryGetValue(node, out var nodeAttrs)) {
                 nodeAttrs = _attributes[node] = new Dictionary<object, object>();
             }
             nodeAttrs[key] = value;
@@ -103,18 +123,49 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         /// <param name="from"></param>
         /// <param name="to"></param>
         public void CopyAttributes(Node from, Node to) {
-            Dictionary<object, object> nodeAttrs;
-            if (_attributes.TryGetValue(from, out nodeAttrs)) {
-                _attributes[to] = new Dictionary<object, object>(nodeAttrs);
+            if (_attributes.TryGetValue(from, out var fromAttrs)) {
+                var toAttrs = new Dictionary<object, object>(fromAttrs.Count);
+                foreach (var nodeAttr in fromAttrs) {
+                    toAttrs[nodeAttr.Key] = nodeAttr.Value;
+                }
+                _attributes[to] = toAttrs;
             }
         }
 
-        internal SourceLocation IndexToLocation(int index) {
+        internal void SetAttributes(Dictionary<Node, Dictionary<object, object>> attributes) {
+            foreach (var nodeAttributes in attributes) {
+                var node = nodeAttributes.Key;
+                if (!_attributes.TryGetValue(node, out var existingNodeAttributes)) {
+                    existingNodeAttributes = _attributes[node] = new Dictionary<object, object>(nodeAttributes.Value.Count);
+                }
+
+                foreach (var nodeAttr in nodeAttributes.Value) {
+                    existingNodeAttributes[nodeAttr.Key] = nodeAttr.Value;
+                }
+            }
+        }
+
+        public SourceLocation IndexToLocation(int index) {
             return NewLineLocation.IndexToLocation(_lineLocations, index);
         }
 
+        public int LocationToIndex(SourceLocation location) {
+            return NewLineLocation.LocationToIndex(_lineLocations, location, EndIndex);
+        }
+
+        /// <summary>
+        /// Length of the span (number of characters inside the span).
+        /// </summary>
+        public int GetSpanLength(SourceSpan span) {
+            return LocationToIndex(span.End) - LocationToIndex(span.Start);
+        }
+
+
         internal int GetLineEndFromPosition(int index) {
             var loc = IndexToLocation(index);
+            if (loc.Line >= _lineLocations.Length) {
+                return index;
+            }
             var res = _lineLocations[loc.Line - 1];
             switch (res.Kind) {
                 case NewLineKind.LineFeed:

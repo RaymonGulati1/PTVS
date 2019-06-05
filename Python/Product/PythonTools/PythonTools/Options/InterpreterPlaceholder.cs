@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -37,16 +37,11 @@ namespace Microsoft.PythonTools.Options {
         public InterpreterConfiguration Configuration { get; private set; }
 
         public Guid Id => Guid.Empty;
-        public IPackageManager PackageManager => null;
 
         public IPythonInterpreter CreateInterpreter() {
             throw new NotSupportedException();
         }
 
-        public IPythonInterpreterFactoryProvider Provider {
-            get {
-                throw new NotSupportedException();
-            }
-        }
+        public void NotifyImportNamesChanged() { }
     }
 }

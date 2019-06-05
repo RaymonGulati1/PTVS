@@ -9,20 +9,23 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Net;
+using System.Text;
 using System.Threading.Tasks;
-using static System.FormattableString;
 using Newtonsoft.Json;
+using static System.FormattableString;
 
 namespace Microsoft.CookiecutterTools.Model {
     class GitHubClient : IGitHubClient {
-        // throws WebExceptions (for example, with 403 forbidden)
+        private const string UserAgent = "PythonToolsForVisualStudio/" + AssemblyVersionInfo.Version;
+
+        // throws WebException (for example, with 403 forbidden) and JsonException
         public async Task<GitHubRepoSearchResult> SearchRepositoriesAsync(string requestUrl) {
             if (requestUrl == null) {
                 throw new ArgumentNullException(nameof(requestUrl));
@@ -76,7 +79,8 @@ namespace Microsoft.CookiecutterTools.Model {
 
         private static WebClient CreateClient() {
             var wc = new WebClient();
-            wc.Headers.Add(HttpRequestHeader.UserAgent, "PTVS");
+            wc.Encoding = Encoding.UTF8;
+            wc.Headers.Add(HttpRequestHeader.UserAgent, UserAgent);
             return wc;
         }
 

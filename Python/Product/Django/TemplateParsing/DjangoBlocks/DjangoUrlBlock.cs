@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -63,17 +63,17 @@ namespace Microsoft.PythonTools.Django.TemplateParsing.DjangoBlocks {
 
                     // Get url name
                     if (urlName == null) {
-                        if (word.StartsWith("'")) {
+                        if (word.StartsWithOrdinal("'")) {
                             urlName = word.TrimStart('\'').TrimEnd('\'');
                             afterUrl = true;
-                        } else if (word.StartsWith("\"")) {
+                        } else if (word.StartsWithOrdinal("\"")) {
                             urlName = word.TrimStart('"').TrimEnd('"');
                             afterUrl = true;
                         }
                     }
 
                     // Test if word is a named parameter (but not in a string)
-                    if (word.Contains('=') && !word.StartsWith("'") && !word.StartsWith("\"")) {
+                    if (word.Contains('=') && !word.StartsWithOrdinal("'") && !word.StartsWithOrdinal("\"")) {
                         usedNamedParameters.Add(word.Split('=').First());
                     }
                 }

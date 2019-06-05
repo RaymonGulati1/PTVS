@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -103,23 +103,16 @@ namespace Microsoft.PythonTools.Intellisense {
         /// </summary>
         public bool FilterCompletions { get; set; }
 
-        /// <summary>
-        /// The search mode to use for completions.
-        /// </summary>
-        public FuzzyMatchMode SearchMode { get; set; }
-
         public CompletionOptions() {
             MemberOptions = GetMemberOptions.IncludeStatementKeywords |
                 GetMemberOptions.IncludeExpressionKeywords |
                 GetMemberOptions.HideAdvancedMembers;
             FilterCompletions = true;
-            SearchMode = FuzzyMatchMode.Default;
         }
 
         public CompletionOptions(GetMemberOptions options) {
             MemberOptions = options;
             FilterCompletions = true;
-            SearchMode = FuzzyMatchMode.Default;
         }
 
         /// <summary>
@@ -132,7 +125,6 @@ namespace Microsoft.PythonTools.Intellisense {
                 TabSize = TabSize,
                 IndentSize = IndentSize,
                 FilterCompletions = FilterCompletions,
-                SearchMode = SearchMode
             };
         }
 

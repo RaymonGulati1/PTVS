@@ -9,14 +9,16 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Microsoft.Build.Construction;
+using Microsoft.PythonTools.Infrastructure;
 
 namespace Microsoft.PythonTools.Project.ImportWizard {
     abstract class ProjectCustomization {
@@ -29,6 +31,7 @@ namespace Microsoft.PythonTools.Project.ImportWizard {
         }
 
         public abstract void Process(
+            string sourcePath,
             ProjectRootElement project,
             Dictionary<string, ProjectPropertyGroupElement> groups
         );
@@ -70,6 +73,7 @@ namespace Microsoft.PythonTools.Project.ImportWizard {
         }
 
         public override void Process(
+            string sourcePath,
             ProjectRootElement project,
             Dictionary<string, ProjectPropertyGroupElement> groups
         ) {
@@ -89,6 +93,7 @@ namespace Microsoft.PythonTools.Project.ImportWizard {
         }
 
         public override void Process(
+            string sourcePath,
             ProjectRootElement project,
             Dictionary<string, ProjectPropertyGroupElement> groups
         ) {
@@ -104,6 +109,8 @@ namespace Microsoft.PythonTools.Project.ImportWizard {
             AddOrSetProperty(globals, "PythonWsgiHandler", "{StartupModule}.wsgi_app()");
 
             project.AddImport(@"$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.Web.targets");
+
+            GenericWebProjectCustomization.AddWebProjectExtensions(project);
         }
     }
 
@@ -119,6 +126,7 @@ namespace Microsoft.PythonTools.Project.ImportWizard {
         }
 
         public override void Process(
+            string sourcePath,
             ProjectRootElement project,
             Dictionary<string, ProjectPropertyGroupElement> groups
         ) {
@@ -132,7 +140,15 @@ namespace Microsoft.PythonTools.Project.ImportWizard {
             AddOrSetProperty(globals, "LaunchProvider", "Django launcher");
             AddOrSetProperty(globals, "WebBrowserUrl", "http://localhost");
 
+            var settingsFilePath = PathUtils.FindFile(sourcePath, "settings.py", depthLimit: 1);
+            if (File.Exists(settingsFilePath)) {
+                var packageName = PathUtils.GetLastDirectoryName(settingsFilePath);
+                AddOrSetProperty(globals, "DjangoSettingsModule", "{0}.settings".FormatInvariant(packageName));
+            }
+
             project.AddImport(@"$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.Django.targets");
+
+            GenericWebProjectCustomization.AddWebProjectExtensions(project);
         }
     }
 
@@ -148,6 +164,7 @@ namespace Microsoft.PythonTools.Project.ImportWizard {
         }
 
         public override void Process(
+            string sourcePath,
             ProjectRootElement project,
             Dictionary<string, ProjectPropertyGroupElement> groups
         ) {
@@ -162,6 +179,8 @@ namespace Microsoft.PythonTools.Project.ImportWizard {
             AddOrSetProperty(globals, "PythonWsgiHandler", "{StartupModule}.wsgi_app");
 
             project.AddImport(@"$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.Web.targets");
+
+            GenericWebProjectCustomization.AddWebProjectExtensions(project);
         }
     }
 
@@ -177,6 +196,7 @@ namespace Microsoft.PythonTools.Project.ImportWizard {
         }
 
         public override void Process(
+            string sourcePath,
             ProjectRootElement project,
             Dictionary<string, ProjectPropertyGroupElement> groups
         ) {
@@ -190,30 +210,46 @@ namespace Microsoft.PythonTools.Project.ImportWizard {
             AddOrSetProperty(globals, "WebBrowserUrl", "http://localhost");
 
             project.AddImport(@"$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.Web.targets");
-        }
-    }
 
-    class UwpProjectCustomization : ProjectCustomization {
-        public static readonly ProjectCustomization Instance = new UwpProjectCustomization();
-
-        private UwpProjectCustomization() { }
-
-        public override string DisplayName {
-            get {
-                return Strings.ImportWizardUwpProjectCustomization;
-            }
+            GenericWebProjectCustomization.AddWebProjectExtensions(project);
         }
 
-        public override void Process(
-            ProjectRootElement project,
-            Dictionary<string, ProjectPropertyGroupElement> groups
-        ) {
-            ProjectPropertyGroupElement globals;
-            if (!groups.TryGetValue("Globals", out globals)) {
-                globals = project.AddPropertyGroup();
-            }
+        internal static void AddWebProjectExtensions(ProjectRootElement project) {
+            // Adding this section prevents IIS Express required error message
+            var projExt = project.CreateProjectExtensionsElement();
+            project.AppendChild(projExt);
 
-            AddOrSetProperty(globals, "ProjectTypeGuids", "{2b557614-1a2b-4903-b9df-ed20d7b63f3a};{888888A0-9F3D-457C-B088-3A5042F75D52}");
+            projExt["VisualStudio"] = @"
+    <FlavorProperties GUID=""{349c5851-65df-11da-9384-00065b846f21}"">
+    <WebProjectProperties>
+        <AutoAssignPort>True</AutoAssignPort>
+        <UseCustomServer>True</UseCustomServer>
+        <CustomServerUrl>http://localhost</CustomServerUrl>
+        <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
+    </WebProjectProperties>
+    </FlavorProperties>
+    <FlavorProperties GUID=""{349c5851-65df-11da-9384-00065b846f21}"" User="""">
+    <WebProjectProperties>
+        <StartPageUrl>
+        </StartPageUrl>
+        <StartAction>CurrentPage</StartAction>
+        <AspNetDebugging>True</AspNetDebugging>
+        <SilverlightDebugging>False</SilverlightDebugging>
+        <NativeDebugging>False</NativeDebugging>
+        <SQLDebugging>False</SQLDebugging>
+        <ExternalProgram>
+        </ExternalProgram>
+        <StartExternalURL>
+        </StartExternalURL>
+        <StartCmdLineArguments>
+        </StartCmdLineArguments>
+        <StartWorkingDirectory>
+        </StartWorkingDirectory>
+        <EnableENC>False</EnableENC>
+        <AlwaysStartWebServerOnDebug>False</AlwaysStartWebServerOnDebug>
+    </WebProjectProperties>
+    </FlavorProperties>
+";
         }
     }
 }

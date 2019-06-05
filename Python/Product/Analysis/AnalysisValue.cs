@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -29,18 +29,16 @@ namespace Microsoft.PythonTools.Analysis {
     /// An analysis value represents a set of variables and code.  Examples of 
     /// analysis values include top-level code, classes, and functions.
     /// </summary>
-    public class AnalysisValue : IAnalysisSet {
+    public class AnalysisValue : IAnalysisValue, ICanExpire {
         [ThreadStatic]
         private static HashSet<AnalysisValue> _processing;
 
         protected AnalysisValue() { }
 
 
-        internal bool IsAlive {
-            get {
-                return true;
-            }
-        }
+        public virtual bool IsAlive => DeclaringModule == null || DeclaringVersion == DeclaringModule.AnalysisVersion;
+
+        bool ICanExpire.IsAlive => IsAlive;
 
         /// <summary>
         /// Returns an immutable set which contains just this AnalysisValue.
@@ -163,12 +161,6 @@ namespace Microsoft.PythonTools.Analysis {
             }
         }
 
-        public bool IsCurrent {
-            get {
-                return DeclaringModule == null || DeclaringVersion == DeclaringModule.AnalysisVersion;
-            }
-        }
-
         public virtual IEnumerable<IAnalysisSet> Mro {
             get {
                 yield break;
@@ -270,7 +262,7 @@ namespace Microsoft.PythonTools.Analysis {
             // TODO: need more than constant 0...
             //index = (VariableRef(ConstantInfo(0, self.ProjectState, False)), )
             //self.AssignTo(self._state.IndexInto(listRefs, index), node, node.Left)
-            return GetIndex(node, unit, unit.ProjectState.ClassInfos[BuiltinTypeId.Int].SelfSet);
+            return GetIndex(node, unit, unit.State.ClassInfos[BuiltinTypeId.Int].SelfSet);
         }
 
         public virtual IAnalysisSet GetAsyncEnumeratorTypes(Node node, AnalysisUnit unit) {
@@ -320,6 +312,10 @@ namespace Microsoft.PythonTools.Analysis {
             return AnalysisSet.Empty;
         }
 
+        public virtual IAnalysisSet GetReturnForYieldFrom(Node node, AnalysisUnit unit) {
+            return AnalysisSet.Empty;
+        }
+
         internal virtual bool IsOfType(IAnalysisSet klass) {
             return false;
         }
@@ -328,6 +324,22 @@ namespace Microsoft.PythonTools.Analysis {
             get {
                 return BuiltinTypeId.Unknown;
             }
+        }
+
+        /// <summary>
+        /// If required, returns the resolved version of this value. If there is nothing
+        /// to resolve, returns <c>this</c>.
+        /// </summary>
+        public IAnalysisSet Resolve(AnalysisUnit unit) {
+            return Resolve(unit, ResolutionContext.Complete);
+        }
+
+        /// <summary>
+        /// If required, returns the resolved version of this value given a specific context.
+        /// </summary>
+        /// <remarks>
+        internal virtual IAnalysisSet Resolve(AnalysisUnit unit, ResolutionContext context) {
+            return this;
         }
 
         #endregion
@@ -409,7 +421,7 @@ namespace Microsoft.PythonTools.Analysis {
 
         public void Pop() {
             bool wasRemoved = _processing.Remove(this);
-            Debug.Assert(wasRemoved, string.Format("Popped {0} but it wasn't pushed", GetType().FullName));
+            Debug.Assert(wasRemoved, $"Popped {GetType().FullName} but it wasn't pushed");
         }
 
         #endregion
@@ -449,7 +461,7 @@ namespace Microsoft.PythonTools.Analysis {
             if (items == null || items.All(av => ((IAnalysisSet)this).Comparer.Equals(this, av))) {
                 return this;
             }
-            return AnalysisSet.Create(items).Add(this, false);
+            return AnalysisSet.Create(items, ((IAnalysisSet)this).Comparer).Add(this, false);
         }
 
         IAnalysisSet IAnalysisSet.Union(IEnumerable<AnalysisValue> items, out bool wasChanged, bool canMutate) {
@@ -457,8 +469,7 @@ namespace Microsoft.PythonTools.Analysis {
                 wasChanged = false;
                 return this;
             }
-            wasChanged = true;
-            return AnalysisSet.Create(items).Add(this, false);
+            return AnalysisSet.Create(items, ((IAnalysisSet)this).Comparer).Add(this, out wasChanged, false);
         }
 
         IAnalysisSet IAnalysisSet.Clone() {

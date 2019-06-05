@@ -9,28 +9,40 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System.ComponentModel.Composition;
+using System.Linq;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
 using Microsoft.VisualStudio.Utilities;
+#if DEV16_OR_LATER
+using Microsoft.WebTools.Languages.Shared.Editor.ContainedLanguage;
+using Microsoft.WebTools.Languages.Shared.Editor.Controller;
+using Microsoft.WebTools.Languages.Shared.Editor.Host;
+using Microsoft.WebTools.Languages.Shared.Editor.Services;
+#else
 using Microsoft.Web.Editor.ContainedLanguage;
 using Microsoft.Web.Editor.Controller;
 using Microsoft.Web.Editor.Host;
 using Microsoft.Web.Editor.Services;
+#endif
+using ITextViewCreationListener = Microsoft.VisualStudio.Text.Editor.ITextViewCreationListener;
 
 namespace Microsoft.PythonTools.Django.Intellisense {
-    [Export(typeof(IWpfTextViewConnectionListener))]
-    [Export(typeof(IWpfTextViewCreationListener))]
+    [Export(typeof(ITextViewConnectionListener))]
+    [Export(typeof(ITextViewCreationListener))]
     [ContentType(TemplateTagContentType.ContentTypeName)]
     [TextViewRole(PredefinedTextViewRoles.Editable)]
     [Name("Django Template Text View Connection Listener")]
     [Order(Before = "default")]
-    internal class TemplateTextViewConnectionListener : TextViewConnectionListener {
+    internal class TemplateTextViewConnectionListener : TextViewConnectionListener,
+        ITextViewConnectionListener,
+        ITextViewCreationListener
+    {
         protected override void OnTextViewConnected(ITextView textView, ITextBuffer textBuffer) {
             var mainController = ServiceManager.GetService<TemplateMainController>(textView) ??
                 new TemplateMainController(textView, textBuffer);
@@ -55,6 +67,18 @@ namespace Microsoft.PythonTools.Django.Intellisense {
             }
 
             base.OnTextViewDisconnected(textView, textBuffer);
+        }
+
+        void ITextViewConnectionListener.SubjectBuffersConnected(ITextView textView, ConnectionReason reason, System.Collections.Generic.IReadOnlyCollection<ITextBuffer> subjectBuffers) {
+            SubjectBuffersConnected((IWpfTextView)textView, reason, new System.Collections.ObjectModel.Collection<ITextBuffer>(subjectBuffers.ToArray()));
+        }
+
+        void ITextViewConnectionListener.SubjectBuffersDisconnected(ITextView textView, ConnectionReason reason, System.Collections.Generic.IReadOnlyCollection<ITextBuffer> subjectBuffers) {
+            SubjectBuffersDisconnected((IWpfTextView)textView, reason, new System.Collections.ObjectModel.Collection<ITextBuffer>(subjectBuffers.ToArray()));
+        }
+
+        void ITextViewCreationListener.TextViewCreated(ITextView textView) {
+            TextViewCreated((IWpfTextView)textView);
         }
     }
 }

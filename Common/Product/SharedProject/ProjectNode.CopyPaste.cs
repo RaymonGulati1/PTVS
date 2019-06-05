@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -330,7 +330,10 @@ namespace Microsoft.VisualStudioTools.Project {
             // they should always pass Move, and we'll know whether or not it's a cut from wasCut.
             // If they copied it from the project system wasCut will be false, and DropEffect
             // will still be Move, resulting in a copy.
-            if (wasCut != 0 && dropEffect == (uint)DropEffect.Move) {
+            // Speaking of other project systems... cut from Python and paste into C# results in
+            // wasCut==1 and dropEffect==Copy
+            // which makes no sense is hopefully harmless to support...
+            if (wasCut != 0 && (dropEffect == (uint)DropEffect.Move || dropEffect == (uint)DropEffect.Copy)) {
                 // If we just did a cut, then we need to free the data object. Otherwise, we leave it
                 // alone so that you can continue to paste the data in new locations.
                 CleanAndFlushClipboard();
@@ -353,11 +356,8 @@ namespace Microsoft.VisualStudioTools.Project {
         public virtual int OnClear(int wasCut) {
             if (wasCut != 0) {
                 AssertHasParentHierarchy();
-                IVsUIHierarchyWindow w = UIHierarchyUtilities.GetUIHierarchyWindow(this.site, HierarchyNode.SolutionExplorer);
-                if (w != null) {
-                    foreach (HierarchyNode node in ItemsDraggedOrCutOrCopied) {
-                        node.ExpandItem(EXPANDFLAGS.EXPF_UnCutHighlightItem);
-                    }
+                foreach (HierarchyNode node in ItemsDraggedOrCutOrCopied) {
+                    node.ExpandItem(EXPANDFLAGS.EXPF_UnCutHighlightItem);
                 }
             }
 
@@ -495,6 +495,16 @@ namespace Microsoft.VisualStudioTools.Project {
                                 if (fileAddition.SourceMoniker.StartsWith(folder, StringComparison.OrdinalIgnoreCase)) {
                                     // this will be moved/copied by the folder, it doesn't need another move/copy
                                     add = false;
+
+                                    if (DropEffect == DropEffect.Move && Utilities.IsSameComObject(Project, fileAddition.SourceHierarchy)) {
+                                        var fileNode = Project.FindNodeByFullPath(fileAddition.SourceMoniker);
+                                        Debug.Assert(fileNode is FileNode, $"<{fileNode?.GetType().FullName ?? "null"}>");
+
+                                        if (fileNode != null) {
+                                            Project.ItemsDraggedOrCutOrCopied.Remove(fileNode); // we don't need to remove the file after Paste
+                                        }
+                                    }
+
                                     break;
                                 }
                             }
@@ -595,7 +605,7 @@ namespace Microsoft.VisualStudioTools.Project {
                         false
                     );
                     dialog.Owner = Application.Current.MainWindow;
-                    var res = dialog.ShowDialog();
+                    var res = dialog.ShowModal();
                     if (res == null) {
                         // cancel, abort the whole copy
                         return null;
@@ -786,43 +796,42 @@ namespace Microsoft.VisualStudioTools.Project {
                     var sourceFolder = Project.FindNodeByFullPath(SourceFolder) as FolderNode;
                     if (sourceFolder == null || DropEffect != DropEffect.Move) {
                         newNode = Project.CreateFolderNodes(NewFolderPath);
+
+                        foreach (var addition in Additions) {
+                            addition.DoAddition(ref overwrite);
+                        }
+
+                        if (sourceFolder != null) {
+                            if (sourceFolder.IsNonMemberItem) {
+                                // copying or moving an existing excluded folder, new folder
+                                // is excluded too.
+                                ErrorHandler.ThrowOnFailure(newNode.ExcludeFromProjectWithRefresh());
+                            } else if (sourceFolder.Parent.IsNonMemberItem) {
+                                // We've moved an included folder to a show all files folder,
+                                //     add the parent to the project   
+                                ErrorHandler.ThrowOnFailure(sourceFolder.Parent.IncludeInProjectWithRefresh(false));
+                            }
+                        }
+
+                        // Send OnItemRenamed for the folder now, after all of the children have been renamed
+                        Project.Tracker.OnItemRenamed(SourceFolder, NewFolderPath, VSRENAMEFILEFLAGS.VSRENAMEFILEFLAGS_Directory);
                     } else {
                         // Rename the folder & reparent our existing FolderNode w/ potentially w/ a new ID,
-                        // but don't update the children as we'll handle that w/ our file additions...
                         wasExpanded = sourceFolder.GetIsExpanded();
-                        Directory.CreateDirectory(NewFolderPath);
-                        sourceFolder.ReparentFolder(NewFolderPath);
+
+                        // Reparent takes care of renaming the folder on disk and sending rename notification(s)
+                        var newFolderParent = Project.CreateFolderNodes(CommonUtils.GetParent(NewFolderPath));
+                        sourceFolder.Reparent(newFolderParent);
 
                         sourceFolder.ExpandItem(wasExpanded ? EXPANDFLAGS.EXPF_ExpandFolder : EXPANDFLAGS.EXPF_CollapseFolder);
                         newNode = sourceFolder;
-                    }
-
-                    foreach (var addition in Additions) {
-                        addition.DoAddition(ref overwrite);
-                    }
-
-                    if (sourceFolder != null) {
-                        if (sourceFolder.IsNonMemberItem) {
-                            // copying or moving an existing excluded folder, new folder
-                            // is excluded too.
-                            ErrorHandler.ThrowOnFailure(newNode.ExcludeFromProjectWithRefresh());
-                        } else if (sourceFolder.Parent.IsNonMemberItem) {
-                            // We've moved an included folder to a show all files folder,
-                            //     add the parent to the project   
-                            ErrorHandler.ThrowOnFailure(sourceFolder.Parent.IncludeInProjectWithRefresh(false));
-                        }
 
                         if (DropEffect == DropEffect.Move) {
-                            Directory.Delete(SourceFolder);
-
                             // we just handled the delete, the updated folder has the new filename,
                             // and we don't want to delete where we just moved stuff...
                             Project.ItemsDraggedOrCutOrCopied.Remove(sourceFolder);
                         }
                     }
-
-                    // Send OnItemRenamed for the folder now, after all of the children have been renamed
-                    Project.Tracker.OnItemRenamed(SourceFolder, NewFolderPath, VSRENAMEFILEFLAGS.VSRENAMEFILEFLAGS_Directory);
 
                     if (sourceFolder != null && Project.ParentHierarchy != null) {
                         sourceFolder.ExpandItem(wasExpanded ? EXPANDFLAGS.EXPF_ExpandFolder : EXPANDFLAGS.EXPF_CollapseFolder);
@@ -1103,7 +1112,7 @@ namespace Microsoft.VisualStudioTools.Project {
             private static bool PromptOverwriteFile(string filename, out OverwriteFileDialog dialog) {
                 dialog = new OverwriteFileDialog(SR.GetString(SR.FileAlreadyExists, Path.GetFileName(filename)), true);
                 dialog.Owner = Application.Current.MainWindow;
-                bool? dialogResult = dialog.ShowDialog();
+                bool? dialogResult = dialog.ShowModal();
 
                 if (dialogResult != null && !dialogResult.Value) {
                     // user cancelled
@@ -1269,11 +1278,13 @@ namespace Microsoft.VisualStudioTools.Project {
                         // hierarchy move if the user answers no to any of the items none of the items
                         // are removed from the source hierarchy.
                         var fileNode = Project.FindNodeByFullPath(SourceMoniker);
-                        Debug.Assert(fileNode is FileNode);
+                        Debug.Assert(fileNode is FileNode, $"<{fileNode?.GetType().FullName ?? "null"}>");
 
-                        Project.ItemsDraggedOrCutOrCopied.Remove(fileNode); // we don't need to remove the file after Paste                        
+                        if (fileNode != null) {
+                            Project.ItemsDraggedOrCutOrCopied.Remove(fileNode); // we don't need to remove the file after Paste                        
+                        }
 
-                        if (File.Exists(newPath)) {
+                        if (fileNode != null && File.Exists(newPath)) {
                             // we checked before starting the copy, but somehow a file has snuck in.  Could be a race,
                             // or the user could have cut and pasted 2 files from different folders into the same folder.
                             bool shouldOverwrite;
@@ -1308,8 +1319,11 @@ namespace Microsoft.VisualStudioTools.Project {
                         }
 
                         FileNode file = fileNode as FileNode;
-                        file.RenameInStorage(fileNode.Url, newPath);
-                        file.RenameFileNode(fileNode.Url, newPath);
+                        Debug.Assert(file != null, $"<{fileNode?.GetType().FullName ?? "null"}>");
+                        if (file != null) {
+                            file.RenameInStorage(fileNode.Url, newPath);
+                            file.RenameFileNode(fileNode.Url, newPath);
+                        }
 
                         Project.Tracker.OnItemRenamed(SourceMoniker, newPath, VSRENAMEFILEFLAGS.VSRENAMEFILEFLAGS_NoFlags);
                     } else {

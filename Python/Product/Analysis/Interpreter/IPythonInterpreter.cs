@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -61,8 +61,8 @@ namespace Microsoft.PythonTools.Interpreter {
         event EventHandler ModuleNamesChanged;
 
         /// <summary>
-        /// Returns an IPythonModule for a given module name. Returns null if
-        /// the module does not exist.
+        /// Synchronous variant of <see ref="IPythonInterpreter2.ImportModuleAsync">.
+        /// Waits for the async import completion using timeouts.
         /// </summary>
         IPythonModule ImportModule(string name);
 
@@ -73,5 +73,13 @@ namespace Microsoft.PythonTools.Interpreter {
         /// Interpreters can return null if they have no per-module state.
         /// </summary>
         IModuleContext CreateModuleContext();
+    }
+
+    public interface IPythonInterpreter2: IPythonInterpreter {
+        /// <summary>
+        /// Returns an IPythonModule for a given module name. Returns null if
+        /// the module does not exist. The import is performed asynchronously.
+        /// </summary>
+        Task<IPythonModule> ImportModuleAsync(string name, CancellationToken token);
     }
 }

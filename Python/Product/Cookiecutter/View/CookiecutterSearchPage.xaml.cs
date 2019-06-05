@@ -9,15 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Diagnostics;
-using System.Globalization;
-using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -39,10 +37,10 @@ namespace Microsoft.CookiecutterTools.View {
 
         private void TextBox_KeyDown(object sender, KeyEventArgs e) {
             if (e.Key == Key.Enter) {
-                ViewModel.SearchAsync().DoNotWait();
+                ViewModel.SearchAsync().HandleAllExceptions(null, GetType()).DoNotWait();
             } else if (e.Key == Key.Escape) {
                 ViewModel.SearchTerm = string.Empty;
-                ViewModel.SearchAsync().DoNotWait();
+                ViewModel.SearchAsync().HandleAllExceptions(null, GetType()).DoNotWait();
             }
         }
 
@@ -52,7 +50,7 @@ namespace Microsoft.CookiecutterTools.View {
         }
 
         private void Search_Executed(object sender, ExecutedRoutedEventArgs e) {
-            ViewModel.SearchAsync().DoNotWait();
+            ViewModel.SearchAsync().HandleAllExceptions(null, GetType()).DoNotWait();
         }
 
         private void OpenInBrowser_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
@@ -68,17 +66,6 @@ namespace Microsoft.CookiecutterTools.View {
             Process.Start(url)?.Dispose();
         }
 
-        private void OpenInExplorer_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
-            var folderPath = (string)e.Parameter;
-            e.CanExecute = Directory.Exists(folderPath);
-            e.Handled = true;
-        }
-
-        private void OpenInExplorer_Executed(object sender, ExecutedRoutedEventArgs e) {
-            var folderPath = (string)e.Parameter;
-            ViewModel.OpenFolderInExplorer(folderPath);
-        }
-
         private void LoadMore_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
             e.CanExecute = true;
             e.Handled = true;
@@ -86,7 +73,7 @@ namespace Microsoft.CookiecutterTools.View {
 
         private void LoadMore_Executed(object sender, ExecutedRoutedEventArgs e) {
             var token = (string)e.Parameter;
-            ViewModel.LoadMoreTemplatesAsync(token).DoNotWait();
+            ViewModel.LoadMoreTemplatesAsync(token).HandleAllExceptions(null, GetType()).DoNotWait();
         }
 
         private void RunSelection_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
@@ -107,18 +94,10 @@ namespace Microsoft.CookiecutterTools.View {
 
         private void OnItemMouseDoubleClick(object sender, MouseButtonEventArgs args) {
             var item = sender as TreeViewItem;
-            if (item != null) {
-                if (item.IsSelected) {
-                    var template = item.DataContext as TemplateViewModel;
-                    if (template != null) {
-                        if (template != ViewModel.SelectedTemplate) {
-                            ViewModel.SelectedTemplate = template;
-                        }
-
-                        if (ViewModel.CanLoadSelectedTemplate) {
-                            LoadTemplate();
-                        }
-                    }
+            if (item != null && item.IsSelected) {
+                var template = item.DataContext as TemplateViewModel;
+                if (template != null) {
+                    LoadTemplate(template);
                 }
             }
         }
@@ -134,22 +113,62 @@ namespace Microsoft.CookiecutterTools.View {
             }
         }
 
+        private void OnItemPreviewKeyDown(object sender, KeyEventArgs e) {
+            var item = sender as TreeViewItem;
+            if (item != null && item.IsSelected) {
+                if (e.Key == Key.Enter) {
+                    if (DoInvoke(item.DataContext)) {
+                        e.Handled = true;
+                    }
+                }
+            }
+        }
+
+        private void OnInvokeTemplate(object sender, InvokeEventArgs e) {
+            DoInvoke(e.Item);
+        }
+
+        private bool DoInvoke(object item) {
+            var continuation = item as ContinuationViewModel;
+            if (continuation != null) {
+                ViewModel.LoadMoreTemplatesAsync(continuation.ContinuationToken).HandleAllExceptions(null, GetType()).DoNotWait();
+                return true;
+            } else {
+                var template = item as TemplateViewModel;
+                if (template != null) {
+                    LoadTemplate(template);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void LoadTemplate(TemplateViewModel template) {
+            if (template != ViewModel.SelectedTemplate) {
+                ViewModel.SelectedTemplate = template;
+            }
+
+            if (ViewModel.CanLoadSelectedTemplate) {
+                LoadTemplate();
+            }
+        }
+
         public void LoadTemplate() {
             TemplateViewModel collidingTemplate;
             if (ViewModel.IsCloneNeeded(ViewModel.SelectedTemplate) && ViewModel.IsCloneCollision(ViewModel.SelectedTemplate, out collidingTemplate)) {
-                MessageBox.Show(string.Format(CultureInfo.CurrentUICulture, Strings.CloneCollisionMessage, ViewModel.SelectedTemplate.RepositoryName, collidingTemplate.ClonedPath), Strings.ProductTitle, MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(Strings.CloneCollisionMessage.FormatUI(ViewModel.SelectedTemplate.RepositoryName, collidingTemplate.ClonedPath), Strings.ProductTitle, MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
-            ViewModel.LoadTemplateAsync().DoNotWait();
+            ViewModel.LoadTemplateAsync().HandleAllExceptions(null, GetType()).DoNotWait();
         }
 
         public void UpdateTemplate() {
-            ViewModel.UpdateTemplateAsync().DoNotWait();
+            ViewModel.UpdateTemplateAsync().HandleAllExceptions(null, GetType()).DoNotWait();
         }
 
         internal void CheckForUpdates() {
-            ViewModel.CheckForUpdatesAsync().DoNotWait();
+            ViewModel.CheckForUpdatesAsync().HandleAllExceptions(null, GetType()).DoNotWait();
         }
 
         private void Image_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) {

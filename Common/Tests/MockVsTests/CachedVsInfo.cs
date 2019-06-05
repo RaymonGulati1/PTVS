@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,6 +17,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition.Hosting;
+using Microsoft.VisualStudio.Composition;
 using Microsoft.VisualStudio.Shell;
 
 namespace Microsoft.VisualStudioTools.MockVsTests {
@@ -26,13 +27,13 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
     /// lingering between tests.
     /// </summary>
     class CachedVsInfo {
-        public readonly AggregateCatalog Catalog;
+        public readonly ComposableCatalog Catalog;
         public readonly List<Type> Packages;
         public Dictionary<string, LanguageServiceInfo> LangServicesByName = new Dictionary<string, LanguageServiceInfo>();
         public Dictionary<Guid, LanguageServiceInfo> LangServicesByGuid = new Dictionary<Guid, LanguageServiceInfo>();
         public Dictionary<string, string> _languageNamesByExtension = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        public CachedVsInfo(AggregateCatalog catalog, List<Type> packages) {
+        public CachedVsInfo(ComposableCatalog catalog, List<Type> packages) {
             Catalog = catalog;
             Packages = packages;
 

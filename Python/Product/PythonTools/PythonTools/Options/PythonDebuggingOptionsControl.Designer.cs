@@ -29,40 +29,67 @@ namespace Microsoft.PythonTools.Options {
             this._waitOnNormalExit = new System.Windows.Forms.CheckBox();
             this._teeStdOut = new System.Windows.Forms.CheckBox();
             this._breakOnSystemExitZero = new System.Windows.Forms.CheckBox();
-            this.tableLayoutPanel2 = new System.Windows.Forms.TableLayoutPanel();
             this._debugStdLib = new System.Windows.Forms.CheckBox();
+            this._showFunctionReturnValue = new System.Windows.Forms.CheckBox();
+            this._useLegacyDebugger = new System.Windows.Forms.CheckBox();
+            this.tableLayoutPanel2 = new System.Windows.Forms.TableLayoutPanel();
             this.tableLayoutPanel2.SuspendLayout();
             this.SuspendLayout();
             // 
             // _promptOnBuildError
             // 
             resources.ApplyResources(this._promptOnBuildError, "_promptOnBuildError");
+            this._promptOnBuildError.AutoEllipsis = true;
             this._promptOnBuildError.Name = "_promptOnBuildError";
             this._promptOnBuildError.UseVisualStyleBackColor = true;
             // 
             // _waitOnAbnormalExit
             // 
             resources.ApplyResources(this._waitOnAbnormalExit, "_waitOnAbnormalExit");
+            this._waitOnAbnormalExit.AutoEllipsis = true;
             this._waitOnAbnormalExit.Name = "_waitOnAbnormalExit";
             this._waitOnAbnormalExit.UseVisualStyleBackColor = true;
             // 
             // _waitOnNormalExit
             // 
             resources.ApplyResources(this._waitOnNormalExit, "_waitOnNormalExit");
+            this._waitOnNormalExit.AutoEllipsis = true;
             this._waitOnNormalExit.Name = "_waitOnNormalExit";
             this._waitOnNormalExit.UseVisualStyleBackColor = true;
             // 
             // _teeStdOut
             // 
             resources.ApplyResources(this._teeStdOut, "_teeStdOut");
+            this._teeStdOut.AutoEllipsis = true;
             this._teeStdOut.Name = "_teeStdOut";
             this._teeStdOut.UseVisualStyleBackColor = true;
             // 
             // _breakOnSystemExitZero
             // 
             resources.ApplyResources(this._breakOnSystemExitZero, "_breakOnSystemExitZero");
+            this._breakOnSystemExitZero.AutoEllipsis = true;
             this._breakOnSystemExitZero.Name = "_breakOnSystemExitZero";
             this._breakOnSystemExitZero.UseVisualStyleBackColor = true;
+            // 
+            // _debugStdLib
+            // 
+            resources.ApplyResources(this._debugStdLib, "_debugStdLib");
+            this._debugStdLib.AutoEllipsis = true;
+            this._debugStdLib.Name = "_debugStdLib";
+            this._debugStdLib.UseVisualStyleBackColor = true;
+            // 
+            // _showFunctionReturnValue
+            // 
+            resources.ApplyResources(this._showFunctionReturnValue, "_showFunctionReturnValue");
+            this._showFunctionReturnValue.Name = "_showFunctionReturnValue";
+            this._showFunctionReturnValue.UseVisualStyleBackColor = true;
+            // 
+            // _useLegacyDebugger
+            // 
+            resources.ApplyResources(this._useLegacyDebugger, "_useLegacyDebugger");
+            this._useLegacyDebugger.AutoEllipsis = true;
+            this._useLegacyDebugger.Name = "_useLegacyDebugger";
+            this._useLegacyDebugger.UseVisualStyleBackColor = true;
             // 
             // tableLayoutPanel2
             // 
@@ -73,13 +100,9 @@ namespace Microsoft.PythonTools.Options {
             this.tableLayoutPanel2.Controls.Add(this._teeStdOut, 0, 3);
             this.tableLayoutPanel2.Controls.Add(this._breakOnSystemExitZero, 0, 4);
             this.tableLayoutPanel2.Controls.Add(this._debugStdLib, 0, 5);
+            this.tableLayoutPanel2.Controls.Add(this._showFunctionReturnValue, 0, 6);
+            this.tableLayoutPanel2.Controls.Add(this._useLegacyDebugger, 0, 7);
             this.tableLayoutPanel2.Name = "tableLayoutPanel2";
-            // 
-            // _debugStdLib
-            // 
-            resources.ApplyResources(this._debugStdLib, "_debugStdLib");
-            this._debugStdLib.Name = "_debugStdLib";
-            this._debugStdLib.UseVisualStyleBackColor = true;
             // 
             // PythonDebuggingOptionsControl
             // 
@@ -102,6 +125,8 @@ namespace Microsoft.PythonTools.Options {
         private System.Windows.Forms.CheckBox _teeStdOut;
         private System.Windows.Forms.CheckBox _breakOnSystemExitZero;
         private System.Windows.Forms.CheckBox _debugStdLib;
+        private System.Windows.Forms.CheckBox _showFunctionReturnValue;
+        private System.Windows.Forms.CheckBox _useLegacyDebugger;
         private System.Windows.Forms.TableLayoutPanel tableLayoutPanel2;
     }
 }

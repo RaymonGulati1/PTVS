@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -125,19 +125,19 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 case "items":
                     return _itemsMethod = _itemsMethod ?? new SpecializedCallable(
                         res.OfType<BuiltinNamespace<IPythonType>>().FirstOrDefault(),
-                        unit.ProjectState.LanguageVersion.Is3x() ? (CallDelegate)DictionaryIterItems : DictionaryItems,
+                        unit.State.LanguageVersion.Is3x() ? (CallDelegate)DictionaryIterItems : DictionaryItems,
                         false
                     );
                 case "keys":
                     return _keysMethod = _keysMethod ?? new SpecializedCallable(
                         res.OfType<BuiltinNamespace<IPythonType>>().FirstOrDefault(),
-                        unit.ProjectState.LanguageVersion.Is3x() ? (CallDelegate)DictionaryIterKeys : DictionaryKeys,
+                        unit.State.LanguageVersion.Is3x() ? (CallDelegate)DictionaryIterKeys : DictionaryKeys,
                         false
                     );
                 case "values":
                     return _valuesMethod = _valuesMethod ?? new SpecializedCallable(
                         res.OfType<BuiltinNamespace<IPythonType>>().FirstOrDefault(),
-                        unit.ProjectState.LanguageVersion.Is3x() ? (CallDelegate)DictionaryIterValues : DictionaryValues,
+                        unit.State.LanguageVersion.Is3x() ? (CallDelegate)DictionaryIterValues : DictionaryValues,
                         false
                     );
                 case "pop":
@@ -153,7 +153,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                         false
                     );
                 case "iterkeys":
-                    if (unit.ProjectState.LanguageVersion.Is2x()) {
+                    if (unit.State.LanguageVersion.Is2x()) {
                         return _iterKeysMethod = _iterKeysMethod ?? new SpecializedCallable(
                             res.OfType<BuiltinNamespace<IPythonType>>().FirstOrDefault(),
                             DictionaryIterKeys,
@@ -162,7 +162,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                     }
                     break;
                 case "itervalues":
-                    if (unit.ProjectState.LanguageVersion.Is2x()) {
+                    if (unit.State.LanguageVersion.Is2x()) {
                         return _iterValuesMethod = _iterValuesMethod ?? new SpecializedCallable(
                             res.OfType<BuiltinNamespace<IPythonType>>().FirstOrDefault(),
                             DictionaryIterValues,
@@ -171,7 +171,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                     }
                     break;
                 case "iteritems":
-                    if (unit.ProjectState.LanguageVersion.Is2x()) {
+                    if (unit.State.LanguageVersion.Is2x()) {
                         return _iterItemsMethod = _iterItemsMethod ?? new SpecializedCallable(
                             res.OfType<BuiltinNamespace<IPythonType>>().FirstOrDefault(),
                             DictionaryIterItems,
@@ -368,9 +368,22 @@ namespace Microsoft.PythonTools.Analysis.Values {
             }
         }
 
+        internal IAnalysisSet GetItemsView(AnalysisUnit unit) {
+            return DictionaryIterItems(null, unit, null, null);
+        }
+
+        internal IAnalysisSet GetKeysView(AnalysisUnit unit) {
+            return DictionaryIterKeys(null, unit, null, null);
+        }
+
+        internal IAnalysisSet GetValuesView(AnalysisUnit unit) {
+            return DictionaryIterValues(null, unit, null, null);
+        }
+
+
         #region Specialized functions
 
-        private IAnalysisSet DictionaryUpdate(Node node, Analysis.AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+        private IAnalysisSet DictionaryUpdate(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             if (args.Length >= 1) {
                 foreach (var otherDict in args[0].OfType<DictionaryInfo>()) {
                     if (!Object.ReferenceEquals(otherDict, this)) {
@@ -383,25 +396,25 @@ namespace Microsoft.PythonTools.Analysis.Values {
             return AnalysisSet.Empty;
         }
 
-        private IAnalysisSet DictionaryPopItem(Node node, Analysis.AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+        private IAnalysisSet DictionaryPopItem(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             _keysAndValues.AddDependency(unit);
 
             return KeyValueTuple;
         }
 
-        private IAnalysisSet DictionaryPop(Node node, Analysis.AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+        private IAnalysisSet DictionaryPop(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             _keysAndValues.AddDependency(unit);
 
             return _keysAndValues.AllValueTypes;
         }
 
-        private IAnalysisSet DictionaryItems(Node node, Analysis.AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+        private IAnalysisSet DictionaryItems(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             _keysAndValues.AddDependency(unit);
 
             if (_itemsList == null) {
                 _itemsList = new ListInfo(
                     new[] { KeyValueTupleVariable },
-                    unit.ProjectState.ClassInfos[BuiltinTypeId.List],
+                    unit.State.ClassInfos[BuiltinTypeId.List],
                     node,
                     unit.ProjectEntry
                 );
@@ -410,26 +423,26 @@ namespace Microsoft.PythonTools.Analysis.Values {
             return _itemsList;
         }
 
-        private IAnalysisSet DictionaryIterItems(Node node, Analysis.AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+        private IAnalysisSet DictionaryIterItems(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             _keysAndValues.AddDependency(unit);
 
             if (_itemsIter == null) {
                 _itemsIter = new SingleIteratorValue(
                     KeyValueTupleVariable,
-                    unit.ProjectState.ClassInfos[BuiltinTypeId.DictItems],
+                    unit.State.ClassInfos[BuiltinTypeId.DictItems],
                     DeclaringModule
                 );
             }
             return _itemsIter;
         }
 
-        private IAnalysisSet DictionaryKeys(Node node, Analysis.AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+        private IAnalysisSet DictionaryKeys(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             _keysAndValues.AddDependency(unit);
 
             if (_keysList == null) {
                 _keysList = new ListInfo(
                     new[] { KeysVariable },
-                    unit.ProjectState.ClassInfos[BuiltinTypeId.List],
+                    unit.State.ClassInfos[BuiltinTypeId.List],
                     node,
                     unit.ProjectEntry
                 );
@@ -437,26 +450,26 @@ namespace Microsoft.PythonTools.Analysis.Values {
             return _keysList;
         }
 
-        private IAnalysisSet DictionaryIterKeys(Node node, Analysis.AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+        internal IAnalysisSet DictionaryIterKeys(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             _keysAndValues.AddDependency(unit);
 
             if (_keysIter == null) {
                 _keysIter = new SingleIteratorValue(
                     KeysVariable,
-                    unit.ProjectState.ClassInfos[BuiltinTypeId.DictKeys],
+                    unit.State.ClassInfos[BuiltinTypeId.DictKeys],
                     DeclaringModule
                 );
             }
             return _keysIter;
         }
 
-        private IAnalysisSet DictionaryValues(Node node, Analysis.AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+        private IAnalysisSet DictionaryValues(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             _keysAndValues.AddDependency(unit);
 
             if (_valuesList == null) {
                 _valuesList = new ListInfo(
                     new[] { ValuesVariable },
-                    unit.ProjectState.ClassInfos[BuiltinTypeId.List],
+                    unit.State.ClassInfos[BuiltinTypeId.List],
                     node,
                     unit.ProjectEntry
                 );
@@ -464,20 +477,20 @@ namespace Microsoft.PythonTools.Analysis.Values {
             return _valuesList;
         }
 
-        private IAnalysisSet DictionaryIterValues(Node node, Analysis.AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+        internal IAnalysisSet DictionaryIterValues(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             _keysAndValues.AddDependency(unit);
 
             if (_valuesIter == null) {
                 _valuesIter = new SingleIteratorValue(
                     ValuesVariable,
-                    unit.ProjectState.ClassInfos[BuiltinTypeId.DictValues],
+                    unit.State.ClassInfos[BuiltinTypeId.DictValues],
                     DeclaringModule
                 );
             }
             return _valuesIter;
         }
 
-        private IAnalysisSet DictionaryGet(Node node, Analysis.AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
+        private IAnalysisSet DictionaryGet(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
             _keysAndValues.AddDependency(unit);
 
             if (args.Length == 1) {
@@ -564,15 +577,17 @@ namespace Microsoft.PythonTools.Analysis.Values {
     /// </summary>
     sealed class DictParameterVariableDef : LocatedVariableDef {
         public readonly StarArgsDictionaryInfo Dict;
+        public readonly string Name;
 
-        public DictParameterVariableDef(AnalysisUnit unit, Node location)
-            : base(unit.DeclaringModule.ProjectEntry, location) {
+        public DictParameterVariableDef(AnalysisUnit unit, Node location, string name)
+            : base(unit.DeclaringModule.ProjectEntry, new EncodedLocation(unit, location)) {
+            Name = name;
             Dict = new StarArgsDictionaryInfo(unit.ProjectEntry, location);
             AddTypes(unit, Dict, false, Entry);
         }
 
         public DictParameterVariableDef(AnalysisUnit unit, Node location, VariableDef copy)
-            : base(unit.DeclaringModule.ProjectEntry, location, copy) {
+            : base(unit.DeclaringModule.ProjectEntry, new EncodedLocation(unit, location), copy) {
             Dict = new StarArgsDictionaryInfo(unit.ProjectEntry, location);
             AddTypes(unit, Dict, false, Entry);
         }

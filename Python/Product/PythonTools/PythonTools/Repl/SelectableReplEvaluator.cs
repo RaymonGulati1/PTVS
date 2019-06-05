@@ -9,21 +9,23 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.PythonTools.Editor;
 using Microsoft.PythonTools.Editor.Core;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Intellisense;
+using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudio.InteractiveWindow;
 using Microsoft.VisualStudio.InteractiveWindow.Commands;
-using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Utilities;
 using Task = System.Threading.Tasks.Task;
@@ -144,7 +146,15 @@ namespace Microsoft.PythonTools.Repl {
         public bool LiveCompletionsOnly => (_evaluator as IPythonInteractiveIntellisense)?.LiveCompletionsOnly ?? false;
 
         public VsProjectAnalyzer Analyzer => (_evaluator as IPythonInteractiveIntellisense)?.Analyzer;
-        public string AnalysisFilename => (_evaluator as IPythonInteractiveIntellisense)?.AnalysisFilename;
+        public Task<VsProjectAnalyzer> GetAnalyzerAsync() {
+            if (_evaluator is IPythonInteractiveIntellisense eval) {
+                return eval.GetAnalyzerAsync();
+            }
+            return Task.FromResult<VsProjectAnalyzer>(null);
+        }
+
+        public Uri DocumentUri => (_evaluator as IPythonInteractiveIntellisense)?.DocumentUri;
+        public Uri NextDocumentUri() => (_evaluator as IPythonInteractiveIntellisense)?.NextDocumentUri();
 
         // Test methods
         internal string PrimaryPrompt => ((dynamic)_evaluator)?.PrimaryPrompt ?? ">>> ";
@@ -155,9 +165,20 @@ namespace Microsoft.PythonTools.Repl {
                 return;
             }
 
-            var eval = string.IsNullOrEmpty(id) ?
-                null :
-                _providers.Select(p => p.GetEvaluator(id)).FirstOrDefault(e => e != null);
+            IInteractiveEvaluator eval = null;
+            try {
+                eval = string.IsNullOrEmpty(id) ?
+                    null :
+                    _providers.Select(p => p.GetEvaluator(id)).FirstOrDefault(e => e != null);
+            } catch (NoInterpretersException) {
+                _window.WriteErrorLine(Strings.NoInterpretersAvailable);
+            } catch (MissingInterpreterException ex) {
+                _window.WriteErrorLine(ex.Message);
+            } catch (IOException ex) {
+                _window.WriteErrorLine(ex.Message);
+            } catch (Exception ex) when (!ex.IsCriticalException()) {
+                _window.WriteErrorLine(ex.ToUnhandledExceptionMessage(GetType()));
+            }
 
             var oldEval = _evaluator;
             _evaluator = null;
@@ -186,14 +207,6 @@ namespace Microsoft.PythonTools.Repl {
 
         private async Task DoInitializeAsync(IInteractiveEvaluator eval) {
             await eval.InitializeAsync();
-
-            var view = eval?.CurrentWindow?.TextView;
-            var buffer = eval?.CurrentWindow?.CurrentLanguageBuffer;
-            if (view != null && buffer != null) {
-                var controller = IntellisenseControllerProvider.GetOrCreateController(_serviceProvider, _serviceProvider.GetComponentModel(), view);
-                controller.DisconnectSubjectBuffer(buffer);
-                controller.ConnectSubjectBuffer(buffer);
-            }
         }
 
         private void DetachWindow(IInteractiveEvaluator oldEval) {
@@ -203,7 +216,11 @@ namespace Microsoft.PythonTools.Repl {
                     if (oldEval.CurrentWindow.CurrentLanguageBuffer == buffer) {
                         continue;
                     }
-                    buffer.Properties[BufferParser.DoNotParse] = BufferParser.DoNotParse;
+
+                    var tb = PythonTextBufferInfo.TryGetForBuffer(buffer);
+                    if (tb != null) {
+                        tb.DoNotParse = true;
+                    }
                 }
             }
         }
@@ -267,6 +284,8 @@ namespace Microsoft.PythonTools.Repl {
 
         private void InteractiveWindow_Closed(object sender, EventArgs e) {
             ClearPersistedEvaluator();
+            AbortExecution();
+            Dispose();
         }
 
         #region Multiple Scope Support

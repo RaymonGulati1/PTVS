@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,13 +18,15 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using Microsoft.PythonTools.Analysis;
-using Microsoft.PythonTools.Infrastructure;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Ipc.Json;
 using Microsoft.PythonTools.Parsing;
+using Newtonsoft.Json;
+using LS = Microsoft.PythonTools.Analysis.LanguageServer;
 
 namespace Microsoft.PythonTools.Intellisense {
-    internal static class AnalysisProtocol {
+    public static class AnalysisProtocol {
         public static readonly Dictionary<string, Type> RegisteredTypes = CollectCommands();
 
         private static Dictionary<string, Type> CollectCommands() {
@@ -50,20 +52,27 @@ namespace Microsoft.PythonTools.Intellisense {
 
             public override string command => Command;
 
-            public string[] mefExtensions;
-            public string interpreterId, projectFile, projectHome;
+            public InterpreterInfo interpreter;
 
-            public DerivedInterpreter[] derivedInterpreters;
-
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri rootUri;
+            public bool analyzeAllFiles;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+            public bool traceLogging;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+            public bool liveLinting;
         }
 
-        public sealed class DerivedInterpreter {
-            public string name, id, description, version, baseInterpreter, path, windowsPath, libPath, pathEnvVar, arch;
+        public sealed class InterpreterInfo {
+            public string assembly, typeName;
+            public Dictionary<string, object> properties;
         }
 
         public sealed class InitializeResponse : Response {
-            public string[] failedLoads;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.IgnoreAndPopulate)]
             public string error;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.IgnoreAndPopulate)]
+            public string fullError;
         }
 
         public sealed class ExitRequest : GenericRequest {
@@ -122,12 +131,20 @@ namespace Microsoft.PythonTools.Intellisense {
 
         }
 
+        public sealed class SetAnalysisLimitsRequest : Request {
+            public const string Command = "setAnalysisLimits";
+
+            public override string command => Command;
+
+        }
+
         public sealed class ValueDescriptionRequest : Request<ValueDescriptionResponse> {
             public const string Command = "valueDescriptions";
 
-            public int fileId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
             public string expr;
-            public int line, column, index;
+            public int line, column;
 
             public override string command => Command;
         }
@@ -159,7 +176,8 @@ namespace Microsoft.PythonTools.Intellisense {
         public sealed class AnalysisClassificationsRequest : Request<AnalysisClassificationsResponse> {
             public const string Command = "analysisClassify";
 
-            public int fileId, bufferId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
             public bool colorNames;
 
             public override string command => Command;
@@ -171,21 +189,23 @@ namespace Microsoft.PythonTools.Intellisense {
         public sealed class MethodInsertionLocationRequest : Request<MethodInsertionLocationResponse> {
             public const string Command = "methodInsertion";
 
-            public int fileId, bufferId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
             public string className;
 
             public override string command => Command;
         }
 
         public sealed class MethodInsertionLocationResponse : Response {
-            public int location, indentation;
+            public int line, column;
             public int version;
         }
 
         public sealed class MethodInfoRequest : Request<MethodInfoResponse> {
             public const string Command = "methodInfo";
 
-            public int fileId, bufferId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
             public string className;
             public string methodName;
 
@@ -201,7 +221,8 @@ namespace Microsoft.PythonTools.Intellisense {
         public sealed class FindMethodsRequest : Request<FindMethodsResponse> {
             public const string Command = "findMethods";
 
-            public int fileId, bufferId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
             public string className;
 
             /// <summary>
@@ -223,16 +244,18 @@ namespace Microsoft.PythonTools.Intellisense {
         }
 
         public sealed class AnalysisClassification {
-            public int start, length;
+            public int startLine, startColumn;
+            public int endLine, endColumn;
             public string type;
         }
 
         public class QuickInfoRequest : Request<QuickInfoResponse> {
             public const string Command = "quickInfo";
 
-            public int fileId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
             public string expr;
-            public int line, column, index;
+            public int line, column;
 
             public override string command => Command;
         }
@@ -244,24 +267,33 @@ namespace Microsoft.PythonTools.Intellisense {
         public class FileParsedEvent : Event {
             public const string Name = "fileParsed";
 
-            public int fileId;
-            public BufferParseInfo[] buffers;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
+            public int version;
 
             public override string name => Name;
         }
 
-        public class BufferParseInfo {
-            public int bufferId, version;
-            public bool hasErrors;
-            public Error[] errors;
-            public Error[] warnings;
-            public TaskItem[] tasks;
+        public class DiagnosticsEvent : Event {
+            public const string Name = "diagnostics";
+
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
+            public int version;
+            public LS.Diagnostic[] diagnostics;
+
+            public bool ShouldSerializediagnostics() => (diagnostics?.Length ?? 0) > 0;
+
+            public override string name => Name;
         }
 
         public sealed class FormatCodeRequest : Request<FormatCodeResponse> {
             public const string Command = "formatCode";
 
-            public int fileId, bufferId, startIndex, endIndex;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
+            public int startLine, startColumn;
+            public int endLine, endColumn;
             public string newLine;
             public CodeFormattingOptions options;
 
@@ -270,45 +302,50 @@ namespace Microsoft.PythonTools.Intellisense {
 
         public sealed class FormatCodeResponse : Response {
             public ChangeInfo[] changes;
-
-            public int startIndex, endIndex, version;
+            public int version;
         }
 
         public struct CodeSpan {
             public int start, length;
         }
 
-        public class Error {
-            public string message;
-            public int startLine, startColumn, startIndex;
-            public int endLine, endColumn, length;
-        }
-
         public class AddFileRequest : Request<AddFileResponse> {
             public const string Command = "addFile";
 
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
             public string path;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.IgnoreAndPopulate)]
             public string addingFromDir;
-            public bool isTemporaryFile, suppressErrorLists;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.IgnoreAndPopulate)]
+            public bool isTemporaryFile;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.IgnoreAndPopulate)]
+            public bool suppressErrorLists;
+
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri uri;
 
             public override string command => Command;
         }
 
         public class AddFileResponse : Response {
-            public int fileId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
         }
 
         public class AddBulkFileRequest : Request<AddBulkFileResponse> {
             public const string Command = "addBulkFile";
 
             public string[] path;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
             public string addingFromDir;
 
             public override string command => Command;
         }
 
         public class AddBulkFileResponse : Response {
-            public int[] fileId;
+            [JsonProperty(ItemConverterType = typeof(UriJsonConverter))]
+            public Uri[] documentUri;
         }
 
         public sealed class SetSearchPathRequest : Request<Response> {
@@ -321,10 +358,11 @@ namespace Microsoft.PythonTools.Intellisense {
         public sealed class UnloadFileRequest : Request<Response> {
             public const string Command = "unloadFile";
 
-            public int fileId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
             public override string command => Command;
 
-            public override string ToString() => "{0}:{1}".FormatUI(command, fileId);
+            public override string ToString() => "{0}:{1}".FormatUI(command, documentUri);
         }
 
 
@@ -332,7 +370,8 @@ namespace Microsoft.PythonTools.Intellisense {
             public const string Name = "directoryFileAdded";
 
             public string filename;
-            public int fileId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
 
             public override string name => Name;
         }
@@ -340,12 +379,13 @@ namespace Microsoft.PythonTools.Intellisense {
         public sealed class FileUpdateRequest : Request<FileUpdateResponse> {
             public const string Command = "fileUpdate";
 
-            public int fileId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
             public FileUpdate[] updates;
 
             public override string command => Command;
 
-            public override string ToString() => "{0}:{1} ({2} updates)".FormatUI(command, fileId, updates.Length);
+            public override string ToString() => "{0}:{1} ({2} updates)".FormatUI(command, documentUri, updates.Length);
         }
 
         public enum FileUpdateKind {
@@ -364,21 +404,24 @@ namespace Microsoft.PythonTools.Intellisense {
             public const string Command = "addImport";
 
             public string fromModule, name, newLine;
-            public int fileId, bufferId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
 
             public override string command => Command;
         }
 
         public sealed class AddImportResponse : Response {
             public ChangeInfo[] changes;
-            public int version;
+            public int version = -1;
         }
 
         public sealed class IsMissingImportRequest : Request<IsMissingImportResponse> {
             public const string Command = "isMissingImport";
 
             public string text;
-            public int index, line, column, fileId, bufferId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
+            public int line, column;
 
             public override string command => Command;
         }
@@ -402,60 +445,70 @@ namespace Microsoft.PythonTools.Intellisense {
         public sealed class ImportInfo {
             public string fromName, importName;
 
+
+            // Provide Equals so we can easily uniquify sequences of ImportInfo
+
+            public override bool Equals(object obj) {
+                if (obj is ImportInfo ii) {
+                    return fromName == ii.fromName && importName == ii.importName;
+                }
+                return false;
+            }
+
+            public override int GetHashCode() {
+                return ((fromName ?? "") + "." + (importName ?? "")).GetHashCode();
+            }
         }
 
         public sealed class FileUpdate {
             public FileUpdateKind kind;
-            public int bufferId, version;
-            public VersionChanges[] versions;
+
+            // Unlike most version numbers, this is what the version will be
+            // _after_ applying the update, not before. The target file is
+            // assumed to be at version-1 when applying this change.
+            public int version;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+            public ChangeInfo[] changes;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
             public string content;
         }
 
         public sealed class FileUpdateResponse : Response {
-#if DEBUG
-            public Dictionary<int, string> newCode;
-#endif
-            public bool? failed;
-        }
-
-        public sealed class UnresolvedImportsRequest : Request<UnresolvedImportsResponse> {
-            public const string Command = "unresolvedImports";
-
-            public override string command => Command;
-
-            public int fileId, bufferId;
-        }
-
-        public sealed class UnresolvedImportsResponse : Response {
             public int version;
-            public UnresolvedImport[] unresolved;
+#if DEBUG
+            public string newCode;
+#endif
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+            public bool? failed;
         }
 
         public sealed class UnresolvedImport {
             public string name;
-            public int startIndex, endIndex, startLine, endLine, startColumn, endColumn;
-        }
-
-        public sealed class FileChangedResponse : Response {
-#if DEBUG
-            public string newCode;
-#endif
-        }
-
-        public sealed class VersionChanges {
-            public ChangeInfo[] changes;
+            public int startLine, endLine, startColumn, endColumn;
         }
 
         public sealed class ChangeInfo {
             public string newText;
-            public int start;
-            public int length;
+            public int startLine, startColumn;
+            public int endLine, endColumn;
+#if DEBUG
+            public int _startIndex, _endIndex;
+#endif
 
-            public static ChangeInfo FromBounds(string text, int start, int end) {
-                return new ChangeInfo() {
-                    newText = text,
-                    start = start,
-                    length = end - start
+            public static ChangeInfo FromDocumentChange(DocumentChange c) {
+                return new ChangeInfo {
+                    startLine = c.ReplacedSpan.Start.Line,
+                    startColumn = c.ReplacedSpan.Start.Column,
+                    endLine = c.ReplacedSpan.End.Line,
+                    endColumn = c.ReplacedSpan.End.Column,
+                    newText = c.InsertedText
+                };
+            }
+
+            public DocumentChange ToDocumentChange() {
+                return new DocumentChange {
+                    InsertedText = newText,
+                    ReplacedSpan = new SourceSpan(new SourceLocation(startLine, startColumn), new SourceLocation(endLine, endColumn))
                 };
             }
         }
@@ -463,7 +516,9 @@ namespace Microsoft.PythonTools.Intellisense {
         public sealed class LocationNameRequest : Request<LocationNameResponse> {
             public const string Command = "locationName";
 
-            public int fileId, bufferId, line, column;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
+            public int line, column;
 
             public override string command => Command;
         }
@@ -477,7 +532,9 @@ namespace Microsoft.PythonTools.Intellisense {
         public sealed class ProximityExpressionsRequest : Request<ProximityExpressionsResponse> {
             public const string Command = "proximityExpressions";
 
-            public int fileId, bufferId, line, column, lineCount;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
+            public int line, column, lineCount;
 
             public override string command => Command;
         }
@@ -486,28 +543,13 @@ namespace Microsoft.PythonTools.Intellisense {
             public string[] names;
         }
 
-        public sealed class OverridesCompletionRequest : Request<OverridesCompletionResponse> {
-            public const string Command = "overrides";
-
-            public int fileId, bufferId;
-            public int line, column, index;
-            public string indentation;
-
-            public override string command => Command;
-        }
-
-        public sealed class OverridesCompletionResponse : Response {
-            public Override[] overrides;
-        }
-
-        public sealed class Override {
-            public string name, doc, completion;
-        }
-
         public sealed class RemoveImportsRequest : Request<RemoveImportsResponse> {
             public const string Command = "removeImports";
 
-            public int fileId, bufferId, index;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
+            public int version;
+            public int line, column;
             public bool allScopes;
 
             public override string command => Command;
@@ -515,13 +557,15 @@ namespace Microsoft.PythonTools.Intellisense {
 
         public sealed class RemoveImportsResponse : Response {
             public ChangeInfo[] changes;
-            public int version;
+            public int version = -1;
         }
 
         public sealed class ExtractMethodRequest : Request<ExtractMethodResponse> {
             public const string Command = "extractMethod";
 
-            public int fileId, bufferId, startIndex, endIndex;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
+            public int startIndex, endIndex;
             public int indentSize;
             public string name;
             public string[] parameters;
@@ -534,17 +578,31 @@ namespace Microsoft.PythonTools.Intellisense {
         }
 
         public sealed class ExtractMethodResponse : Response {
-            public string cannotExtractMsg;
+            public CannotExtractReason cannotExtractReason;
             public ChangeInfo[] changes;
             /// <summary>
             /// available scopes the user can retarget to
             /// </summary>
             public ScopeInfo[] scopes;
             public bool wasExpanded;
-            public int? startIndex, endIndex;
+            public int startLine, startCol;
+            public int endLine, endCol;
             public int version;
             public string methodBody;
             public string[] variables;
+        }
+        
+        public enum CannotExtractReason {
+            None = 0,
+            InvalidTargetSelected = 1,
+            InvalidExpressionSelected = 2,
+            MethodAssignsVariablesAndReturns = 3,
+            StatementsFromClassDefinition = 4,
+            SelectionContainsBreakButNotEnclosingLoop = 5,
+            SelectionContainsContinueButNotEnclosingLoop = 6,
+            ContainsYieldExpression = 7,
+            ContainsFromImportStar = 8,
+            SelectionContainsReturn = 9
         }
 
         public class ScopeInfo {
@@ -568,55 +626,27 @@ namespace Microsoft.PythonTools.Intellisense {
 
         public sealed class ModuleInfo {
             public string moduleName;
-            public int fileId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
             public string filename;
         }
 
         public class EnqueueFileResponse : Response {
-            public int fileId;
-        }
-
-        public sealed class ChildFileAnalyzed : Event {
-            public const string Name = "childFileAnalyzed";
-
-            /// <summary>
-            /// The filename which got added
-            /// </summary>
-            public string filename;
-
-            public int fileId;
-
-            public bool isTemporaryFile, suppressErrorList;
-
-            public override string name => Name;
-        }
-
-        public class TopLevelCompletionsRequest : Request<CompletionsResponse> {
-            public const string Command = "topCompletions";
-
-            public int fileId;
-            public int location, column;
-            public GetMemberOptions options;
-
-            public override string command => Command;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
         }
 
         public class GetModulesRequest : Request<CompletionsResponse> {
             public const string Command = "getModules";
 
-            public bool topLevelOnly;
-
-            public override string command => Command;
-        }
-
-        public class GetModuleMembersRequest : Request<CompletionsResponse> {
-            public const string Command = "getModuleMembers";
-
-            public int fileId;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.IgnoreAndPopulate)]
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
             public string[] package;
-            public bool includeMembers;
 
             public override string command => Command;
+
+            public bool ShouldSerializepackage() => (package?.Length ?? 0) > 0;
         }
 
         public class GetAllMembersRequest : Request<CompletionsResponse> {
@@ -631,9 +661,10 @@ namespace Microsoft.PythonTools.Intellisense {
         public class CompletionsRequest : Request<CompletionsResponse> {
             public const string Command = "completions";
 
-            public int fileId, bufferId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
             public string text;
-            public int location, column;
+            public int line, column;
             public GetMemberOptions options;
             public bool forceCompletions;
 
@@ -646,12 +677,27 @@ namespace Microsoft.PythonTools.Intellisense {
             public override string command => Command;
 
             public string text;
-            public int location, column;
-            public int fileId;
+            public int line, column;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
         }
 
         public sealed class ModulesChangedEvent : Event {
             public const string Name = "modulesChanged";
+
+            public override string name => Name;
+        }
+
+        public struct FileEvent {
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
+            public LS.FileChangeType kind;
+        }
+
+        public sealed class FileChangedEvent : Event {
+            public const string Name = "fileChanged";
+
+            public FileEvent[] changes;
 
             public override string name => Name;
         }
@@ -669,28 +715,32 @@ namespace Microsoft.PythonTools.Intellisense {
         public class Parameter {
             public string name, defaultValue, doc, type;
             public bool optional;
-            public AnalysisReference[] variables;
         }
 
         public class FileAnalysisCompleteEvent : Event {
             public const string Name = "fileAnalysisComplete";
-            public int fileId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
 
-            public BufferVersion[] versions;
-
-            public override string name => Name;
-        }
-
-        public sealed class BufferVersion {
-            public int bufferId, version;
-        }
-
-        public sealed class ExtensionAddedEvent : Event {
-            public const string Name = "extensionAdded";
-
-            public string path;
+            public int version;
 
             public override string name => Name;
+            public override string ToString() => "{0}:{1} ({2})".FormatUI(name, documentUri, version);
+        }
+
+        public sealed class LoadExtensionRequest : Request<LoadExtensionResponse> {
+            public const string Command = "loadExtensionRequest";
+
+            public override string command => Command;
+
+            public string extension;
+            public string assembly;
+            public string typeName;
+        }
+
+        public sealed class LoadExtensionResponse : Response {
+            public string error;
+            public string fullError;
         }
 
         public sealed class ExtensionRequest : Request<ExtensionResponse> {
@@ -705,6 +755,7 @@ namespace Microsoft.PythonTools.Intellisense {
 
         public sealed class ExtensionResponse : Response {
             public string response;
+            public string error;
         }
 
         /// <summary>
@@ -733,17 +784,24 @@ namespace Microsoft.PythonTools.Intellisense {
 
         public class Completion {
             public string name;
-            public string completion;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.IgnoreAndPopulate)]
+            public string completion;   // when null, use "name"
             public string doc;
             public PythonMemberType memberType;
 
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
             public CompletionValue[] detailedValues;
+
+            public bool ShouldSerializedetailedValues() => (detailedValues?.Length ?? 0) > 0;
         }
 
         public sealed class CompletionValue {
             public DescriptionComponent[] description;
             public string doc;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
             public AnalysisReference[] locations;
+
+            public bool ShouldSerializelocations() => (locations?.Length ?? 0) > 0;
         }
 
         public sealed class DescriptionComponent {
@@ -758,38 +816,21 @@ namespace Microsoft.PythonTools.Intellisense {
             }
         }
 
-        public sealed class OptionsChangedEvent : Event {
-            public const string Name = "optionsChanged";
+        public sealed class SetAnalysisOptionsRequest : Request<Response> {
+            public const string Command = "setAnalysisOptions";
 
-            public Severity indentation_inconsistency_severity;
-            public int? crossModuleAnalysisLimit;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+            public AnalysisOptions options;
 
-            public override string name => Name;
+            public override string command => Command;
         }
 
-        public sealed class SetCommentTaskTokens : Event {
-            public const string Name = "setCommentTaskTokens";
-
-            public Dictionary<string, TaskPriority> tokens;
-
-            public override string name => Name;
-        }
-
-        public sealed class TaskItem : Error {
-            public TaskPriority priority;
-            public TaskCategory category;
-            public bool squiggle;
-        }
-
-        public enum TaskPriority {
-            high,
-            normal,
-            low
-        }
-
-        public enum TaskCategory {
-            buildCompile,
-            comments
+        public sealed class AnalysisOptions {
+            public Severity indentationInconsistencySeverity;
+            public Dictionary<string, LS.DiagnosticSeverity> commentTokens;
+            public Dictionary<string, int> analysisLimits;
+            public LS.MessageType? traceLevel;
+            public string[] typeStubPaths;
         }
 
 
@@ -798,16 +839,19 @@ namespace Microsoft.PythonTools.Intellisense {
             public string kind; // definition, reference, value
             public string expr;
             public string file;
-            public int line, column;
-
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
+            public int startLine, startColumn, endLine, endColumn;
+            public int? version;
         }
 
         public sealed class AnalyzeExpressionRequest : Request<AnalyzeExpressionResponse> {
             public const string Command = "findDefs";
 
-            public int fileId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
             public string expr;
-            public int line, column, index;
+            public int line, column;
 
             public override string command => Command;
         }
@@ -818,32 +862,30 @@ namespace Microsoft.PythonTools.Intellisense {
             /// The private prefix for the member if defined inside a class with name mangling.
             /// </summary>
             public string privatePrefix;
-            /// <summary>
-            /// The plain member name, e.g. "member" in a statement like "container.member"
-            /// </summary>
-            public string memberName;
         }
 
-        public sealed class OutlingRegionsRequest : Request<OutliningRegionsResponse> {
-            public const string Command = "outlingRegions";
-            public int fileId, bufferId;
+        public sealed class OutliningRegionsRequest : Request<OutliningRegionsResponse> {
+            public const string Command = "outliningRegions";
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
 
             public override string command => Command;
         }
 
         public sealed class OutliningRegionsResponse : Response {
-            public int version;
+            public int version = -1;
             public OutliningTag[] tags;
         }
 
         public sealed class OutliningTag {
-            public int headerIndex, startIndex, endIndex;
+            public int startLine, startCol;
+            public int endLine, endCol;
         }
 
         public sealed class NavigationRequest : Request<NavigationResponse> {
             public const string Command = "navigation";
-            public int fileId;
-            public int bufferId;
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
 
             public override string command => Command;
         }
@@ -855,22 +897,19 @@ namespace Microsoft.PythonTools.Intellisense {
 
         public sealed class Navigation {
             public string name, type;
-            public int startIndex, endIndex, bufferId;
+            public int startLine, startColumn;
+            public int endLine, endColumn;
             public Navigation[] children;
         }
 
-        internal class AnalyzerWarningEvent : Event {
+        public class AnalyzerWarningEvent : Event {
             public string message;
             public const string Name = "analyzerWarning";
-
-            public AnalyzerWarningEvent(string message) {
-                this.message = message;
-            }
 
             public override string name => Name;
         }
 
-        internal class UnhandledExceptionEvent : Event {
+        public class UnhandledExceptionEvent : Event {
             public string message;
             public const string Name = "unhandledException";
 
@@ -885,18 +924,47 @@ namespace Microsoft.PythonTools.Intellisense {
             public override string name => Name;
         }
 
-        public sealed class ExpressionForDataTipRequest : Request<ExpressionForDataTipResponse> {
-            public const string Command = "exprForDataTip";
+        public enum ExpressionAtPointPurpose : int {
+            Hover = 1,
+            Evaluate = 2,
+            EvaluateMembers = 3,
+            FindDefinition = 4,
+            Rename = 5
+        }
 
-            public int fileId;
-            public string expr;
-            public int line, column, index;
+        public sealed class ExpressionAtPointRequest : Request<ExpressionAtPointResponse> {
+            public const string Command = "exprAtPoint";
+
+            [JsonConverter(typeof(UriJsonConverter))]
+            public Uri documentUri;
+            public int line, column;
+            public ExpressionAtPointPurpose purpose;
 
             public override string command => Command;
         }
 
-        public sealed class ExpressionForDataTipResponse : Response {
+        public sealed class ExpressionAtPointResponse : Response {
             public string expression;
+            public string type;
+            public int bufferVersion;
+            public int startLine, startColumn;
+            public int endLine, endColumn;
+        }
+
+        public class LanguageServerRequest : Request<LanguageServerResponse> {
+            public const string Command = "languageServer";
+
+            public string name;
+            public object body;
+
+            public override string command => Command;
+        }
+
+        public class LanguageServerResponse : Response {
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+            public object body;
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+            public string error;
         }
     }
 }

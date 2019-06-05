@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -57,8 +57,7 @@ namespace TestUtilities.Mocks {
         }
 
         public bool Replace(int startPosition, int charsToReplace, string replaceWith) {
-            Delete(startPosition, charsToReplace);
-            Insert(startPosition, replaceWith);
+            _edits.Add(new ReplacementEdit(startPosition, charsToReplace, replaceWith));
             return true;
         }
 
@@ -81,64 +80,40 @@ namespace TestUtilities.Mocks {
         }
 
         public ITextSnapshot Apply() {
-            StringBuilder text = new StringBuilder(_snapshot.GetText());
-            var deletes = new NormalizedSnapshotSpanCollection(
-                _snapshot,
-                _edits.OfType<DeletionEdit>()
-                .Select(edit => new Span(edit.Position, edit.Length))
-            );
+            var text = new StringBuilder(_snapshot.GetText());
+            var changes = new List<MockTextChange>();
 
-            // apply the deletes
-            for (int i = deletes.Count - 1; i >= 0; i--) {
-                text.Remove(deletes[i].Start, deletes[i].Length);
-            }
-
-            // now apply the inserts
-            int curDelete = 0, adjust = 0;
-            int deletesBorrowed = 0;
-            foreach (var insert in _edits.OfType<InsertionEdit>()) {
-                while (curDelete < deletes.Count && deletes[curDelete].Start < insert.Position) {
-                    if (deletes[curDelete].Start + deletes[curDelete].Length < insert.Position) {
-                        adjust -= deletes[curDelete].Length - deletesBorrowed;
-                        deletesBorrowed = 0;
-                        curDelete++;
-                    } else {
-                        int deletesUsed = insert.Position - deletes[curDelete].Start;
-                        adjust -= deletesUsed;
-                        deletesBorrowed  += deletesUsed;
-                        break;
-                    }
-                }
-
-                text.Insert(insert.Position + adjust, insert.Text);
-                adjust += insert.Text.Length;
-            }
-
-            List<MockTextChange> changes = new List<MockTextChange>();
-            adjust = 0;
-            foreach(var curEdit in _edits.OrderBy(e => e.Position)) {
-                InsertionEdit insert = curEdit as InsertionEdit;
-                if (insert != null) {
-                    changes.Add(
-                        new MockTextChange(
-                            new SnapshotSpan(_snapshot, insert.Position, 0),
-                            insert.Position + adjust,
-                            insert.Text
-                        )
+            // Apply changes
+            foreach (var edit in _edits.OrderByDescending(e => e.Position).ThenByDescending(e => e, EditTypeComparer.Instance)) {
+                MockTextChange change;
+                if (edit is ReplacementEdit replace) {
+                    text.Remove(replace.Position, replace.Length);
+                    text.Insert(replace.Position, replace.Text);
+                    change = new MockTextChange(
+                        new SnapshotSpan(_snapshot, replace.Position, replace.Length),
+                        replace.Position,
+                        replace.Text
                     );
-                    adjust += insert.Text.Length;
+                } else if (edit is InsertionEdit insert) {
+                    text.Insert(insert.Position, insert.Text);
+                    change = new MockTextChange(
+                        new SnapshotSpan(_snapshot, insert.Position, 0),
+                        insert.Position,
+                        insert.Text
+                    );
                 } else {
-                    DeletionEdit delete = (DeletionEdit)curEdit;
-                    changes.Add(
-                        new MockTextChange(
-                            new SnapshotSpan(_snapshot, delete.Position, delete.Length),
-                            delete.Position + adjust,
-                            ""
-                        )
+                    var delete = (DeletionEdit)edit;
+                    text.Remove(delete.Position, delete.Length);
+                    change = new MockTextChange(
+                        new SnapshotSpan(_snapshot, delete.Position, delete.Length),
+                        delete.Position,
+                        string.Empty
                     );
-                    adjust -= delete.Length;
                 }
+
+                changes.Add(change);
             }
+            changes.Reverse();
 
             var previous = _snapshot;
             var res = ((MockTextBuffer)_snapshot.TextBuffer)._snapshot = new MockTextSnapshot(
@@ -169,6 +144,14 @@ namespace TestUtilities.Mocks {
             if (!_applied) {
                 Cancel();
             }
+        }
+
+        private sealed class EditTypeComparer : IComparer<Edit> {
+            public static IComparer<Edit> Instance = new EditTypeComparer();
+
+            private EditTypeComparer() { }
+
+            public int Compare(Edit x, Edit y) => (x is InsertionEdit).CompareTo(y is InsertionEdit);
         }
 
         class Edit {
@@ -202,6 +185,21 @@ namespace TestUtilities.Mocks {
 
             public override string ToString() {
                 return String.Format("<Delete Length={0} at {1}>", Length, Position);
+            }
+        }
+
+        sealed class ReplacementEdit : Edit {
+            public readonly int Length;
+            public readonly string Text;
+
+            public ReplacementEdit(int startPosition, int charsToDelete, string text)
+                : base(startPosition) {
+                Length = charsToDelete;
+                Text = text;
+            }
+
+            public override string ToString() {
+                return String.Format("<Replace Length={0} at {1} with {2}>", Length, Position, Text.Length);
             }
         }
     }

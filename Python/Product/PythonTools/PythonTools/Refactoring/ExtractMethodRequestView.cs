@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,6 +21,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Windows.Media;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Intellisense;
@@ -257,16 +258,20 @@ namespace Microsoft.PythonTools.Refactoring {
         private void UpdatePreview() {
             var info = GetRequest();
             if (info != null) {
-                _previewer.GetExtractionResult(info).ContinueWith(t => {
-                    try {
-                        PreviewText = t.Result.methodBody;
-                    } catch (Exception ex) {
-                        Debug.Fail(ex.ToUnhandledExceptionMessage(GetType()));
-                        PreviewText = Strings.ExtractMethod_FailedToGetPreview;
-                    }
-                }).DoNotWait();
+                UpdatePreviewAsync(info).DoNotWait();
             } else {
                 PreviewText = Strings.ExtractMethod_InvalidMethodName;
+            }
+        }
+
+        private async Task UpdatePreviewAsync(ExtractMethodRequest info) {
+            try {
+                var response = await _previewer.GetExtractionResult(info);
+                PreviewText = response.methodBody;
+            }
+            catch (Exception ex) {
+                Debug.Fail(ex.ToUnhandledExceptionMessage(GetType()));
+                PreviewText = Strings.ExtractMethod_FailedToGetPreview;
             }
         }
 
@@ -379,7 +384,7 @@ namespace Microsoft.PythonTools.Refactoring {
             /// Compares two ClosureVariable instances by name.
             /// </summary>
             public int CompareTo(ClosureVariable other) {
-                return Name.CompareTo((other == null) ? string.Empty : other.Name);
+                return string.CompareOrdinal(Name, other?.Name ?? "");
             }
         }
     }

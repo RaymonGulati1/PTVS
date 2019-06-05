@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,6 +19,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.PythonTools.Analysis.Values;
 using Microsoft.PythonTools.Interpreter;
@@ -37,6 +38,8 @@ namespace Microsoft.PythonTools.Analysis {
         private readonly ConcurrentDictionary<IPythonModule, BuiltinModule> _builtinModuleTable = new ConcurrentDictionary<IPythonModule, BuiltinModule>();
         private readonly ConcurrentDictionary<string, ModuleReference> _modules = new ConcurrentDictionary<string, ModuleReference>(StringComparer.Ordinal);
 
+        private readonly ConcurrentDictionary<string, Func<BuiltinModule, BuiltinModule>> _builtinModuleType = new ConcurrentDictionary<string, Func<BuiltinModule, BuiltinModule>>();
+
         public ModuleTable(PythonAnalyzer analyzer, IPythonInterpreter interpreter) {
             _analyzer = analyzer;
             _interpreter = interpreter;
@@ -44,6 +47,16 @@ namespace Microsoft.PythonTools.Analysis {
 
         public bool Contains(string name) {
             return _modules.ContainsKey(name);
+        }
+
+        public void AddBuiltinModuleWrapper(string moduleName, Func<BuiltinModule, BuiltinModule> moduleWrapper) {
+            if (_modules.TryGetValue(moduleName, out var modRef) &&
+                modRef.Module is IPythonModule pm &&
+                _builtinModuleTable.TryGetValue(pm, out var existing)) {
+                _builtinModuleTable[pm] = moduleWrapper(existing);
+            } else {
+                _builtinModuleType[moduleName] = moduleWrapper;
+            }
         }
 
         /// <summary>
@@ -77,16 +90,18 @@ namespace Microsoft.PythonTools.Analysis {
         /// may be valid and should not be replaced, but it is an unresolved
         /// reference.
         /// </returns>
-        public async Task<ModuleReference> TryImportAsync(string name) {
+        public async Task<ModuleReference> TryImportAsync(string name, CancellationToken token) {
             ModuleReference res;
             bool firstImport = false;
+
             if (!_modules.TryGetValue(name, out res) || res == null) {
-                var mod = await Task.Run(() => _interpreter.ImportModule(name)).ConfigureAwait(false);
-                _modules[name] = res = new ModuleReference(GetBuiltinModule(mod));
+                var mod = await ImportModuleAsync(name, token).ConfigureAwait(false);
+                _modules[name] = res = new ModuleReference(GetBuiltinModule(mod), name);
                 firstImport = true;
             }
+
             if (res != null && res.Module == null) {
-                var mod = await Task.Run(() => _interpreter.ImportModule(name)).ConfigureAwait(false);
+                var mod = await ImportModuleAsync(name, token).ConfigureAwait(false);
                 res.Module = GetBuiltinModule(mod);
             }
             if (firstImport && res != null && res.Module != null && _analyzer != null) {
@@ -96,6 +111,17 @@ namespace Microsoft.PythonTools.Analysis {
                 return null;
             }
             return res;
+        }
+
+        private async Task<IPythonModule> ImportModuleAsync(string name, CancellationToken token) {
+            var interpreter2 = _interpreter as IPythonInterpreter2;
+            IPythonModule mod;
+            if (interpreter2 != null) {
+                mod = await interpreter2.ImportModuleAsync(name, token).ConfigureAwait(false);
+            } else {
+                mod = await Task.Run(() => _interpreter.ImportModule(name)).ConfigureAwait(false);
+            }
+            return mod;
         }
 
         /// <summary>
@@ -110,9 +136,9 @@ namespace Microsoft.PythonTools.Analysis {
         /// reference.
         /// </returns>
         public bool TryImport(string name, out ModuleReference res) {
-            bool firstImport = false;
+            var firstImport = false;
             if (!_modules.TryGetValue(name, out res) || res == null) {
-                _modules[name] = res = new ModuleReference(GetBuiltinModule(_interpreter.ImportModule(name)));
+                _modules[name] = res = new ModuleReference(GetBuiltinModule(_interpreter.ImportModule(name)), name);
                 firstImport = true;
             }
             if (res != null && res.Module == null) {
@@ -123,10 +149,7 @@ namespace Microsoft.PythonTools.Analysis {
             }
             return res != null && res.Module != null;
         }
-
-        public bool TryRemove(string name, out ModuleReference res) {
-            return _modules.TryRemove(name, out res);
-        }
+        public bool TryRemove(string name, out ModuleReference res) => _modules.TryRemove(name, out res);
 
         public ModuleReference this[string name] {
             get {
@@ -142,7 +165,7 @@ namespace Microsoft.PythonTools.Analysis {
         }
 
         public ModuleReference GetOrAdd(string name) {
-            return _modules.GetOrAdd(name, _ => new ModuleReference());
+            return _modules.GetOrAdd(name, _ => new ModuleReference(name: name));
         }
 
         /// <summary>
@@ -191,7 +214,12 @@ namespace Microsoft.PythonTools.Analysis {
             }
             BuiltinModule res;
             if (!_builtinModuleTable.TryGetValue(attr, out res)) {
-                _builtinModuleTable[attr] = res = new BuiltinModule(attr, _analyzer);
+                Func<BuiltinModule, BuiltinModule> wrap;
+                res = new BuiltinModule(attr, _analyzer);
+                if (_builtinModuleType.TryGetValue(attr.Name, out wrap) && wrap != null) {
+                    res = wrap(res);
+                }
+                _builtinModuleTable[attr] = res;
             }
             return res;
         }
@@ -207,7 +235,7 @@ namespace Microsoft.PythonTools.Analysis {
                     if (module.TryGetMember(child, out value)) {
                         var mod = value as IModule;
                         if (mod != null) {
-                            _modules[fullname] = new ModuleReference(mod);
+                            _modules[fullname] = new ModuleReference(mod, fullname);
                             _analyzer?.DoDelayedSpecialization(fullname);
                         }
                     }
@@ -222,8 +250,13 @@ namespace Microsoft.PythonTools.Analysis {
             var unresolvedNames = _analyzer?.GetAllUnresolvedModuleNames();
 
             foreach (var keyValue in _modules) {
-                unloadedNames.Remove(keyValue.Key);
                 unresolvedNames?.Remove(keyValue.Key);
+
+                if (keyValue.Value.Module is Interpreter.Ast.AstNestedPythonModule anpm && !anpm.IsLoaded) {
+                    continue;
+                }
+
+                unloadedNames.Remove(keyValue.Key);
                 yield return new KeyValuePair<string, ModuleLoadState>(keyValue.Key, new InitializedModuleLoadState(keyValue.Value));
             }
 
@@ -255,6 +288,10 @@ namespace Microsoft.PythonTools.Analysis {
                 get { return true; }
             }
 
+            public override string Name {
+                get { return null; }
+            }
+
             public override PythonMemberType MemberType {
                 get { return PythonMemberType.Unknown; }
             }
@@ -270,7 +307,10 @@ namespace Microsoft.PythonTools.Analysis {
             private readonly string _name;
             private PythonMemberType? _type;
 
-            public UninitializedModuleLoadState(ModuleTable moduleTable, string name) {
+            public UninitializedModuleLoadState(
+                ModuleTable moduleTable,
+                string name
+            ) {
                 this._moduleTable = moduleTable;
                 this._name = name;
             }
@@ -279,6 +319,7 @@ namespace Microsoft.PythonTools.Analysis {
                 get {
                     ModuleReference res;
                     if (_moduleTable.TryImport(_name, out res)) {
+                        _type = res.AnalysisModule?.MemberType;
                         return res.AnalysisModule;
                     }
                     return null;
@@ -303,17 +344,25 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
+            public override string Name {
+                get {
+                    return _name;
+                }
+            }
+
+            public override string MaybeSourceFile {
+                get {
+                    ModuleReference res;
+                    if (_moduleTable.TryGetImportedModule(_name, out res)) {
+                        return res.AnalysisModule?.DeclaringModule?.FilePath;
+                    }
+                    return null;
+                }
+            }
+
             public override PythonMemberType MemberType {
                 get {
-                    if (_type == null) {
-                        var mod = _moduleTable._interpreter.ImportModule(_name);
-                        if (mod != null) {
-                            _type = mod.MemberType;
-                        } else {
-                            _type = PythonMemberType.Module;
-                        }
-                    }
-                    return _type.Value;
+                    return _type ?? PythonMemberType.Module;
                 }
             }
 
@@ -331,6 +380,9 @@ namespace Microsoft.PythonTools.Analysis {
             private readonly ModuleReference _reference;
 
             public InitializedModuleLoadState(ModuleReference reference) {
+                if (reference == null) {
+                    throw new ArgumentNullException(nameof(reference));
+                }
                 _reference = reference;
             }
 
@@ -357,6 +409,9 @@ namespace Microsoft.PythonTools.Analysis {
                     return Module != null;
                 }
             }
+
+            public override string Name => _reference.Name;
+            public override string MaybeSourceFile => Module?.DeclaringModule?.FilePath;
 
             public override PythonMemberType MemberType {
                 get {
@@ -476,6 +531,14 @@ namespace Microsoft.PythonTools.Analysis {
 
         public abstract bool IsValid {
             get;
+        }
+
+        public abstract string Name {
+            get;
+        }
+
+        public virtual string MaybeSourceFile {
+            get { return null; }
         }
 
         public abstract PythonMemberType MemberType {

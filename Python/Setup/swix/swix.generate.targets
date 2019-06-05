@@ -5,6 +5,7 @@
     <SwrFile Condition="$(OutputLocalized)">$(IntermediateOutputPath)package.g.$(lang).swr</SwrFile>
     <SwixPackageType Condition="$(SwixPackageType) == ''">component</SwixPackageType>
     <SwixVersion Condition="$(SwixVersion) == ''">$(VSTarget).$(BuildNumber)</SwixVersion>
+    <Python Condition="$(Python) == ''">"$(PackagesPath)python\tools\python.exe"</Python>
   </PropertyGroup>
 
   <ItemDefinitionGroup>
@@ -18,11 +19,15 @@
     </Dependency>
   </ItemDefinitionGroup>
 
+  <ItemGroup>
+    <Package Include="$(SwrFile)" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(SourcePath)' != ''">
     <SwrSource Include="$(SourcePath)" />
   </ItemGroup>
 
-  <Target Name="_GenerateSwrMetadata" Condition="@(SwrSource) != '' or @(Dependency) != ''">
+  <Target Name="_GenerateSwrMetadata">
     <MakeDir Directories="$([System.IO.Path]::GetDirectoryName($(SwrFile)))" />
 
     <WriteLinesToFile File="$(SwrFile).tmp" Lines="use vs%0D%0A%0D%0Apackage name=$(MSBuildProjectName)%0D%0A  version=$(SwixVersion)%0D%0A  vs.package.type=$(SwixPackageType)" Overwrite="yes" Encoding="ASCII" />
@@ -31,12 +36,11 @@
     <PropertyGroup>
       <_Dependencies Condition="@(Dependency) != ''">@(Dependency->'%20%20vs.dependency id=%(Identity) version=%(Version) type=%(Type)', '%0D%0A')</_Dependencies>
     </PropertyGroup>
-<WriteLinesToFile File="$(SwrFile).tmp" Lines="%0D%0Avs.dependencies%0D%0A$(_Dependencies)%0D%0A" Overwrite="no" Encoding="ASCII" Condition="$(_Dependencies) != ''" />
+    <WriteLinesToFile File="$(SwrFile).tmp" Lines="%0D%0Avs.dependencies%0D%0A$(_Dependencies)%0D%0A" Overwrite="no" Encoding="ASCII" Condition="$(_Dependencies) != ''" />
   </Target>
 
   <Target Name="_GenerateSwrFromSources" Condition="@(SwrSource) != ''">
     <PropertyGroup>
-      <Python>"$(PackagesPath)python\tools\python.exe"</Python>
       <GenerateCommand>$(Python) "$(MSBuildThisFileDirectory)\swix_generate.py" $(GenerateCommand)</GenerateCommand>
       <GenerateCommand Condition="$(Configuration) != 'Debug'">$(GenerateCommand) -x "\.pdb$"</GenerateCommand>
     </PropertyGroup>
@@ -55,10 +59,6 @@
     <Message Text="Updating $(SwrFile)" Importance="High" Condition="$(_Orig) != $(_New)" />
     <WriteLinesToFile File="$(SwrFile)" Lines="$(_New)" Condition="$(_Orig) != $(_New)" Overwrite="yes" Encoding="UTF-8" />
     <Delete Files="$(SwrFile).tmp" />
-
-    <ItemGroup>
-      <Package Include="$(SwrFile)" Condition="Exists($(SwrFile))" />
-    </ItemGroup>
   </Target>
 </Project>
 

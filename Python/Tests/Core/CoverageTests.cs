@@ -1,7 +1,4 @@
-﻿extern alias pythontools;
-extern alias analysis;
-
-// Python Tools for Visual Studio
+﻿// Python Tools for Visual Studio
 // Copyright(c) Microsoft Corporation
 // All rights reserved.
 //
@@ -12,7 +9,7 @@ extern alias analysis;
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,10 +18,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using analysis::Microsoft.PythonTools.Parsing.Ast;
+using Microsoft.PythonTools.Parsing.Ast;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using pythontools::Microsoft.PythonTools.CodeCoverage;
-using pythontools::Microsoft.PythonTools.Commands;
+using Microsoft.PythonTools.CodeCoverage;
+using Microsoft.PythonTools.Commands;
 using TestUtilities;
 using TestUtilities.Python;
 
@@ -35,7 +32,6 @@ namespace PythonToolsTests {
         [ClassInitialize]
         public static void DoDeployment(TestContext context) {
             AssertListener.Initialize();
-            PythonTestData.Deploy();
         }
 
         [TestMethod]

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,6 +17,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.PythonTools.Analysis.Analyzer;
+using Microsoft.PythonTools.Analysis.LanguageServer;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Parsing.Ast;
@@ -25,7 +26,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
     /// <summary>
     /// Represents an instance of a class implemented in Python
     /// </summary>
-    internal class InstanceInfo : AnalysisValue, IReferenceableContainer {
+    internal class InstanceInfo : AnalysisValue, IInstanceInfo, IReferenceableContainer {
         private readonly ClassInfo _classInfo;
         private Dictionary<string, VariableDef> _instanceAttrs;
 
@@ -39,7 +40,9 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 foreach (var kvp in _instanceAttrs) {
                     var types = kvp.Value.TypesNoCopy;
                     var key = kvp.Key;
-                    kvp.Value.ClearOldValues();
+                    if (!options.ForEval()) {
+                        kvp.Value.ClearOldValues();
+                    }
                     if (kvp.Value.VariableStillExists) {
                         MergeTypes(res, key, types);
                     }
@@ -56,7 +59,9 @@ namespace Microsoft.PythonTools.Analysis.Values {
                                 if (baseClass != null &&
                                     baseClass.Instance._instanceAttrs != null) {
                                     foreach (var kvp in baseClass.Instance._instanceAttrs) {
-                                        kvp.Value.ClearOldValues();
+                                        if (!options.ForEval()) {
+                                            kvp.Value.ClearOldValues();
+                                        }
                                         if (kvp.Value.VariableStillExists) {
                                             MergeTypes(res, kvp.Key, kvp.Value.TypesNoCopy);
                                         }
@@ -69,7 +74,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                     }
                 }
 
-                foreach (var classMem in _classInfo.GetAllMembers(moduleContext)) {
+                foreach (var classMem in _classInfo.GetAllMembers(moduleContext, options)) {
                     MergeTypes(res, classMem.Key, classMem.Value);
                 }
             }
@@ -93,7 +98,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
         public PythonAnalyzer ProjectState {
             get {
-                return _classInfo.AnalysisUnit.ProjectState;
+                return _classInfo.AnalysisUnit.State;
             }
         }
 
@@ -102,9 +107,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 IAnalysisSet callRes;
                 if (_classInfo.GetAllMembers(ProjectState._defaultContext).TryGetValue("__call__", out callRes)) {
                     foreach (var overload in callRes.SelectMany(av => av.Overloads)) {
-                        yield return overload.WithNewParameters(
-                            overload.Parameters.Skip(1).ToArray()
-                        );
+                        yield return overload.WithoutLeadingParameters(1);
                     }
                 }
 
@@ -122,6 +125,14 @@ namespace Microsoft.PythonTools.Analysis.Values {
                     var callRes = GetTypeMember(node, unit, "__call__");
                     if (callRes.Any()) {
                         res = res.Union(callRes.Call(node, unit, args, keywordArgNames));
+                    } else {
+                        unit.State.AddDiagnostic(
+                            (node as CallExpression)?.Target ?? node,
+                            unit,
+                            ErrorMessages.NotCallable(ClassInfo?.ShortDescription),
+                            DiagnosticSeverity.Warning,
+                            ErrorMessages.NotCallableCode
+                        );
                     }
                 } finally {
                     Pop();
@@ -154,8 +165,8 @@ namespace Microsoft.PythonTools.Analysis.Values {
             var getAttribute = _classInfo.GetMemberNoReferences(node, unit.CopyForEval(), "__getattribute__");
             if (getAttribute.Count > 0) {
                 foreach (var getAttrFunc in getAttribute) {
-                    var func = getAttrFunc as BuiltinMethodInfo;
-                    if (func != null && func.Function.DeclaringType.TypeId == BuiltinTypeId.Object) {
+                    if (getAttrFunc is BuiltinMethodInfo f && f.Function.DeclaringType.TypeId == BuiltinTypeId.Object ||
+                        getAttrFunc is BuiltinFunctionInfo) {
                         continue;
                     }
                     // TODO: We should really do a get descriptor / call here
@@ -202,7 +213,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 var getAttr = _classInfo.GetMemberNoReferences(node, unit, "__getattr__");
                 if (getAttr.Count > 0) {
                     foreach (var getAttrFunc in getAttr) {
-                        getattrRes = getattrRes.Union(getAttr.Call(node, unit, new[] { SelfSet, _classInfo.AnalysisUnit.ProjectState.ClassInfos[BuiltinTypeId.Str].Instance.SelfSet }, ExpressionEvaluator.EmptyNames));
+                        getattrRes = getattrRes.Union(getAttr.Call(node, unit, new[] { SelfSet, _classInfo.AnalysisUnit.State.ClassInfos[BuiltinTypeId.Str].Instance.SelfSet }, ExpressionEvaluator.EmptyNames));
                     }
                 }
                 return getattrRes;
@@ -256,10 +267,10 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
         public override IAnalysisSet UnaryOperation(Node node, AnalysisUnit unit, PythonOperator operation) {
             if (operation == PythonOperator.Not) {
-                return unit.ProjectState.ClassInfos[BuiltinTypeId.Bool].Instance;
+                return unit.State.ClassInfos[BuiltinTypeId.Bool].Instance;
             }
             
-            string methodName = UnaryOpToString(unit.ProjectState, operation);
+            string methodName = UnaryOpToString(unit.State, operation);
             if (methodName != null) {
                 var method = GetTypeMember(node, unit, methodName);
                 if (method.Count > 0) {
@@ -363,7 +374,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                     var iter = GetIterator(node, unit);
                     if (iter.Any()) {
                         return iter
-                            .GetMember(node, unit, unit.ProjectState.LanguageVersion.Is3x() ? "__next__" : "next")
+                            .GetMember(node, unit, unit.State.LanguageVersion.Is3x() ? "__next__" : "next")
                             .Call(node, unit, ExpressionEvaluator.EmptySets, ExpressionEvaluator.EmptyNames);
                     }
                 } finally {
@@ -375,7 +386,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
         }
 
         public override IAnalysisSet GetAsyncEnumeratorTypes(Node node, AnalysisUnit unit) {
-            if (unit.ProjectState.LanguageVersion.Is3x() && Push()) {
+            if (unit.State.LanguageVersion.Is3x() && Push()) {
                 try {
                     var iter = GetAsyncIterator(node, unit);
                     if (iter.Any()) {
@@ -392,42 +403,19 @@ namespace Microsoft.PythonTools.Analysis.Values {
             return base.GetAsyncEnumeratorTypes(node, unit);
         }
 
-        public override IPythonProjectEntry DeclaringModule {
-            get {
-                return _classInfo.DeclaringModule;
-            }
-        }
+        public ClassInfo ClassInfo => _classInfo;
 
-        public override int DeclaringVersion {
-            get {
-                return _classInfo.DeclaringVersion;
-            }
-        }
+        public override IPythonProjectEntry DeclaringModule => ClassInfo.DeclaringModule;
+        public override int DeclaringVersion => ClassInfo.DeclaringVersion;
+        public override string Description => ClassInfo.Name;
+        public override string Documentation => ClassInfo.Documentation;
+        public override PythonMemberType MemberType => PythonMemberType.Instance;
 
-        public override string Description {
-            get {
-                return ClassInfo.ClassDefinition.Name + " instance";
-            }
-        }
-
-        public override string Documentation {
-            get {
-                return ClassInfo.Documentation;
-            }
-        }
-
-        public override PythonMemberType MemberType {
-            get {
-                return PythonMemberType.Instance;
-            }
-        }
+        IClassInfo IInstanceInfo.ClassInfo => _classInfo;
+        IReadOnlyDictionary<string, IVariableDefinition> IInstanceInfo.InstanceAttributes => InstanceAttributes?.ToDictionary(kvp => kvp.Key, kvp => (IVariableDefinition)kvp.Value);
 
         internal override bool IsOfType(IAnalysisSet klass) {
             return klass.Contains(ClassInfo) || klass.Contains(ProjectState.ClassInfos[BuiltinTypeId.Object]);
-        }
-
-        public ClassInfo ClassInfo {
-            get { return _classInfo; }
         }
 
         public override string ToString() {
@@ -442,10 +430,10 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 }
 
                 // II + II => BII(object)
-                // II + BII => BII(object)
+                // II + BII(!function) => BII(object)
                 var obj = ProjectState.ClassInfos[BuiltinTypeId.Object];
                 return ns is InstanceInfo || 
-                    (ns is BuiltinInstanceInfo && ns.TypeId != BuiltinTypeId.Type && ns.TypeId != BuiltinTypeId.Function) ||
+                    (ns is BuiltinInstanceInfo && ns.TypeId != BuiltinTypeId.Function && ns != ProjectState.ClassInfos[BuiltinTypeId.Type].Instance) ||
                     ns == obj.Instance;
 
             } else if (strength >= MergeStrength.ToBaseClass) {
@@ -480,14 +468,23 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 return ProjectState.ClassInfos[BuiltinTypeId.Object].Instance;
 
             } else if (strength >= MergeStrength.ToBaseClass) {
-                var ii = ns as InstanceInfo;
-                if (ii != null) {
-                    return ii.ClassInfo.UnionMergeTypes(ClassInfo, strength).GetInstanceType().Single();
+                AnalysisValue newCls = null;
+                AnalysisValue defaultResult = this;
+                if (ns is InstanceInfo ii) {
+                    newCls = ClassInfo.GetFirstCommonBase(ProjectState, ClassInfo, ii.ClassInfo);
+                    if (ClassInfo.IsFirstForMroUnion(ii.ClassInfo, ClassInfo)) {
+                        defaultResult = ns;
+                    }
+                } else if (ns is BuiltinInstanceInfo bii) {
+                    newCls = ClassInfo.GetFirstCommonBase(ProjectState, ClassInfo, bii.ClassInfo);
+                    if (ClassInfo.IsFirstForMroUnion(bii.ClassInfo, ClassInfo)) {
+                        defaultResult = ns;
+                    }
                 }
-                var bii = ns as BuiltinInstanceInfo;
-                if (bii != null) {
-                    return bii.ClassInfo.UnionMergeTypes(ClassInfo, strength).GetInstanceType().Single();
+                if (newCls == null) {
+                    return defaultResult;
                 }
+                return newCls.GetInstanceType().Single();
             }
 
             return base.UnionMergeTypes(ns, strength);

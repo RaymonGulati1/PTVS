@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -26,24 +26,19 @@ namespace Microsoft.PythonTools.Profiling {
     /// <summary>
     /// Provides a view model for the ProfilingTarget class.
     /// </summary>
-    public sealed class ProfilingTargetView : INotifyPropertyChanged {
+    sealed class ProfilingTargetView : INotifyPropertyChanged {
         private readonly ReadOnlyCollection<ProjectTargetView> _availableProjects;
         
         private ProjectTargetView _project;
         private bool _isProjectSelected, _isStandaloneSelected;
+        private bool _useVTune;
+        private bool _isVTuneAvailable;
+        private bool _isExternalProfilerEnabled;
         private StandaloneTargetView _standalone;
         private readonly string _startText;
 
         private bool _isValid;
         
-        /// <summary>
-        /// Create a ProfilingTargetView with default values.
-        /// </summary>
-        [Obsolete("An IServiceProvider should be provided")]
-        public ProfilingTargetView()
-            : this(PythonProfilingPackage.Instance) {
-        }
-
         /// <summary>
         /// Create a ProfilingTargetView with default values.
         /// </summary>
@@ -62,6 +57,15 @@ namespace Microsoft.PythonTools.Profiling {
 
             _isValid = false;
 
+            _useVTune = false;
+#if EXTERNAL_PROFILER_DRIVER
+            _isVTuneAvailable = PythonProfilingPackage.CheckForExternalProfiler();
+            _isExternalProfilerEnabled = true;
+#else
+            _isVTuneAvailable = false;
+            _isExternalProfilerEnabled = false;
+#endif
+
             PropertyChanged += new PropertyChangedEventHandler(ProfilingTargetView_PropertyChanged);
             _standalone.PropertyChanged += new PropertyChangedEventHandler(Standalone_PropertyChanged);
 
@@ -76,15 +80,6 @@ namespace Microsoft.PythonTools.Profiling {
                 IsStandaloneSelected = true;
             }
             _startText = Strings.LaunchProfiling_Start;
-        }
-
-        /// <summary>
-        /// Create a ProfilingTargetView with values taken from a template.
-        /// </summary>
-        /// <param name="template"></param>
-        [Obsolete("An IServiceProvider should be provided")]
-        public ProfilingTargetView(ProfilingTarget template)
-            : this(PythonProfilingPackage.Instance, template) {
         }
 
         /// <summary>
@@ -111,7 +106,8 @@ namespace Microsoft.PythonTools.Profiling {
             if (IsValid) {
                 return new ProfilingTarget {
                     ProjectTarget = IsProjectSelected ? Project.GetTarget() : null,
-                    StandaloneTarget = IsStandaloneSelected ? Standalone.GetTarget() : null
+                    StandaloneTarget = IsStandaloneSelected ? Standalone.GetTarget() : null,
+                    UseVTune = _useVTune
                 };
             } else {
                 return null;
@@ -201,6 +197,29 @@ namespace Microsoft.PythonTools.Profiling {
             }
         }
 
+        /// <summary>
+        /// </summary>
+        public bool UseVTune {
+            get { return _useVTune; }
+            set {
+                _useVTune = value;
+                OnPropertyChanged("UseVTune");
+            }
+        }
+
+        /// <summary>
+        /// Whether a VTune installation is available in this machine.
+        /// </summary>
+        public bool IsVTuneAvailable {
+            get { return _isVTuneAvailable; }
+        }
+
+        /// <summary>
+        /// Whether "ExternalProfilerDriver" has been compiled in this build of PTVS
+        /// </summary>
+        public bool IsExternalProfilerEnabled {
+            get { return _isExternalProfilerEnabled; }
+        }
 
         /// <summary>
         /// Receives our own property change events to update IsValid.

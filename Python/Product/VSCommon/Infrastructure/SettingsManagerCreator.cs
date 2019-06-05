@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,14 +21,9 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.Win32;
 using Microsoft.VisualStudio.Settings;
 using Microsoft.VisualStudio.Shell.Settings;
-using IOleServiceProvider = Microsoft.VisualStudio.OLE.Interop.IServiceProvider;
 
 namespace Microsoft.PythonTools.Infrastructure {
-    public static class SettingsManagerCreator {
-        public static SettingsManager GetSettingsManager(DTE dte) {
-            return GetSettingsManager(new ServiceProvider(((IOleServiceProvider)dte)));
-        }
-        
+    internal static class SettingsManagerCreator {
         public static SettingsManager GetSettingsManager(IServiceProvider provider) {
             SettingsManager settings = null;
             string devenvPath = null;

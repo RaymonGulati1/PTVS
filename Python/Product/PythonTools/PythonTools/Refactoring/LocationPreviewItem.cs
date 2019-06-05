@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -36,64 +36,72 @@ namespace Microsoft.PythonTools.Refactoring {
         private bool _checked = true;
         private static readonly char[] _whitespace = new[] { ' ', '\t', '\f' };
 
-        public LocationPreviewItem(VsProjectAnalyzer analyzer, FilePreviewItem parent, AnalysisLocation locationInfo, VariableType type) {
-            Debug.Assert(locationInfo.Column >= 1, "Invalid location info (Column)");
-            Debug.Assert(locationInfo.Line >= 1, "Invalid location info (Line)");
+        private LocationPreviewItem(FilePreviewItem parent, string text, int line, int column, Span span) {
             _parent = parent;
-            Type = type;
-            _text = string.Empty;
+            _text = text;
+            Line = line;
+            Column = column;
+            _span = span;
+        }
 
-            var origName = _parent?.Engine?.OriginalName;
+        public static LocationPreviewItem Create(VsProjectAnalyzer analyzer, FilePreviewItem parent, LocationInfo locationInfo, VariableType type) {
+            Debug.Assert(locationInfo.StartColumn >= 1, "Invalid location info (Column)");
+            Debug.Assert(locationInfo.StartLine >= 1, "Invalid location info (Line)");
+
+            var origName = parent?.Engine?.OriginalName;
             if (string.IsNullOrEmpty(origName)) {
-                return;
+                return null;
             }
 
-            var analysis = analyzer.GetAnalysisEntryFromPath(locationInfo.FilePath);
+            var analysis = analyzer.GetAnalysisEntryFromUri(locationInfo.DocumentUri) ??
+                analyzer.GetAnalysisEntryFromPath(locationInfo.FilePath);
             if (analysis == null) {
-                return;
+                return null;
             }
 
-            var text = analysis.GetLine(locationInfo.Line);
+            var text = analysis.GetLine(locationInfo.StartLine);
             if (string.IsNullOrEmpty(text)) {
-                return;
+                return null;
             }
 
             int start, length;
             if (!GetSpan(text, origName, locationInfo, out start, out length)) {
-                // Name does not match exactly, so we should be renaming a prefixed name
+                // Name does not match exactly, so we might be renaming a prefixed name
                 var prefix = parent.Engine.PrivatePrefix;
                 if (string.IsNullOrEmpty(prefix)) {
-                    // No prefix available, so fail
-                    Debug.Fail("Failed to find '{0}' in '{1}' because we had no private prefix".FormatInvariant(origName, text));
-                    return;
+                    // No prefix available, so don't rename this
+                    return null;
                 }
 
                 var newName = parent.Engine.Request.Name;
                 if (string.IsNullOrEmpty(newName)) {
                     // No incoming name
                     Debug.Fail("No incoming name");
-                    return;
+                    return null;
                 }
 
-                if (!GetSpanWithPrefix(text, origName, locationInfo, "_" + prefix, newName, out start, out length)) {
+                if (!GetSpanWithPrefix(text, origName, locationInfo, prefix, newName, out start, out length)) {
                     // Not renaming a prefixed name
-                    Debug.Fail("Failed to find '{0}' in '{1}'".FormatInvariant(origName, text));
-                    return;
+                    return null;
                 }
             }
 
             if (start < 0 || length <= 0) {
                 Debug.Fail("Expected valid span");
-                return;
+                return null;
             }
 
-            _text = text.TrimStart(_whitespace);
-            Line = locationInfo.Line;
-            Column = start + 1;
-            _span = new Span(start - (text.Length - _text.Length), length);
+            var trimText = text.TrimStart(_whitespace);
+            return new LocationPreviewItem(
+                parent,
+                trimText,
+                locationInfo.StartLine,
+                start + 1,
+                new Span(start - (text.Length - trimText.Length), length)
+            );
         }
 
-        private static bool GetSpan(string text, string origName, AnalysisLocation loc, out int start, out int length) {
+        private static bool GetSpan(string text, string origName, LocationInfo loc, out int start, out int length) {
             if (string.IsNullOrEmpty(text)) {
                 throw new ArgumentNullException(nameof(text));
             }
@@ -101,8 +109,8 @@ namespace Microsoft.PythonTools.Refactoring {
                 throw new ArgumentNullException(nameof(origName));
             }
 
-            start = loc.Column - 1;
-            length = origName.Length;
+            start = loc.StartColumn - 1;
+            length = (loc.EndLine == loc.StartLine ? loc.EndColumn - loc.StartColumn : null) ?? origName.Length;
             if (start < 0 || length <= 0) {
                 Debug.Fail("Invalid span for '{0}': [{1}..{2})".FormatInvariant(origName, start, start + length));
                 return false;
@@ -110,7 +118,7 @@ namespace Microsoft.PythonTools.Refactoring {
 
             var cmp = CultureInfo.InvariantCulture.CompareInfo;
             try {
-                if (cmp.Compare(text, start, length, origName, 0, origName.Length) == 0) {
+                if (length == origName.Length && cmp.Compare(text, start, length, origName, 0, origName.Length) == 0) {
                     // Name matches, so return the span
                     return true;
                 }
@@ -123,7 +131,7 @@ namespace Microsoft.PythonTools.Refactoring {
             return false;
         }
 
-        private static bool GetSpanWithPrefix(string text, string origName, AnalysisLocation loc, string prefix, string newName, out int start, out int length) {
+        private static bool GetSpanWithPrefix(string text, string origName, LocationInfo loc, string prefix, string newName, out int start, out int length) {
             if (string.IsNullOrEmpty(prefix)) {
                 throw new ArgumentNullException(nameof(prefix));
             }
@@ -137,7 +145,7 @@ namespace Microsoft.PythonTools.Refactoring {
                 return false;
             }
 
-            if (newName.StartsWith("__") && newName.Length > 2) {
+            if (newName.StartsWithOrdinal("__") && newName.Length > 2) {
                 // renaming from private name to private name, so just rename the non-prefixed portion
                 start += prefix.Length;
                 length -= prefix.Length;

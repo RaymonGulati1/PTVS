@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -22,6 +22,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media;
 using Microsoft.PythonTools.Analysis;
+using Microsoft.PythonTools.Editor;
 using Microsoft.VisualStudio.Imaging.Interop;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Text;
@@ -109,22 +110,15 @@ namespace Microsoft.PythonTools.Intellisense {
             get { return false; }
         }
 
-        public async void Invoke(CancellationToken cancellationToken) {
+        public void Invoke(CancellationToken cancellationToken) {
             Debug.Assert(!string.IsNullOrEmpty(_name));
 
-            var entryService = _source._provider.GetEntryService();
-            AnalysisEntry entry;
-            if (entryService == null || !entryService.TryGetAnalysisEntry(_source._view, _buffer, out entry)) {
+            var entry = _buffer.TryGetAnalysisEntry();
+            if (entry == null) {
                 return;
             }
 
-            await VsProjectAnalyzer.AddImportAsync(
-                entry,
-                _fromModule,
-                _name,
-                _source._view,
-                _buffer
-            );
+            VsProjectAnalyzer.AddImport(_buffer, _fromModule, _name);
         }
 
         public bool TryGetTelemetryId(out Guid telemetryId) {
@@ -176,13 +170,13 @@ namespace Microsoft.PythonTools.Intellisense {
             }
 
             // Keys sort alphabetically
-            r = key1.CompareTo(key2);
+            r = string.Compare(key1, key2, StringComparison.CurrentCultureIgnoreCase);
             if (r != 0) {
                 return r;
             }
 
             // Sort by display text
-            return (DisplayText ?? "").CompareTo(other.DisplayText ?? "");
+            return string.Compare(DisplayText ?? "", other.DisplayText ?? "", StringComparison.CurrentCultureIgnoreCase);
         }
     }
 }

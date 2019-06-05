@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,7 +21,11 @@ using System.Threading;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
 using Microsoft.VisualStudio.Text.Projection;
+#if DEV16_OR_LATER
+using Microsoft.WebTools.Languages.Html.Editor.Document;
+#else
 using Microsoft.Html.Editor.Document;
+#endif
 
 namespace Microsoft.PythonTools.Django.TemplateParsing {
     internal class TemplateClassifier : TemplateClassifierBase {
@@ -36,7 +40,6 @@ namespace Microsoft.PythonTools.Django.TemplateParsing {
 
         internal static HtmlEditorDocument HtmlEditorDocumentFromTextBuffer(ITextBuffer buffer) {
             var doc = HtmlEditorDocument.FromTextBuffer(buffer);
-#if DEV14_OR_LATER
             if (doc == null) {
                 var projBuffer = buffer as IProjectionBuffer;
                 if (projBuffer != null) {
@@ -48,7 +51,6 @@ namespace Microsoft.PythonTools.Django.TemplateParsing {
                     }
                 }
             }
-#endif
             return doc;
         }
 
@@ -105,7 +107,7 @@ namespace Microsoft.PythonTools.Django.TemplateParsing {
             }
 
             int artifactStart = artifact.InnerRange.Start;
-            var artifactText = _htmlDoc.HtmlEditorTree.ParseTree.Text.GetText(artifact.InnerRange);
+            var artifactText = _htmlDoc.HtmlEditorTree.ParseTree.Text.GetText(artifact.InnerRange.Start, artifact.InnerRange.Length);
             artifact.Parse(artifactText);
 
             var classifications = artifact.GetClassifications();

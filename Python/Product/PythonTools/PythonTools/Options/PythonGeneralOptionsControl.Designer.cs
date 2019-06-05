@@ -27,15 +27,15 @@ namespace Microsoft.PythonTools.Options {
             this.tableLayoutPanel3 = new System.Windows.Forms.TableLayoutPanel();
             this._showOutputWindowForVirtualEnvCreate = new System.Windows.Forms.CheckBox();
             this._showOutputWindowForPackageInstallation = new System.Windows.Forms.CheckBox();
-            this._autoAnalysis = new System.Windows.Forms.CheckBox();
+            this._promptForEnvCreate = new System.Windows.Forms.CheckBox();
+            this._promptForPackageInstallation = new System.Windows.Forms.CheckBox();
+            this._elevatePip = new System.Windows.Forms.CheckBox();
+            this._clearGlobalPythonPath = new System.Windows.Forms.CheckBox();
             this._updateSearchPathsForLinkedFiles = new System.Windows.Forms.CheckBox();
+            this._unresolvedImportWarning = new System.Windows.Forms.CheckBox();
+            this._invalidEncodingWarning = new System.Windows.Forms.CheckBox();
             this._indentationInconsistentLabel = new System.Windows.Forms.Label();
             this._indentationInconsistentCombo = new System.Windows.Forms.ComboBox();
-            this._surveyNewsCheckLabel = new System.Windows.Forms.Label();
-            this._surveyNewsCheckCombo = new System.Windows.Forms.ComboBox();
-            this._elevatePip = new System.Windows.Forms.CheckBox();
-            this._unresolvedImportWarning = new System.Windows.Forms.CheckBox();
-            this._clearGlobalPythonPath = new System.Windows.Forms.CheckBox();
             this._resetSuppressDialog = new System.Windows.Forms.Button();
             this.tableLayoutPanel3.SuspendLayout();
             this.SuspendLayout();
@@ -45,16 +45,16 @@ namespace Microsoft.PythonTools.Options {
             resources.ApplyResources(this.tableLayoutPanel3, "tableLayoutPanel3");
             this.tableLayoutPanel3.Controls.Add(this._showOutputWindowForVirtualEnvCreate, 0, 0);
             this.tableLayoutPanel3.Controls.Add(this._showOutputWindowForPackageInstallation, 0, 1);
-            this.tableLayoutPanel3.Controls.Add(this._autoAnalysis, 0, 3);
-            this.tableLayoutPanel3.Controls.Add(this._updateSearchPathsForLinkedFiles, 0, 5);
-            this.tableLayoutPanel3.Controls.Add(this._indentationInconsistentLabel, 0, 7);
-            this.tableLayoutPanel3.Controls.Add(this._indentationInconsistentCombo, 1, 7);
-            this.tableLayoutPanel3.Controls.Add(this._surveyNewsCheckLabel, 0, 8);
-            this.tableLayoutPanel3.Controls.Add(this._surveyNewsCheckCombo, 1, 8);
-            this.tableLayoutPanel3.Controls.Add(this._elevatePip, 0, 2);
-            this.tableLayoutPanel3.Controls.Add(this._unresolvedImportWarning, 0, 6);
-            this.tableLayoutPanel3.Controls.Add(this._clearGlobalPythonPath, 0, 4);
-            this.tableLayoutPanel3.Controls.Add(this._resetSuppressDialog, 0, 9);
+            this.tableLayoutPanel3.Controls.Add(this._promptForEnvCreate, 0, 2);
+            this.tableLayoutPanel3.Controls.Add(this._promptForPackageInstallation, 0, 3);
+            this.tableLayoutPanel3.Controls.Add(this._elevatePip, 0, 4);
+            this.tableLayoutPanel3.Controls.Add(this._clearGlobalPythonPath, 0, 5);
+            this.tableLayoutPanel3.Controls.Add(this._updateSearchPathsForLinkedFiles, 0, 6);
+            this.tableLayoutPanel3.Controls.Add(this._unresolvedImportWarning, 0, 7);
+            this.tableLayoutPanel3.Controls.Add(this._invalidEncodingWarning, 0, 8);
+            this.tableLayoutPanel3.Controls.Add(this._indentationInconsistentLabel, 0, 9);
+            this.tableLayoutPanel3.Controls.Add(this._indentationInconsistentCombo, 1, 9);
+            this.tableLayoutPanel3.Controls.Add(this._resetSuppressDialog, 0, 10);
             this.tableLayoutPanel3.Name = "tableLayoutPanel3";
             // 
             // _showOutputWindowForVirtualEnvCreate
@@ -71,19 +71,57 @@ namespace Microsoft.PythonTools.Options {
             this._showOutputWindowForPackageInstallation.Name = "_showOutputWindowForPackageInstallation";
             this._showOutputWindowForPackageInstallation.UseVisualStyleBackColor = true;
             // 
-            // _autoAnalysis
+            // _promptForEnvCreate
             // 
-            resources.ApplyResources(this._autoAnalysis, "_autoAnalysis");
-            this.tableLayoutPanel3.SetColumnSpan(this._autoAnalysis, 2);
-            this._autoAnalysis.Name = "_autoAnalysis";
-            this._autoAnalysis.UseVisualStyleBackColor = true;
+            resources.ApplyResources(this._promptForEnvCreate, "_promptForEnvCreate");
+            this.tableLayoutPanel3.SetColumnSpan(this._promptForEnvCreate, 2);
+            this._promptForEnvCreate.Name = "_promptForEnvCreate";
+            this._promptForEnvCreate.UseVisualStyleBackColor = true;
+            // 
+            // _promptForPackageInstallation
+            // 
+            resources.ApplyResources(this._promptForPackageInstallation, "_promptForPackageInstallation");
+            this.tableLayoutPanel3.SetColumnSpan(this._promptForPackageInstallation, 2);
+            this._promptForPackageInstallation.Name = "_promptForPackageInstallation";
+            this._promptForPackageInstallation.UseVisualStyleBackColor = true;
+            // 
+            // _elevatePip
+            // 
+            resources.ApplyResources(this._elevatePip, "_elevatePip");
+            this.tableLayoutPanel3.SetColumnSpan(this._elevatePip, 2);
+            this._elevatePip.Name = "_elevatePip";
+            this._elevatePip.UseVisualStyleBackColor = true;
+            // 
+            // _clearGlobalPythonPath
+            // 
+            resources.ApplyResources(this._clearGlobalPythonPath, "_clearGlobalPythonPath");
+            this._clearGlobalPythonPath.AutoEllipsis = true;
+            this.tableLayoutPanel3.SetColumnSpan(this._clearGlobalPythonPath, 2);
+            this._clearGlobalPythonPath.Name = "_clearGlobalPythonPath";
+            this._clearGlobalPythonPath.UseVisualStyleBackColor = true;
             // 
             // _updateSearchPathsForLinkedFiles
             // 
             resources.ApplyResources(this._updateSearchPathsForLinkedFiles, "_updateSearchPathsForLinkedFiles");
+            this._updateSearchPathsForLinkedFiles.AutoEllipsis = true;
             this.tableLayoutPanel3.SetColumnSpan(this._updateSearchPathsForLinkedFiles, 2);
             this._updateSearchPathsForLinkedFiles.Name = "_updateSearchPathsForLinkedFiles";
             this._updateSearchPathsForLinkedFiles.UseVisualStyleBackColor = true;
+            // 
+            // _unresolvedImportWarning
+            // 
+            resources.ApplyResources(this._unresolvedImportWarning, "_unresolvedImportWarning");
+            this._unresolvedImportWarning.AutoEllipsis = true;
+            this.tableLayoutPanel3.SetColumnSpan(this._unresolvedImportWarning, 2);
+            this._unresolvedImportWarning.Name = "_unresolvedImportWarning";
+            this._unresolvedImportWarning.UseVisualStyleBackColor = true;
+            // 
+            // _invalidEncodingWarning
+            // 
+            resources.ApplyResources(this._invalidEncodingWarning, "_invalidEncodingWarning");
+            this.tableLayoutPanel3.SetColumnSpan(this._invalidEncodingWarning, 2);
+            this._invalidEncodingWarning.Name = "_invalidEncodingWarning";
+            this._invalidEncodingWarning.UseVisualStyleBackColor = true;
             // 
             // _indentationInconsistentLabel
             // 
@@ -101,45 +139,6 @@ namespace Microsoft.PythonTools.Options {
             resources.GetString("_indentationInconsistentCombo.Items1"),
             resources.GetString("_indentationInconsistentCombo.Items2")});
             this._indentationInconsistentCombo.Name = "_indentationInconsistentCombo";
-            // 
-            // _surveyNewsCheckLabel
-            // 
-            resources.ApplyResources(this._surveyNewsCheckLabel, "_surveyNewsCheckLabel");
-            this._surveyNewsCheckLabel.Name = "_surveyNewsCheckLabel";
-            // 
-            // _surveyNewsCheckCombo
-            // 
-            resources.ApplyResources(this._surveyNewsCheckCombo, "_surveyNewsCheckCombo");
-            this._surveyNewsCheckCombo.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this._surveyNewsCheckCombo.DropDownWidth = 172;
-            this._surveyNewsCheckCombo.FormattingEnabled = true;
-            this._surveyNewsCheckCombo.Items.AddRange(new object[] {
-            resources.GetString("_surveyNewsCheckCombo.Items"),
-            resources.GetString("_surveyNewsCheckCombo.Items1"),
-            resources.GetString("_surveyNewsCheckCombo.Items2"),
-            resources.GetString("_surveyNewsCheckCombo.Items3")});
-            this._surveyNewsCheckCombo.Name = "_surveyNewsCheckCombo";
-            // 
-            // _elevatePip
-            // 
-            resources.ApplyResources(this._elevatePip, "_elevatePip");
-            this.tableLayoutPanel3.SetColumnSpan(this._elevatePip, 2);
-            this._elevatePip.Name = "_elevatePip";
-            this._elevatePip.UseVisualStyleBackColor = true;
-            // 
-            // _unresolvedImportWarning
-            // 
-            resources.ApplyResources(this._unresolvedImportWarning, "_unresolvedImportWarning");
-            this.tableLayoutPanel3.SetColumnSpan(this._unresolvedImportWarning, 2);
-            this._unresolvedImportWarning.Name = "_unresolvedImportWarning";
-            this._unresolvedImportWarning.UseVisualStyleBackColor = true;
-            // 
-            // _clearGlobalPythonPath
-            // 
-            resources.ApplyResources(this._clearGlobalPythonPath, "_clearGlobalPythonPath");
-            this.tableLayoutPanel3.SetColumnSpan(this._clearGlobalPythonPath, 2);
-            this._clearGlobalPythonPath.Name = "_clearGlobalPythonPath";
-            this._clearGlobalPythonPath.UseVisualStyleBackColor = true;
             // 
             // _resetSuppressDialog
             // 
@@ -165,11 +164,10 @@ namespace Microsoft.PythonTools.Options {
         #endregion
 
         private System.Windows.Forms.TableLayoutPanel tableLayoutPanel3;
-        private System.Windows.Forms.Label _surveyNewsCheckLabel;
-        private System.Windows.Forms.ComboBox _surveyNewsCheckCombo;
         private System.Windows.Forms.CheckBox _showOutputWindowForVirtualEnvCreate;
         private System.Windows.Forms.CheckBox _showOutputWindowForPackageInstallation;
-        private System.Windows.Forms.CheckBox _autoAnalysis;
+        private System.Windows.Forms.CheckBox _promptForEnvCreate;
+        private System.Windows.Forms.CheckBox _promptForPackageInstallation;
         private System.Windows.Forms.CheckBox _updateSearchPathsForLinkedFiles;
         private System.Windows.Forms.Label _indentationInconsistentLabel;
         private System.Windows.Forms.ComboBox _indentationInconsistentCombo;
@@ -177,5 +175,6 @@ namespace Microsoft.PythonTools.Options {
         private System.Windows.Forms.CheckBox _unresolvedImportWarning;
         private System.Windows.Forms.CheckBox _clearGlobalPythonPath;
         private System.Windows.Forms.Button _resetSuppressDialog;
+        private System.Windows.Forms.CheckBox _invalidEncodingWarning;
     }
 }

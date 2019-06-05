@@ -9,47 +9,66 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.Design;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
+using Microsoft.PythonTools.Commands;
+using Microsoft.PythonTools.Environments;
 using Microsoft.PythonTools.EnvironmentsList;
 using Microsoft.PythonTools.Infrastructure;
-using Microsoft.VisualStudio.InteractiveWindow.Shell;
+using Microsoft.PythonTools.Infrastructure.Commands;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Project;
 using Microsoft.PythonTools.Repl;
 using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Imaging;
+using Microsoft.VisualStudio.InteractiveWindow.Shell;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudioTools;
 
 namespace Microsoft.PythonTools.InterpreterList {
     [Guid(PythonConstants.InterpreterListToolWindowGuid)]
     sealed class InterpreterListToolWindow : ToolWindowPane {
         private IServiceProvider _site;
+        private UIThreadBase _uiThread;
         private PythonToolsService _pyService;
         private Redirector _outputWindow;
         private IVsStatusbar _statusBar;
+        private readonly object _commandsLock = new object();
+        private readonly Dictionary<Command, MenuCommand> _commands = new Dictionary<Command, MenuCommand>();
 
-        public InterpreterListToolWindow() { }
+        private readonly Dictionary<EnvironmentView, string> _cachedScriptPaths;
+
+        public InterpreterListToolWindow(IServiceProvider services) : base(services) {
+            ToolBar = new CommandID(GuidList.guidPythonToolsCmdSet, PkgCmdIDList.EnvWindowToolbar);
+
+            _site = services;
+            _cachedScriptPaths = new Dictionary<EnvironmentView, string>();
+        }
 
         protected override void OnCreate() {
             base.OnCreate();
 
-            _site = (IServiceProvider)this;
-
             _pyService = _site.GetPythonToolsService();
+            _uiThread = _site.GetUIThread();
+
+            _pyService.InteractiveOptions.Changed += InteractiveOptions_Changed;
 
             // TODO: Get PYEnvironment added to image list
             BitmapImageMoniker = KnownMonikers.DockPanel;
@@ -60,13 +79,14 @@ namespace Microsoft.PythonTools.InterpreterList {
             _statusBar = _site.GetService(typeof(SVsStatusbar)) as IVsStatusbar;
             
             var list = new ToolWindow();
+            list.ViewCreated += List_ViewCreated;
+            list.ViewSelected += List_ViewSelected;
             list.Site = _site;
             try {
-                list.TelemetryLogger = _site.GetPythonToolsService().Logger;
+                list.TelemetryLogger = _pyService.Logger;
             } catch (Exception ex) {
                 Debug.Fail(ex.ToUnhandledExceptionMessage(GetType()));
             }
-            list.ViewCreated += List_ViewCreated;
 
             list.CommandBindings.Add(new CommandBinding(
                 EnvironmentView.OpenInteractiveWindow,
@@ -109,22 +129,37 @@ namespace Microsoft.PythonTools.InterpreterList {
                 OpenInCommandPrompt_CanExecute
             ));
             list.CommandBindings.Add(new CommandBinding(
-                EnvironmentView.EnableIPythonInteractive,
-                EnableIPythonInteractive_Executed,
-                EnableIPythonInteractive_CanExecute
-            ));
-            list.CommandBindings.Add(new CommandBinding(
-                EnvironmentView.DisableIPythonInteractive,
-                DisableIPythonInteractive_Executed,
-                DisableIPythonInteractive_CanExecute
-            ));
-            list.CommandBindings.Add(new CommandBinding(
                 EnvironmentPathsExtension.OpenInBrowser,
                 OpenInBrowser_Executed,
                 OpenInBrowser_CanExecute
             ));
+            list.CommandBindings.Add(new CommandBinding(
+                EnvironmentView.Delete,
+                DeleteEnvironment_Executed,
+                DeleteEnvironment_CanExecute
+            ));
+
+            RegisterCommands(
+                CommandAsyncToOleMenuCommandShimFactory.CreateCommand(GuidList.guidPythonToolsCmdSet, (int)PkgCmdIDList.cmdidAddEnvironmentNoIcon, new AddEnvironmentCommand(this))
+            );
 
             Content = list;
+        }
+
+        internal void RegisterCommands(params MenuCommand[] commands) {
+            _uiThread.MustBeCalledFromUIThreadOrThrow();
+            if (GetService(typeof(IMenuCommandService)) is OleMenuCommandService mcs) {
+                foreach (var command in commands) {
+                    mcs.AddCommand(command);
+                }
+            }
+        }
+
+        private void InteractiveOptions_Changed(object sender, EventArgs e) {
+            lock (_cachedScriptPaths) {
+                _cachedScriptPaths.Clear();
+            }
+            CommandManager.InvalidateRequerySuggested();
         }
 
         private string GetScriptPath(EnvironmentView view) {
@@ -132,12 +167,31 @@ namespace Microsoft.PythonTools.InterpreterList {
                 return null;
             }
 
-            return PythonInteractiveEvaluator.GetScriptsPath(
-                _site,
-                view.Description,
-                view.Factory.Configuration,
-                false
-            );
+            string path;
+            lock (_cachedScriptPaths) {
+                if (_cachedScriptPaths.TryGetValue(view, out path)) {
+                    return path;
+                }
+            }
+
+            try {
+                path = _uiThread.Invoke(() => PythonInteractiveEvaluator.GetScriptsPath(
+                    _site,
+                    view.Description,
+                    view.Factory.Configuration,
+                    false
+                ));
+            } catch (DirectoryNotFoundException) {
+                path = null;
+            } catch (Exception ex) when (!ex.IsCriticalException()) {
+                view.Dispatcher.BeginInvoke((Action)(() => ex.ReportUnhandledException(_site, GetType())), DispatcherPriority.ApplicationIdle);
+                path = null;
+            }
+
+            lock (_cachedScriptPaths) {
+                _cachedScriptPaths[view] = path;
+            }
+            return path;
         }
 
         private void OpenInteractiveScripts_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
@@ -178,49 +232,28 @@ namespace Microsoft.PythonTools.InterpreterList {
             e.Handled = true;
         }
 
-        private void EnableIPythonInteractive_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
-            var path = GetScriptPath(e.Parameter as EnvironmentView);
-            e.CanExecute = path != null && !File.Exists(PathUtils.GetAbsoluteFilePath(path, "mode.txt"));
-            e.Handled = true;
+        private bool QueryIPythonEnabled(EnvironmentView view) {
+            var path = GetScriptPath(view);
+            return path != null && File.Exists(PathUtils.GetAbsoluteFilePath(path, "mode.txt"));
         }
 
-        private void EnableIPythonInteractive_Executed(object sender, ExecutedRoutedEventArgs e) {
-            var path = GetScriptPath(e.Parameter as EnvironmentView);
+        private void SetIPythonEnabled(EnvironmentView view, bool enable) {
+            var path = GetScriptPath(view);
             if (!EnsureScriptDirectory(path)) {
                 return;
             }
 
-            path = PathUtils.GetAbsoluteFilePath(path, "mode.txt");
             try {
-                File.WriteAllText(path, Strings.ReplScriptPathIPythonModeTxtContents);
+                path = PathUtils.GetAbsoluteFilePath(path, "mode.txt");
+                if (enable) {
+                    File.WriteAllText(path, Strings.ReplScriptPathIPythonModeTxtContents);
+                } else {
+                    if (File.Exists(path)) {
+                        File.Delete(path);
+                    }
+                }
             } catch (Exception ex) when (!ex.IsCriticalException()) {
                 TaskDialog.ForException(_site, ex, issueTrackerUrl: Strings.IssueTrackerUrl).ShowModal();
-                return;
-            }
-
-            e.Handled = true;
-        }
-
-        private void DisableIPythonInteractive_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
-            var path = GetScriptPath(e.Parameter as EnvironmentView);
-            e.CanExecute = path != null && File.Exists(PathUtils.GetAbsoluteFilePath(path, "mode.txt"));
-            e.Handled = true;
-        }
-
-        private void DisableIPythonInteractive_Executed(object sender, ExecutedRoutedEventArgs e) {
-            var path = GetScriptPath(e.Parameter as EnvironmentView);
-            if (!EnsureScriptDirectory(path)) {
-                return;
-            }
-
-            path = PathUtils.GetAbsoluteFilePath(path, "mode.txt");
-            if (File.Exists(path)) {
-                try {
-                    File.Delete(path);
-                } catch (Exception ex) when (!ex.IsCriticalException()) {
-                    TaskDialog.ForException(_site, ex, issueTrackerUrl: Strings.IssueTrackerUrl).ShowModal();
-                    return;
-                }
             }
         }
 
@@ -230,20 +263,34 @@ namespace Microsoft.PythonTools.InterpreterList {
                 return;
             }
 
-            try {
-                var pep = new PipExtensionProvider(view.Factory);
-                pep.QueryShouldElevate += PipExtensionProvider_QueryShouldElevate;
-                pep.OperationStarted += PipExtensionProvider_OperationStarted;
-                pep.OutputTextReceived += PipExtensionProvider_OutputTextReceived;
-                pep.ErrorTextReceived += PipExtensionProvider_ErrorTextReceived;
-                pep.OperationFinished += PipExtensionProvider_OperationFinished;
-                view.Extensions.Add(pep);
-            } catch (NotSupportedException) {
+            view.IPythonModeEnabledSetter = SetIPythonEnabled;
+            view.IPythonModeEnabledGetter = QueryIPythonEnabled;
+        }
+
+        private void List_ViewSelected(object sender, EnvironmentViewEventArgs e) {
+            var view = e.View;
+            if (view.Factory == null || view.ExtensionsCreated) {
+                return;
             }
 
-            var _withDb = view.Factory as PythonInterpreterFactoryWithDatabase;
-            if (_withDb != null && !string.IsNullOrEmpty(_withDb.DatabasePath)) {
-                view.Extensions.Add(new DBExtensionProvider(_withDb));
+            // We used to create all the extensions up front in List_ViewCreated
+            // but that slowed down initialization of the tool window considerably
+            // due to the package manager extension in particular.
+            // We now create the extensions only if they are likely to be used,
+            // the first time an environment is selected in the list view.
+            view.ExtensionsCreated = true;
+
+            foreach (var pm in (_site.GetComponentModel().GetService<IInterpreterOptionsService>()?.GetPackageManagers(view.Factory)).MaybeEnumerate()) {
+                try {
+                    var pep = new PipExtensionProvider(view.Factory, pm);
+                    pep.QueryShouldElevate += PipExtensionProvider_QueryShouldElevate;
+                    pep.OperationStarted += PipExtensionProvider_OperationStarted;
+                    pep.OutputTextReceived += PipExtensionProvider_OutputTextReceived;
+                    pep.ErrorTextReceived += PipExtensionProvider_ErrorTextReceived;
+                    pep.OperationFinished += PipExtensionProvider_OperationFinished;
+                    view.Extensions.Add(pep);
+                } catch (NotSupportedException) {
+                }
             }
 
             var model = _site.GetComponentModel();
@@ -397,7 +444,7 @@ namespace Microsoft.PythonTools.InterpreterList {
         }
 
         private void OnlineHelp_Executed(object sender, ExecutedRoutedEventArgs e) {
-            VisualStudioTools.CommonPackage.OpenVsWebBrowser(_site, PythonToolsPackage.InterpreterHelpUrl);
+            VisualStudioTools.CommonPackage.OpenWebBrowser(_site, PythonToolsPackage.InterpreterHelpUrl);
             e.Handled = true;
         }
 
@@ -411,6 +458,58 @@ namespace Microsoft.PythonTools.InterpreterList {
             return string.Join(";", PathSuffixes
                 .Select(s => PathUtils.GetAbsoluteDirectoryPath(view.PrefixPath, s))
                 .Where(Directory.Exists));
+        }
+
+        private void DeleteEnvironment_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
+            var view = e.Parameter as EnvironmentView;
+            e.CanExecute = view?.CanBeDeleted == true;
+            e.Handled = true;
+        }
+
+        private void DeleteEnvironment_Executed(object sender, ExecutedRoutedEventArgs e) {
+            // TODO: this is assuming that all environments that CanBeDeleted are conda environments, which may not be true in the future
+            var view = e.Parameter as EnvironmentView;
+            var result = MessageBox.Show(
+                Resources.EnvironmentPathsExtensionDeleteConfirmation.FormatUI(view.Configuration.PrefixPath),
+                Resources.ProductTitle,
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question
+            );
+            if (result != MessageBoxResult.Yes) {
+                return;
+            }
+
+            var compModel = _site.GetService(typeof(SComponentModel)) as IComponentModel;
+            var registry = compModel.GetService<IInterpreterRegistryService>();
+            var mgr = CondaEnvironmentManager.Create(_site);
+            mgr.DeleteAsync(
+                view.Configuration.PrefixPath,
+                new CondaEnvironmentManagerUI(_outputWindow),
+                CancellationToken.None
+            ).HandleAllExceptions(_site, GetType()).DoNotWait();
+        }
+
+        class CondaEnvironmentManagerUI : ICondaEnvironmentManagerUI {
+            private readonly Redirector _window;
+
+            public CondaEnvironmentManagerUI(Redirector window) {
+                _window = window;
+            }
+
+            public void OnErrorTextReceived(ICondaEnvironmentManager sender, string text) {
+                _window.WriteErrorLine(text.TrimEndNewline());
+            }
+
+            public void OnOperationFinished(ICondaEnvironmentManager sender, string operation, bool success) {
+            }
+
+            public void OnOperationStarted(ICondaEnvironmentManager sender, string operation) {
+                _window.ShowAndActivate();
+            }
+
+            public void OnOutputTextReceived(ICondaEnvironmentManager sender, string text) {
+                _window.WriteLine(text.TrimEndNewline());
+            }
         }
 
         private void OpenInCommandPrompt_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
@@ -464,14 +563,36 @@ namespace Microsoft.PythonTools.InterpreterList {
         }
 
         private void OpenInBrowser_Executed(object sender, ExecutedRoutedEventArgs e) {
-            PythonToolsPackage.OpenVsWebBrowser(_site, (string)e.Parameter);
+            PythonToolsPackage.OpenWebBrowser(_site, (string)e.Parameter);
         }
 
-        internal static void OpenAt(IServiceProvider site, IPythonInterpreterFactory interpreter, Type extension = null) {
-            var wnd = (site?.GetService(typeof(IPythonToolsToolWindowService)) as IPythonToolsToolWindowService)
-                ?.GetWindowPane(typeof(InterpreterListToolWindow), true) as InterpreterListToolWindow;
-            var envs = wnd?.Content as ToolWindow;
-            if (envs == null) {
+        internal static async System.Threading.Tasks.Task OpenAtAsync(IServiceProvider site, string viewId, Type extension) {
+            var service = (IPythonToolsToolWindowService) site?.GetService(typeof(IPythonToolsToolWindowService));
+            if (service == null) {
+                Debug.Fail("Failed to get environment list window");
+                return;
+            }
+
+            var wnd = await service.GetWindowPaneAsync(typeof(InterpreterListToolWindow), true) as InterpreterListToolWindow;
+            if (!(wnd?.Content is ToolWindow envs)) {
+                Debug.Fail("Failed to get environment list window");
+                return;
+            }
+
+            ErrorHandler.ThrowOnFailure((wnd.Frame as IVsWindowFrame)?.Show() ?? 0);
+
+            SelectEnvAndExt(envs, viewId, extension, 3);
+        }
+
+        internal static async System.Threading.Tasks.Task OpenAtAsync(IServiceProvider site, IPythonInterpreterFactory interpreter, Type extension = null) {
+            var service = (IPythonToolsToolWindowService) site?.GetService(typeof(IPythonToolsToolWindowService));
+            if (service == null) {
+                Debug.Fail("Failed to get environment list window");
+                return;
+            }
+
+            var wnd = await service.GetWindowPaneAsync(typeof(InterpreterListToolWindow), true) as InterpreterListToolWindow;
+            if (!(wnd?.Content is ToolWindow envs)) {
                 Debug.Fail("Failed to get environment list window");
                 return;
             }
@@ -509,6 +630,33 @@ namespace Microsoft.PythonTools.InterpreterList {
                 envs.Dispatcher.InvokeAsync(() => SelectEnvAndExt(envs, interpreter, extension, retries - 1), DispatcherPriority.Background);
                 return;
             }
+
+            envs.OnViewSelected(select);
+
+            var ext = select?.Extensions.FirstOrDefault(e => e != null && extension.IsEquivalentTo(e.GetType()));
+
+            envs.Environments.MoveCurrentTo(select);
+            if (ext != null) {
+                var exts = envs.Extensions;
+                if (exts != null && exts.Contains(ext)) {
+                    exts.MoveCurrentTo(ext);
+                    ((ext as IEnvironmentViewExtension)?.WpfObject as ICanFocus)?.Focus();
+                }
+            }
+        }
+
+        private static void SelectEnvAndExt(ToolWindow envs, string viewId, Type extension, int retries) {
+            if (retries <= 0) {
+                Debug.Fail("Failed to select environment/extension after multiple retries");
+                return;
+            }
+            var select = envs.IsLoaded ? envs.Environments.OfType<EnvironmentView>().FirstOrDefault(e => e.Configuration.Id == viewId) : null;
+            if (select == null) {
+                envs.Dispatcher.InvokeAsync(() => SelectEnvAndExt(envs, viewId, extension, retries - 1), DispatcherPriority.Background);
+                return;
+            }
+
+            envs.OnViewSelected(select);
 
             var ext = select?.Extensions.FirstOrDefault(e => e != null && extension.IsEquivalentTo(e.GetType()));
 

@@ -9,20 +9,18 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
-using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Windows.Media;
-using Microsoft.PythonTools.Intellisense;
+using Microsoft.PythonTools.Editor;
 using Microsoft.PythonTools.Parsing;
-using Microsoft.PythonTools.Project;
 using Microsoft.VisualStudio.Language.StandardClassification;
-using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.LanguageServer.Client;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
 using Microsoft.VisualStudio.Utilities;
@@ -37,6 +35,7 @@ namespace Microsoft.PythonTools {
     /// which it is applicable to.
     /// </summary>
     [Export(typeof(IClassifierProvider)), ContentType(PythonCoreConstants.ContentType)]
+    [Export(typeof(PythonClassifierProvider))]
     internal class PythonClassifierProvider : IClassifierProvider {
         private Dictionary<TokenCategory, IClassificationType> _categoryMap;
         private IClassificationType _comment;
@@ -46,23 +45,16 @@ namespace Microsoft.PythonTools {
         private IClassificationType _groupingClassification;
         private IClassificationType _dotClassification;
         private IClassificationType _commaClassification;
+        private readonly PythonEditorServices _services;
         private readonly IContentType _type;
-        internal readonly IServiceProvider _serviceProvider;
-        internal readonly AnalysisEntryService _entryService;
-        public readonly IClassificationTypeRegistryService _classificationRegistry;
 
         [ImportingConstructor]
-        public PythonClassifierProvider(
-            IContentTypeRegistryService contentTypeRegistryService,
-            [Import(typeof(SVsServiceProvider))]IServiceProvider serviceProvider,
-            IClassificationTypeRegistryService classificationRegistry,
-            AnalysisEntryService entryService
-        ) {
-            _type = contentTypeRegistryService.GetContentType(PythonCoreConstants.ContentType);
-            _serviceProvider = serviceProvider;
-            _classificationRegistry = classificationRegistry;
-            _entryService = entryService;
+        public PythonClassifierProvider(PythonEditorServices services) {
+            _services = services;
+            _type = _services.ContentTypeRegistryService.GetContentType(PythonCoreConstants.ContentType);
         }
+
+        internal PythonEditorServices Services => _services;
 
         #region Python Classification Type Definitions
 
@@ -97,17 +89,15 @@ namespace Microsoft.PythonTools {
 
         public IClassifier GetClassifier(ITextBuffer buffer) {
             if (_categoryMap == null) {
-                _categoryMap = FillCategoryMap(_classificationRegistry);
+                _categoryMap = FillCategoryMap(_services.ClassificationTypeRegistryService);
             }
 
-            PythonClassifier res;
-            if (!buffer.Properties.TryGetProperty<PythonClassifier>(typeof(PythonClassifier), out res) &&
-                buffer.ContentType.IsOfType(ContentType.TypeName)) {
-                res = new PythonClassifier(this, buffer);
-                buffer.Properties.AddProperty(typeof(PythonClassifier), res);
+            if (buffer.ContentType.IsOfType(CodeRemoteContentDefinition.CodeRemoteContentTypeName)) {
+                return null;
             }
 
-            return res;
+            return _services.GetBufferInfo(buffer)
+                .GetOrCreateSink(typeof(PythonClassifier), _ => new PythonClassifier(this));
         }
 
         public virtual IContentType ContentType {
@@ -151,12 +141,13 @@ namespace Microsoft.PythonTools {
         private Dictionary<TokenCategory, IClassificationType> FillCategoryMap(IClassificationTypeRegistryService registry) {
             var categoryMap = new Dictionary<TokenCategory, IClassificationType>();
 
-            categoryMap[TokenCategory.DocComment] = _comment = registry.GetClassificationType(PredefinedClassificationTypeNames.Comment);
+            categoryMap[TokenCategory.DocComment] = _comment = registry.GetClassificationType(PythonPredefinedClassificationTypeNames.Documentation);
             categoryMap[TokenCategory.LineComment] = registry.GetClassificationType(PredefinedClassificationTypeNames.Comment);
             categoryMap[TokenCategory.Comment] = registry.GetClassificationType(PredefinedClassificationTypeNames.Comment);
             categoryMap[TokenCategory.NumericLiteral] = registry.GetClassificationType(PredefinedClassificationTypeNames.Number);
             categoryMap[TokenCategory.CharacterLiteral] = registry.GetClassificationType(PredefinedClassificationTypeNames.Character);
             categoryMap[TokenCategory.StringLiteral] = _stringLiteral = registry.GetClassificationType(PredefinedClassificationTypeNames.String);
+            categoryMap[TokenCategory.IncompleteMultiLineStringLiteral] = _stringLiteral;
             categoryMap[TokenCategory.Keyword] = _keyword = registry.GetClassificationType(PredefinedClassificationTypeNames.Keyword);
             categoryMap[TokenCategory.Directive] = registry.GetClassificationType(PredefinedClassificationTypeNames.Keyword);
             categoryMap[TokenCategory.Identifier] = registry.GetClassificationType(PredefinedClassificationTypeNames.Identifier);

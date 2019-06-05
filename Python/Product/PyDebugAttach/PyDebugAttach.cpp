@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -36,7 +36,7 @@ typedef PyInterpreterState* (PyInterpreterState_Head)();
 typedef PyThreadState* (PyInterpreterState_ThreadHead)(PyInterpreterState* interp);
 typedef PyThreadState* (PyThreadState_Next)(PyThreadState *tstate);
 typedef PyThreadState* (PyThreadState_Swap)(PyThreadState *tstate);
-typedef int (PyRun_SimpleString)(const char *command);
+typedef PyThreadState* (_PyThreadState_UncheckedGet)();
 typedef PyObject* (PyDict_New)();
 typedef PyObject* (PyModule_New)(const char *name);
 typedef PyObject* (PyModule_GetDict)(PyObject *module);
@@ -44,7 +44,6 @@ typedef PyObject* (Py_CompileString)(const char *str, const char *filename, int 
 typedef PyObject* (PyEval_EvalCode)(PyObject *co, PyObject *globals, PyObject *locals);
 typedef PyObject* (PyDict_GetItemString)(PyObject *p, const char *key);
 typedef PyObject* (PyObject_CallFunctionObjArgs)(PyObject *callable, ...);    // call w/ varargs, last arg should be NULL
-typedef void (PyErr_Fetch)(PyObject **, PyObject **, PyObject **);
 typedef PyObject* (PyEval_GetBuiltins)();
 typedef int (PyDict_SetItemString)(PyObject *dp, const char *key, PyObject *item);
 typedef int (PyEval_ThreadsInitialized)();
@@ -72,6 +71,8 @@ typedef PyGILState_STATE PyGILState_EnsureFunc(void);
 typedef void PyGILState_ReleaseFunc(PyGILState_STATE);
 typedef PyObject* PyInt_FromSize_t(size_t ival);
 typedef PyThreadState *PyThreadState_NewFunc(PyInterpreterState *interp);
+typedef PyObject* PyObject_Repr(PyObject*);
+typedef size_t PyUnicode_AsWideChar(PyObject *unicode, wchar_t *w, size_t size);
 
 class PyObjectHolder;
 PyObject* GetPyObjectPointerNoDebugInfo(bool isDebug, PyObject* object);
@@ -123,6 +124,7 @@ public:
     InterpreterInfo(HMODULE module, bool debug) :
         Interpreter(module),
         CurrentThread(nullptr),
+        CurrentThreadGetter(nullptr),
         NewThreadFunction(nullptr),
         PyGILState_Ensure(nullptr),
         Version(PythonVersion_Unknown),
@@ -141,6 +143,7 @@ public:
 
     PyObjectHolder* NewThreadFunction;
     PyThreadState** CurrentThread;
+    _PyThreadState_UncheckedGet *CurrentThreadGetter;
 
     HMODULE Interpreter;
     PyGILState_EnsureFunc* PyGILState_Ensure;
@@ -180,13 +183,16 @@ public:
     }
 
     bool EnsureCurrentThread() {
-        if (CurrentThread == nullptr) {
-            auto curPythonThread = (PyThreadState**)(void*)GetProcAddress(
-                Interpreter, "_PyThreadState_Current");
-            CurrentThread = curPythonThread;
+        if (CurrentThread == nullptr && CurrentThreadGetter == nullptr) {
+            CurrentThreadGetter = (_PyThreadState_UncheckedGet*)GetProcAddress(Interpreter, "_PyThreadState_UncheckedGet");
+            CurrentThread = (PyThreadState**)(void*)GetProcAddress(Interpreter, "_PyThreadState_Current");
         }
 
-        return CurrentThread != nullptr;
+        return CurrentThread != nullptr || CurrentThreadGetter != nullptr;
+    }
+
+    PyThreadState *GetCurrentThread() {
+        return CurrentThreadGetter ? CurrentThreadGetter() : *CurrentThread;
     }
 
 private:
@@ -654,7 +660,7 @@ ConnectionInfo GetConnectionInfo() {
     char* pBuf;
 
     wchar_t fullMappingName[1024];
-    _snwprintf_s(fullMappingName, _countof(fullMappingName), L"PythonDebuggerMemory%d", GetCurrentProcessId());
+    _snwprintf_s(fullMappingName, sizeof(fullMappingName) / sizeof(fullMappingName[0]), L"PythonDebuggerMemory%d", GetCurrentProcessId());
 
     hMapFile = OpenFileMapping(
         FILE_MAP_ALL_ACCESS,   // read/write access
@@ -717,14 +723,16 @@ public:
     }
 };
 
-long GetPythonThreadId(PythonVersion version, PyThreadState* curThread) {
-    long threadId = 0;
+DWORD GetPythonThreadId(PythonVersion version, PyThreadState* curThread) {
+    DWORD threadId = 0;
     if (PyThreadState_25_27::IsFor(version)) {
-        threadId = ((PyThreadState_25_27*)curThread)->thread_id;
+        threadId = (DWORD)((PyThreadState_25_27*)curThread)->thread_id;
     } else if (PyThreadState_30_33::IsFor(version)) {
-        threadId = ((PyThreadState_30_33*)curThread)->thread_id;
+        threadId = (DWORD)((PyThreadState_30_33*)curThread)->thread_id;
     } else if (PyThreadState_34_36::IsFor(version)) {
-        threadId = ((PyThreadState_34_36*)curThread)->thread_id;
+        threadId = (DWORD)((PyThreadState_34_36*)curThread)->thread_id;
+    } else if (PyThreadState_37::IsFor(version)) {
+        threadId = (DWORD)((PyThreadState_37*)curThread)->thread_id;
     }
     return threadId;
 }
@@ -805,7 +813,6 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
 
         // found initialized Python runtime, gather and check the APIs we need for a successful attach...
         auto addPendingCall = (Py_AddPendingCall*)GetProcAddress(module, "Py_AddPendingCall");
-        auto curPythonThread = (PyThreadState**)(void*)GetProcAddress(module, "_PyThreadState_Current");
         auto interpHead = (PyInterpreterState_Head*)GetProcAddress(module, "PyInterpreterState_Head");
         auto gilEnsure = (PyGILState_Ensure*)GetProcAddress(module, "PyGILState_Ensure");
         auto gilRelease = (PyGILState_Release*)GetProcAddress(module, "PyGILState_Release");
@@ -841,7 +848,6 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
             strFromString = (PyString_FromString*)GetProcAddress(module, "PyString_FromString");
             intFromSizeT = (PyInt_FromSize_t*)GetProcAddress(module, "PyInt_FromSize_t");
         }
-        auto intervalCheck = (int*)GetProcAddress(module, "_Py_CheckInterval");
         auto errOccurred = (PyErr_Occurred*)GetProcAddress(module, "PyErr_Occurred");
         auto pyErrFetch = (PyErr_Fetch*)GetProcAddress(module, "PyErr_Fetch");
         auto pyErrRestore = (PyErr_Restore*)GetProcAddress(module, "PyErr_Restore");
@@ -850,20 +856,32 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
         auto pyGetAttr = (PyObject_GetAttrString*)GetProcAddress(module, "PyObject_GetAttrString");
         auto pySetAttr = (PyObject_SetAttrString*)GetProcAddress(module, "PyObject_SetAttrString");
         auto pyNone = (PyObject*)GetProcAddress(module, "_Py_NoneStruct");
-        auto getSwitchInterval = (_PyEval_GetSwitchInterval*)GetProcAddress(module, "_PyEval_GetSwitchInterval");
-        auto setSwitchInterval = (_PyEval_SetSwitchInterval*)GetProcAddress(module, "_PyEval_SetSwitchInterval");
+
         auto boolFromLong = (PyBool_FromLong*)GetProcAddress(module, "PyBool_FromLong");
         auto getThreadTls = (PyThread_get_key_value*)GetProcAddress(module, "PyThread_get_key_value");
         auto setThreadTls = (PyThread_set_key_value*)GetProcAddress(module, "PyThread_set_key_value");
         auto delThreadTls = (PyThread_delete_key_value*)GetProcAddress(module, "PyThread_delete_key_value");
         auto PyCFrame_Type = (PyTypeObject*)GetProcAddress(module, "PyCFrame_Type");
+        auto pyObjectRepr = (PyObject_Repr*)GetProcAddress(module, "PyObject_Repr");
+        auto pyUnicodeAsWideChar = (PyUnicode_AsWideChar*)GetProcAddress(module,
+            version < PythonVersion_33 ? "PyUnicodeUCS2_AsWideChar" : "PyUnicode_AsWideChar");
 
-        if (addPendingCall == nullptr || curPythonThread == nullptr || interpHead == nullptr || gilEnsure == nullptr || gilRelease == nullptr || threadHead == nullptr ||
+        // Either _PyThreadState_Current or _PyThreadState_UncheckedGet are required
+        auto curPythonThread = (PyThreadState**)(void*)GetProcAddress(module, "_PyThreadState_Current");
+        auto getPythonThread = (_PyThreadState_UncheckedGet*)GetProcAddress(module, "_PyThreadState_UncheckedGet");
+
+        // Either _Py_CheckInterval or _PyEval_[GS]etSwitchInterval are useful, but not required
+        auto intervalCheck = (int*)GetProcAddress(module, "_Py_CheckInterval");
+        auto getSwitchInterval = (_PyEval_GetSwitchInterval*)GetProcAddress(module, "_PyEval_GetSwitchInterval");
+        auto setSwitchInterval = (_PyEval_SetSwitchInterval*)GetProcAddress(module, "_PyEval_SetSwitchInterval");
+
+        if (addPendingCall == nullptr || interpHead == nullptr || gilEnsure == nullptr || gilRelease == nullptr || threadHead == nullptr ||
             initThreads == nullptr || releaseLock == nullptr || threadsInited == nullptr || threadNext == nullptr || threadSwap == nullptr ||
             pyDictNew == nullptr || pyCompileString == nullptr || pyEvalCode == nullptr || getDictItem == nullptr || call == nullptr ||
             getBuiltins == nullptr || dictSetItem == nullptr || intFromLong == nullptr || pyErrRestore == nullptr || pyErrFetch == nullptr ||
             errOccurred == nullptr || pyImportMod == nullptr || pyGetAttr == nullptr || pyNone == nullptr || pySetAttr == nullptr || boolFromLong == nullptr ||
-            getThreadTls == nullptr || setThreadTls == nullptr || delThreadTls == nullptr) {
+            getThreadTls == nullptr || setThreadTls == nullptr || delThreadTls == nullptr || pyObjectRepr == nullptr || pyUnicodeAsWideChar == nullptr ||
+            (curPythonThread == nullptr && getPythonThread == nullptr)) {
                 // we're missing some APIs, we cannot attach.
                 connInfo.ReportError(ConnError_PythonNotFound);
                 return false;
@@ -952,7 +970,9 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
                 SuspendThreads(suspendedThreads, addPendingCall, threadsInited);
 
                 if (!threadsInited()) {
-                    if (*curPythonThread == nullptr) {
+                    auto curPyThread = getPythonThread ? getPythonThread() : *curPythonThread;
+                    
+                    if (curPyThread == nullptr) {
                         // no threads are currently running, it is safe to initialize multi threading.
                         PyGILState_STATE gilState;
                         if (version >= PythonVersion_34) {
@@ -1041,55 +1061,27 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
         wchar_t drive[_MAX_DRIVE], dir[_MAX_DIR], file[_MAX_FNAME], ext[_MAX_EXT];
         _wsplitpath_s(filename.c_str(), drive, _MAX_DRIVE, dir, _MAX_DIR, file, _MAX_FNAME, ext, _MAX_EXT);
 
-        wchar_t debuggerModuleFilePath[MAX_PATH];
-        wchar_t ipcModuleFilePath[MAX_PATH];
-        wchar_t replModuleFilePath[MAX_PATH];
-        wchar_t utilModuleFilePath[MAX_PATH];
-        _wmakepath_s(debuggerModuleFilePath, drive, dir, L"visualstudio_py_debugger", L".py");
-        _wmakepath_s(ipcModuleFilePath, drive, dir, L"visualstudio_py_ipcjson", L".py");
-        _wmakepath_s(replModuleFilePath, drive, dir, L"visualstudio_py_repl", L".py");
-        _wmakepath_s(utilModuleFilePath, drive, dir, L"visualstudio_py_util", L".py");
-
-        // Load modules in dependency order. Dependency graph:
-        //
-        // visualstudio_py_debugger --> visualstudio_py_repl --> visualstudio_py_util
-        //                        \______________________________^
-        //                         \
-        //                          --> visualstudio_py_ipcjson
-        auto utilModule = PyObjectHolder(isDebug, pyModuleNew("visualstudio_py_util"));
-        auto utilModuleDict = pyModuleGetDict(utilModule.ToPython());
-        LoadAndEvaluateCode(utilModuleFilePath, "visualstudio_py_util.py", connInfo, isDebug, utilModuleDict,
-            pyCompileString, dictSetItem, pyEvalCode, strFromString, getBuiltins, pyErrPrint);
-
-        auto replModule = PyObjectHolder(isDebug, pyModuleNew("visualstudio_py_repl"));
-        auto replModuleDict = pyModuleGetDict(replModule.ToPython());
-        dictSetItem(replModuleDict, "visualstudio_py_util", utilModule.ToPython());
-        LoadAndEvaluateCode(replModuleFilePath, "visualstudio_py_repl.py", connInfo, isDebug, replModuleDict,
-            pyCompileString, dictSetItem, pyEvalCode, strFromString, getBuiltins, pyErrPrint);
-
-        auto ipcModule = PyObjectHolder(isDebug, pyModuleNew("visualstudio_py_ipcjson"));
-        auto ipcModuleDict = pyModuleGetDict(ipcModule.ToPython());
-        LoadAndEvaluateCode(ipcModuleFilePath, "visualstudio_py_ipcjson.py", connInfo, isDebug, ipcModuleDict,
-            pyCompileString, dictSetItem, pyEvalCode, strFromString, getBuiltins, pyErrPrint);
+        wchar_t ptvsdLoaderPath[MAX_PATH];
+        _wmakepath_s(ptvsdLoaderPath, drive, dir, L"ptvsd_loader", L".py");
 
         auto globalsDict = PyObjectHolder(isDebug, pyDictNew());
-        dictSetItem(globalsDict.ToPython(), "visualstudio_py_util", utilModule.ToPython());
-        dictSetItem(globalsDict.ToPython(), "visualstudio_py_repl", replModule.ToPython());
-        dictSetItem(globalsDict.ToPython(), "visualstudio_py_ipcjson", ipcModule.ToPython());
-        LoadAndEvaluateCode(debuggerModuleFilePath, "visualstudio_py_debugger.py", connInfo, isDebug, globalsDict.ToPython(),
-            pyCompileString, dictSetItem, pyEvalCode, strFromString, getBuiltins, pyErrPrint);
+
+        if (!LoadAndEvaluateCode(ptvsdLoaderPath, "ptvsd_loader.py", connInfo, isDebug, globalsDict.ToPython(),
+                pyCompileString, dictSetItem, pyEvalCode, strFromString, getBuiltins, pyErrPrint)) {
+            return false;
+        }
 
         // now initialize debugger process wide state
         auto attach_process = PyObjectHolder(isDebug, getDictItem(globalsDict.ToPython(), "attach_process"), true);
         auto new_thread = PyObjectHolder(isDebug, getDictItem(globalsDict.ToPython(), "new_thread"), true);
+        auto set_debugger_dll_handle = PyObjectHolder(isDebug, getDictItem(globalsDict.ToPython(), "set_debugger_dll_handle"), true);
 
         _interpreterInfo[interpreterId]->NewThreadFunction = new PyObjectHolder(
             isDebug,
-            getDictItem(globalsDict.ToPython(),
-            "new_external_thread"),
+            getDictItem(globalsDict.ToPython(), "new_external_thread"),
             true);
 
-        if (*attach_process == nullptr || *new_thread == nullptr) {
+        if (*attach_process == nullptr || *new_thread == nullptr || *set_debugger_dll_handle == nullptr) {
             connInfo.ReportErrorAfterAttachDone(ConnError_LoadDebuggerBadDebugger);
             return false;
         }
@@ -1098,7 +1090,19 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
         auto debugId = PyObjectHolder(isDebug, strFromString(connInfo.Buffer->DebugId));
         auto debugOptions = PyObjectHolder(isDebug, strFromString(connInfo.Buffer->DebugOptions));
         DecRef(call(attach_process.ToPython(), pyPortNum.ToPython(), debugId.ToPython(), debugOptions.ToPython(), pyTrue, pyFalse, NULL), isDebug);
+        if (auto err = errOccurred()) {
+            PyObject *type, *value, *traceback;
+            pyErrFetch(&type, &value, &traceback);
 
+            auto repr = PyObjectHolder(isDebug, pyObjectRepr(value));
+            wchar_t reprText[0x1000] = {};
+            pyUnicodeAsWideChar(repr.ToPython(), reprText, sizeof(reprText) / sizeof(reprText[0]) - 1);
+            fputws(reprText, stderr);
+
+            connInfo.ReportErrorAfterAttachDone(ConnError_LoadDebuggerFailed);
+            return false;
+        }
+        
         auto sysMod = PyObjectHolder(isDebug, pyImportMod("sys"));
         if (*sysMod == nullptr) {
             connInfo.ReportErrorAfterAttachDone(ConnError_SysNotFound);
@@ -1126,7 +1130,7 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
         unordered_set<PyThreadState*> seenThreads;
         {
             // find what index is holding onto the thread state...
-            auto curPyThread = *curPythonThread;
+            auto curPyThread = getPythonThread ? getPythonThread() : *curPythonThread;
             int threadStateIndex = -1;
             for (int i = 0; i < 100000; i++) {
                 void* value = getThreadTls(i);
@@ -1148,7 +1152,7 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
                     foundThread = true;
                     processedThreads++;
 
-                    long threadId = GetPythonThreadId(version, curThread);
+                    DWORD threadId = GetPythonThreadId(version, curThread);
                     // skip this thread - it doesn't really have any Python code on it...
                     if (threadId != GetCurrentThreadId()) {
                         // create new debugger Thread object on our injected thread
@@ -1161,6 +1165,8 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
                             frame = ((PyThreadState_30_33*)curThread)->frame;
                         } else if (PyThreadState_34_36::IsFor(version)) {
                             frame = ((PyThreadState_34_36*)curThread)->frame;
+                        } else if (PyThreadState_37::IsFor(version)) {
+                            frame = ((PyThreadState_37*)curThread)->frame;
                         }
 
                         auto threadObj = PyObjectHolder(isDebug, call(new_thread.ToPython(), pyThreadId.ToPython(), pyTrue, frame, NULL));
@@ -1228,10 +1234,7 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
         HMODULE hModule = NULL;
         if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCTSTR)GetCurrentModuleFilename, &hModule) != 0) {
             // set our handle so we can be unloaded on detach...
-            dictSetItem(globalsDict.ToPython(),
-                "debugger_dll_handle",
-                intFromSizeT((size_t)hModule)
-                );
+            DecRef(call(set_debugger_dll_handle.ToPython(), intFromSizeT((size_t)hModule), nullptr), isDebug);
         }
 
         return true;
@@ -1331,7 +1334,7 @@ int TraceGeneral(int interpreterId, PyObject *obj, PyFrameObject *frame, int wha
 
     auto call = curInterpreter->GetCall();
     if (call != nullptr && curInterpreter->EnsureCurrentThread()) {
-        auto curThread = *curInterpreter->CurrentThread;
+        auto curThread = curInterpreter->GetCurrentThread();
 
         bool isDebug = new_thread->_isDebug;
 
@@ -1354,6 +1357,8 @@ int TraceGeneral(int interpreterId, PyObject *obj, PyFrameObject *frame, int wha
             ((PyThreadState_30_33*)curThread)->c_tracefunc(((PyThreadState_30_33*)curThread)->c_traceobj, frame, what, arg);
         } else if (PyThreadState_34_36::IsFor(version)) {
             ((PyThreadState_34_36*)curThread)->c_tracefunc(((PyThreadState_34_36*)curThread)->c_traceobj, frame, what, arg);
+        } else if (PyThreadState_37::IsFor(version)) {
+            ((PyThreadState_37*)curThread)->c_tracefunc(((PyThreadState_37*)curThread)->c_traceobj, frame, what, arg);
         }
     }
     return 0;
@@ -1399,6 +1404,8 @@ void SetInitialTraceFunc(DWORD interpreterId, PyThreadState *thread) {
         gilstate_counter = ((PyThreadState_30_33*)thread)->gilstate_counter;
     } else if (PyThreadState_34_36::IsFor(version)) {
         gilstate_counter = ((PyThreadState_34_36*)thread)->gilstate_counter;
+    } else if (PyThreadState_37::IsFor(version)) {
+        gilstate_counter = ((PyThreadState_37*)thread)->gilstate_counter;
     }
 
     if (gilstate_counter == 1) {
@@ -1470,7 +1477,7 @@ PyGILState_STATE MyGilEnsureGeneral(DWORD interpreterId) {
 
     if (res == PyGILState_UNLOCKED) {
         if (curInterpreter->EnsureCurrentThread()) {
-            auto thread = *curInterpreter->CurrentThread;
+            auto thread = curInterpreter->GetCurrentThread();
 
             if (thread != nullptr && curInterpreter->EnsureSetTrace()) {
                 SetInitialTraceFunc(interpreterId, thread);

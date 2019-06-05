@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,7 +19,7 @@ using Microsoft.CookiecutterTools.Infrastructure;
 using Microsoft.CookiecutterTools.Model;
 
 namespace Microsoft.CookiecutterTools.ViewModel {
-    class TemplateViewModel : INotifyPropertyChanged {
+    class TemplateViewModel : TreeItemViewModel {
         private string _displayName;
         private string _remoteUrl;
         private string _ownerUrl;
@@ -27,10 +27,9 @@ namespace Microsoft.CookiecutterTools.ViewModel {
         private string _clonedPath;
         private string _description;
         private string _avatarUrl;
+        private string _category;
         private bool _isSearchTerm;
         private bool _isUpdateAvailable;
-
-        public event PropertyChangedEventHandler PropertyChanged;
 
         public TemplateViewModel() {
         }
@@ -112,7 +111,8 @@ namespace Microsoft.CookiecutterTools.ViewModel {
             set {
                 if (value != _displayName) {
                     _displayName = value;
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DisplayName)));
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(DisplayName)));
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(AutomationName)));
                 }
             }
         }
@@ -125,7 +125,7 @@ namespace Microsoft.CookiecutterTools.ViewModel {
             set {
                 if (value != _remoteUrl) {
                     _remoteUrl = value;
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(RemoteUrl)));
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(RemoteUrl)));
                 }
 
                 RefreshOwnerTooltip();
@@ -140,7 +140,7 @@ namespace Microsoft.CookiecutterTools.ViewModel {
             set {
                 if (value != _clonedPath) {
                     _clonedPath = value;
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ClonedPath)));
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(ClonedPath)));
                 }
             }
         }
@@ -153,7 +153,7 @@ namespace Microsoft.CookiecutterTools.ViewModel {
             set {
                 if (value != _description) {
                     _description = value;
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Description)));
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(Description)));
                 }
             }
         }
@@ -166,7 +166,7 @@ namespace Microsoft.CookiecutterTools.ViewModel {
             set {
                 if (value != _avatarUrl) {
                     _avatarUrl = value;
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AvatarUrl)));
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(AvatarUrl)));
                 }
             }
         }
@@ -179,7 +179,7 @@ namespace Microsoft.CookiecutterTools.ViewModel {
             set {
                 if (value != _ownerUrl) {
                     _ownerUrl = value;
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OwnerUrl)));
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(OwnerUrl)));
                 }
             }
         }
@@ -192,7 +192,7 @@ namespace Microsoft.CookiecutterTools.ViewModel {
             set {
                 if (value != _ownerTooltip) {
                     _ownerTooltip = value;
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(OwnerTooltip)));
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(OwnerTooltip)));
                 }
             }
         }
@@ -205,7 +205,7 @@ namespace Microsoft.CookiecutterTools.ViewModel {
             set {
                 if (value != _isSearchTerm) {
                     _isSearchTerm = value;
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSearchTerm)));
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(IsSearchTerm)));
                 }
             }
         }
@@ -218,10 +218,28 @@ namespace Microsoft.CookiecutterTools.ViewModel {
             set {
                 if (value != _isUpdateAvailable) {
                     _isUpdateAvailable = value;
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsUpdateAvailable)));
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(IsUpdateAvailable)));
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(AutomationHelpText)));
                 }
             }
         }
+
+        public string Category {
+            get {
+                return _category;
+            }
+            set {
+                if (value != _category) {
+                    _category = value;
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(Category)));
+                    OnPropertyChanged(new PropertyChangedEventArgs(nameof(AutomationHelpText)));
+                }
+            }
+        }
+
+        public override string AutomationHelpText =>
+            (IsUpdateAvailable ? Strings.SearchPage_CategoryHelpTextUpdate : Strings.SearchPage_CategoryHelpTextNoUpdate)
+                .FormatUI(Category);
 
         private void RefreshOwnerTooltip() {
             var owner = RepositoryOwner;

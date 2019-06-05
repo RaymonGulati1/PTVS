@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -49,7 +49,7 @@ namespace Microsoft.VisualStudioTools.Navigation {
 
         public override bool Equals(object obj) {
             ModuleId other = obj as ModuleId;
-            if (null == obj) {
+            if (other == null) {
                 return false;
             }
             if (!_ownerHierarchy.Equals(other._ownerHierarchy)) {

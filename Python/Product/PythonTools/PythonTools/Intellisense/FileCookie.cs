@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,7 +20,7 @@ using System.IO;
 using System.IO.Compression;
 
 namespace Microsoft.PythonTools.Intellisense {
-    public class FileCookie : IIntellisenseCookie {
+    class FileCookie : IIntellisenseCookie {
         private readonly string _path;
         private string[] _allLines;
 
@@ -55,7 +55,7 @@ namespace Microsoft.PythonTools.Intellisense {
         #endregion
     }
 
-    public class ZipFileCookie : IIntellisenseCookie {
+    class ZipFileCookie : IIntellisenseCookie {
         private readonly string _zipFileName;
         private readonly string _pathInZip;
         private List<string> _allLines;

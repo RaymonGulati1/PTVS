@@ -4,6 +4,7 @@
     <Description Package="{6dbd7c1e-1f1b-496d-ac7c-c55dae66c783}" ID="5013" />
     <Icon Package="{6dbd7c1e-1f1b-496d-ac7c-c55dae66c783}" ID="401" />
     <ProjectType>Python</ProjectType>
+    <TemplateID>Microsoft.Python.Core.FromExistingCode</TemplateID>
     <SortOrder>10</SortOrder>
     <NumberOfParentCategoriesToRollUp>2</NumberOfParentCategoriesToRollUp>
     <CreateNewFolder>false</CreateNewFolder>
@@ -14,7 +15,7 @@
     <Project File="FromExistingCode.pyproj" ReplaceParameters="true" IgnoreProjectParameter="$true$"></Project>
   </TemplateContent>
   <WizardExtension>
-    <Assembly>Microsoft.PythonTools.ImportWizard, Version=2.1.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</Assembly>
-    <FullClassName>Microsoft.PythonTools.ImportWizard.Wizard</FullClassName>
+    <Assembly>Microsoft.PythonTools.ProjectWizards, Version=16.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a</Assembly>
+    <FullClassName>Microsoft.PythonTools.ProjectWizards.ImportWizard</FullClassName>
   </WizardExtension>
 </VSTemplate>

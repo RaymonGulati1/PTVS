@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -50,7 +50,7 @@ namespace Microsoft.PythonTools.Profiling {
 
             ProcessStartInfo processInfo;
             string pythonInstallDir = Path.GetDirectoryName(PythonToolsInstallPath.GetFile("VsPyProf.dll", typeof(ProfiledProcess).Assembly));
-            
+
             string dll = _arch == ProcessorArchitecture.Amd64 ? "VsPyProf.dll" : "VsPyProfX86.dll";
             string arguments = string.Join(" ",
                 ProcessOutput.QuoteSingleArgument(Path.Combine(pythonInstallDir, "proflaun.py")),
@@ -66,7 +66,7 @@ namespace Microsoft.PythonTools.Profiling {
             if (_pyService.DebuggerOptions.WaitOnAbnormalExit) {
                 processInfo.EnvironmentVariables["VSPYPROF_WAIT_ON_ABNORMAL_EXIT"] = "1";
             }
-            
+
             processInfo.CreateNoWindow = false;
             processInfo.UseShellExecute = false;
             processInfo.RedirectStandardOutput = false;
@@ -88,7 +88,7 @@ namespace Microsoft.PythonTools.Profiling {
 
         public void StartProfiling(string filename) {
             StartPerfMon(filename);
-            
+
             _process.EnableRaisingEvents = true;
             _process.Exited += (sender, args) => {
                 try {
@@ -159,7 +159,11 @@ namespace Microsoft.PythonTools.Profiling {
                 }
 
                 using (var key = baseKey.OpenSubKey(@"Software\Microsoft\VisualStudio\VSPerf")) {
+#if DEV16
+                    var path = key?.GetValue("CollectionToolsDir2019") as string;
+#else
                     var path = key?.GetValue("CollectionToolsDir") as string;
+#endif
                     if (!string.IsNullOrEmpty(path)) {
                         if (_arch == ProcessorArchitecture.Amd64) {
                             path = PathUtils.GetAbsoluteDirectoryPath(path, "x64");
@@ -205,7 +209,6 @@ namespace Microsoft.PythonTools.Profiling {
             perfToolsPath = Path.Combine(shFolder, perfToolsPath);
             return perfToolsPath;
         }
-
 
         internal void StopProfiling() {
             _process.Kill();

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -34,9 +34,12 @@ namespace Microsoft.PythonTools.CodeCoverage {
             _input = input;
         }
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Security.Xml", "CA3053:UseXmlSecureResolver")]
         public CoverageFileInfo[] Parse() {
-            XmlDocument doc = new XmlDocument();
-            doc.Load(_input);
+            XmlDocument doc = new XmlDocument { XmlResolver = null };
+            var settings = new XmlReaderSettings { XmlResolver = null };
+            using (var reader = XmlReader.Create(_input, settings))
+                doc.Load(reader);
             Dictionary<string, HashSet<int>> data = new Dictionary<string, HashSet<int>>();
 
             var root = doc.DocumentElement.CreateNavigator();

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -41,7 +41,7 @@ namespace Microsoft.PythonTools.Repl {
             var eval = window.GetPythonEvaluator();
             if (eval != null) {
                 finder.Search(eval.Configuration.WorkingDirectory);
-                foreach (var p in eval.Configuration.SearchPaths) {
+                foreach (var p in eval.Configuration.SearchPaths.MaybeEnumerate()) {
                     finder.Search(p);
                 }
             }
@@ -62,11 +62,11 @@ namespace Microsoft.PythonTools.Repl {
                 var currentSubmission = new List<string>();
 
                 foreach (var line in lines) {
-                    if (line.StartsWith(_commentPrefix)) {
+                    if (line.StartsWithOrdinal(_commentPrefix, ignoreCase: true)) {
                         continue;
                     }
 
-                    if (line.StartsWith(commandPrefix)) {
+                    if (line.StartsWithOrdinal(commandPrefix, ignoreCase: true)) {
                         AddSubmission(submissionList, currentSubmission, lineBreak);
 
                         submissionList.Add(line);
@@ -86,7 +86,7 @@ namespace Microsoft.PythonTools.Repl {
         }
 
         private static bool CommentPrefixPredicate(string input) {
-            return !input.StartsWith(_commentPrefix);
+            return !input.StartsWithOrdinal(_commentPrefix, ignoreCase: true);
         }
 
         private static void AddSubmission(List<string> submissions, List<string> lines, string lineBreak) {

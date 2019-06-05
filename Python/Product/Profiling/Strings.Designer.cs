@@ -19,7 +19,7 @@ namespace Microsoft.PythonTools.Profiling {
     // class via a tool like ResGen or Visual Studio.
     // To add or remove a member, edit your .ResX file then rerun ResGen
     // with the /str option, or rebuild your VS project.
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "4.0.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "15.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     public class Strings {
@@ -57,6 +57,24 @@ namespace Microsoft.PythonTools.Profiling {
             }
             set {
                 resourceCulture = value;
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Can&apos;t find expected output file.
+        /// </summary>
+        public static string CannotFindGeneratedFile {
+            get {
+                return ResourceManager.GetString("CannotFindGeneratedFile", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Can&apos;t find specified Python interpreter.
+        /// </summary>
+        public static string CannotFindPythonInterpreter {
+            get {
+                return ResourceManager.GetString("CannotFindPythonInterpreter", resourceCulture);
             }
         }
         
@@ -214,6 +232,15 @@ namespace Microsoft.PythonTools.Profiling {
         public static string LaunchProfiling_InterpreterPathBrowseButtonDescription {
             get {
                 return ResourceManager.GetString("LaunchProfiling_InterpreterPathBrowseButtonDescription", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Mi_xed Mode Profiling.
+        /// </summary>
+        public static string LaunchProfiling_MixedModeProfiling {
+            get {
+                return ResourceManager.GetString("LaunchProfiling_MixedModeProfiling", resourceCulture);
             }
         }
         
@@ -470,11 +497,20 @@ namespace Microsoft.PythonTools.Profiling {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Python files (*.py;*.pyw)|*.py;*.pyw|All Files (*.*)|*.*.
+        ///   Looks up a localized string similar to Python files (*.py;*.pyw;*.pyi)|*.py;*.pyw;*.pyi|All Files (*.*)|*.*.
         /// </summary>
         public static string PythonFilesFilter {
             get {
                 return ResourceManager.GetString("PythonFilesFilter", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Reports.
+        /// </summary>
+        public static string Reports {
+            get {
+                return ResourceManager.GetString("Reports", resourceCulture);
             }
         }
         

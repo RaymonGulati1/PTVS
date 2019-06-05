@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -28,50 +28,15 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
     /// </summary>
     internal class DependencyInfo {
         private readonly int _version;
-        private ISet<AnalysisUnit> _dependentUnits;
+        private SmallSetWithExpiry<AnalysisUnit> _dependentUnits;
 
         public DependencyInfo(int version) {
             _version = version;
         }
 
-        public ISet<AnalysisUnit> DependentUnits {
-            get {
-                return _dependentUnits; 
-            }
-        }
-
-        public bool AddDependentUnit(AnalysisUnit unit) {
-            return AddValue(ref _dependentUnits, unit);
-        }
-
-        public int Version {
-            get {
-                return _version;
-            }
-        }
-
-        internal static bool AddValue(ref ISet<AnalysisUnit> references, AnalysisUnit value) {
-            AnalysisUnit prevNs;
-            SetOfTwo<AnalysisUnit> prevSetOfTwo;
-            if (references == null) {
-                references = value;
-                return true;
-            } else if ((prevNs = references as AnalysisUnit) != null) {
-                if (references != value) {
-                    references = new SetOfTwo<AnalysisUnit>(prevNs, value);
-                    return true;
-                }
-            } else if ((prevSetOfTwo = references as SetOfTwo<AnalysisUnit>) != null) {
-                if (value != prevSetOfTwo.Value1 && value != prevSetOfTwo.Value2) {
-                    references = new HashSet<AnalysisUnit>(prevSetOfTwo);
-                    references.Add(value);
-                    return true;
-                }
-            } else {
-                return references.Add(value);
-            }
-            return false;
-        }
+        public IEnumerable<AnalysisUnit> DependentUnits => _dependentUnits; 
+        public bool AddDependentUnit(AnalysisUnit unit) => _dependentUnits.Add(unit);
+        public int Version => _version;
     }
 
     internal class KeyValueDependencyInfo : DependencyInfo {
@@ -101,19 +66,20 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
                 values.Add(keyValue);
             }
 
-            KeyValues = new Dictionary<AnalysisValue, IAnalysisSet>(cmp);
+            var keyValues = new Dictionary<AnalysisValue, IAnalysisSet>(cmp);
             foreach (var list in matches.Values) {
-                bool dummy;
-                var key = list[0].Key;
-                var value = list[0].Value.AsUnion(cmp, out dummy);
+                var key = AnalysisSet.CreateUnion(list.Select(kv => kv.Key), cmp);
+                var value = AnalysisSet.CreateUnion(list.SelectMany(kv => kv.Value), cmp);
 
-                foreach (var item in list.Skip(1)) {
-                    key = cmp.MergeTypes(key, item.Key, out dummy);
-                    value = value.Union(item.Value);
+                foreach (var k in key) {
+                    if (keyValues.TryGetValue(k, out var existing)) {
+                        keyValues[k] = value.Union(existing);
+                    } else {
+                        keyValues[k] = value;
+                    }
                 }
-
-                KeyValues[key] = value;
             }
+            KeyValues = keyValues;
         }
     }
 
@@ -134,6 +100,10 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
         static bool TAKE_COPIES = false;
 
         public bool AddType(AnalysisValue ns) {
+            if (!ns.IsAlive) {
+                return false;
+            }
+
             bool wasChanged;
             IAnalysisSet prev;
             if (TAKE_COPIES) {
@@ -141,12 +111,16 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
             } else {
                 prev = _types;
             }
-            _types = prev.Add(ns, out wasChanged);
+            if (prev.Any(av => !av.IsAlive)) {
+                _types = AnalysisSet.Create(prev.Where(av => av.IsAlive), prev.Comparer).Add(ns, out wasChanged);
+            } else {
+                _types = prev.Add(ns, out wasChanged);
+            }
 #if FULL_VALIDATION
             _changeCount += wasChanged ? 1 : 0;
             // The value doesn't mean anything, we just want to know if a variable is being
             // updated too often.
-            Validation.Assert<ChangeCountExceededException>(_changeCount < 10000);
+            Validation.Assert(_changeCount < 10000, $"Excessive changes to a variable");
 #endif
             return wasChanged;
         }
@@ -170,7 +144,7 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
     }
 
     internal class ReferenceableDependencyInfo : TypedDependencyInfo {
-        public ISet<EncodedLocation> _references, _assignments;
+        public SmallSetWithExpiry<EncodedLocation> _references, _assignments;
 
         public ReferenceableDependencyInfo(int version)
             : base(version) { }
@@ -179,25 +153,9 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
             : base(version, emptySet) {
         }
 
-
-        public bool AddReference(EncodedLocation location) {
-            return HashSetExtensions.AddValue(ref _references, location);
-        }
-
-        public IEnumerable<EncodedLocation> References {
-            get {
-                return _references;
-            }
-        }
-
-        public bool AddAssignment(EncodedLocation location) {
-            return HashSetExtensions.AddValue(ref _assignments, location);
-        }
-
-        public IEnumerable<EncodedLocation> Assignments {
-            get {
-                return _assignments;
-            }
-        }
+        public bool AddReference(EncodedLocation location) => _references.Add(location);
+        public IEnumerable<EncodedLocation> References => _references;
+        public bool AddAssignment(EncodedLocation location) => _assignments.Add(location);
+        public IEnumerable<EncodedLocation> Assignments => _assignments;
     }
 }

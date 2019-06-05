@@ -9,21 +9,22 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Runtime.InteropServices;
+using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudio;
+using Microsoft.VisualStudio.Imaging;
+using Microsoft.VisualStudio.Imaging.Interop;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudioTools.Project;
 using OleConstants = Microsoft.VisualStudio.OLE.Interop.Constants;
 using VsCommands = Microsoft.VisualStudio.VSConstants.VSStd97CmdID;
 using VsMenus = Microsoft.VisualStudioTools.Project.VsMenus;
-using Microsoft.VisualStudio.Imaging;
-using Microsoft.VisualStudio.Imaging.Interop;
 
 namespace Microsoft.PythonTools.Project {
     /// <summary>
@@ -128,10 +129,15 @@ namespace Microsoft.PythonTools.Project {
             } else if (cmdGroup == GuidList.guidPythonToolsCmdSet) {
                 switch (cmd) {
                     case PythonConstants.AddEnvironment:
-                    case PythonConstants.AddVirtualEnv:
-                    case PythonConstants.AddExistingVirtualEnv:
                     case PythonConstants.ViewAllEnvironments:
                         result |= QueryStatusResult.SUPPORTED | QueryStatusResult.ENABLED;
+                        return VSConstants.S_OK;
+                    case PythonConstants.AddCondaEnv:
+                    case PythonConstants.AddVirtualEnv:
+                    case PythonConstants.AddExistingEnv:
+                        // Deprecated, don't show them in context menu
+                        // (still used by tests for now)
+                        result |= QueryStatusResult.SUPPORTED | QueryStatusResult.ENABLED | QueryStatusResult.INVISIBLE;
                         return VSConstants.S_OK;
                 }
             }

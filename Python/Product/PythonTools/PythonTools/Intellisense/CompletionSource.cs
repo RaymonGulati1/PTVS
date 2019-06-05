@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,22 +21,39 @@ using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor.OptionsExtensionMethods;
 
 namespace Microsoft.PythonTools.Intellisense {
-    public static class CompletionSessionExtensions {
+    static class CompletionSessionExtensions {
+        private const string CompleteWord = nameof(CompleteWord);
+        private const string TriggerChar = nameof(TriggerChar);
+
         public static CompletionOptions GetOptions(this ICompletionSession session, IServiceProvider serviceProvider) {
             var pyService = serviceProvider.GetPythonToolsService();
 
             var options = new CompletionOptions {
                 ConvertTabsToSpaces = session.TextView.Options.IsConvertTabsToSpacesEnabled(),
                 IndentSize = session.TextView.Options.GetIndentSize(),
-                TabSize = session.TextView.Options.GetTabSize()
+                TabSize = session.TextView.Options.GetTabSize(),
+                IntersectMembers = pyService.AdvancedOptions.IntersectMembers,
+                HideAdvancedMembers = pyService.LangPrefs.HideAdvancedMembers,
+                FilterCompletions = pyService.AdvancedOptions.FilterCompletions,
             };
 
-            options.IntersectMembers = pyService.AdvancedOptions.IntersectMembers;
-            options.HideAdvancedMembers = pyService.LangPrefs.HideAdvancedMembers;
-            options.FilterCompletions = pyService.AdvancedOptions.FilterCompletions;
-            options.SearchMode = pyService.AdvancedOptions.SearchMode;
             return options;
         }
+
+        public static void SetCompleteWordMode(this IIntellisenseSession session) 
+            => session.Properties[CompleteWord] = true;
+
+        public static void ClearCompleteWordMode(this IIntellisenseSession session)
+            => session.Properties.RemoveProperty(CompleteWord);
+
+        public static bool IsCompleteWordMode(this IIntellisenseSession session) 
+            => session.Properties.TryGetProperty(CompleteWord, out bool prop) && prop;
+
+        public static void SetTriggerCharacter(this IIntellisenseSession session, char triggerChar)
+            => session.Properties[TriggerChar] = triggerChar;
+
+        public static char GetTriggerCharacter(this IIntellisenseSession session)
+            => session.Properties.TryGetProperty(TriggerChar, out char c) ? c : '\0';
     }
 
     class CompletionSource : ICompletionSource {
@@ -50,16 +67,12 @@ namespace Microsoft.PythonTools.Intellisense {
 
         public void AugmentCompletionSession(ICompletionSession session, IList<CompletionSet> completionSets) {
             var textBuffer = _textBuffer;
-            var span = session.GetApplicableSpan(textBuffer);
             var triggerPoint = session.GetTriggerPoint(textBuffer);
-            var options = session.GetOptions(_provider._serviceProvider);
             var provider = _provider._pyService.GetCompletions(
                 session,
                 session.TextView,
                 textBuffer.CurrentSnapshot,
-                span,
-                triggerPoint,
-                options
+                triggerPoint
             );
 
             var completions = provider.GetCompletions(_provider._glyphService);

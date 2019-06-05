@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -23,13 +23,13 @@ namespace Microsoft.PythonTools.Infrastructure {
     /// <summary>
     /// Provides access to the DesignerContext and WpfEventBindingProvider.
     /// </summary>
-    public interface IXamlDesignerSupport {
+    interface IXamlDesignerSupport {
         Guid DesignerContextTypeGuid { get; }
         object CreateDesignerContext();
         void InitializeEventBindingProvider(object designerContext, IXamlDesignerCallback callback);
     }
 
-    public interface IXamlDesignerCallback {
+    interface IXamlDesignerCallback {
         ITextView TextView {
             get;
         }
@@ -37,6 +37,7 @@ namespace Microsoft.PythonTools.Infrastructure {
             get;
         }
 
+        bool EnsureDocumentIsOpen();
         InsertionPoint GetInsertionPoint(string className);
 
         string[] FindMethods(string className, int? paramCount);
@@ -44,7 +45,7 @@ namespace Microsoft.PythonTools.Infrastructure {
         MethodInformation GetMethodInfo(string className, string methodName);
     }
 
-    public sealed class InsertionPoint {
+    sealed class InsertionPoint {
         public readonly int Location, Indentation;
         public InsertionPoint(int location, int indentation) {
             Location = location;
@@ -52,7 +53,7 @@ namespace Microsoft.PythonTools.Infrastructure {
         }
     }
 
-    public sealed class MethodInformation {
+    sealed class MethodInformation {
         public readonly bool IsFound;
         public readonly int Start, End;
 

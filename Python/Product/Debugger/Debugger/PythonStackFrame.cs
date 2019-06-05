@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,12 +17,13 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.PythonTools.Analysis;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Parsing;
-using Microsoft.PythonTools.Parsing.Ast;
 
 namespace Microsoft.PythonTools.Debugger {
     class PythonStackFrame {
@@ -161,7 +162,7 @@ namespace Microsoft.PythonTools.Debugger {
         }
 
         public Task ExecuteTextAsync(string text, PythonEvaluationResultReprKind reprKind, Action<PythonEvaluationResult> completion, CancellationToken ct) {
-            return _thread.Process.ExecuteTextAsync(text, reprKind, this, completion, ct);
+            return _thread.Process.ExecuteTextAsync(text, reprKind, this, false, completion, ct);
         }
 
         public async Task<PythonEvaluationResult> ExecuteTextAsync(string text, PythonEvaluationResultReprKind reprKind = PythonEvaluationResultReprKind.Normal, CancellationToken ct = default(CancellationToken)) {
@@ -195,88 +196,18 @@ namespace Microsoft.PythonTools.Debugger {
             return GetQualifiedFunctionName(_thread.Process, FileName, LineNo, FunctionName);
         }
 
-        /// <summary>
-        /// Computes the fully qualified function name, including name of the enclosing class for methods,
-        /// and, recursively, names of any outer functions.
-        /// </summary>
-        /// <example>
-        /// Given this code:
-        /// <code>
-        /// class A:
-        ///   def b(self):
-        ///     def c():
-        ///       class D:
-        ///         def e(self):
-        ///           pass
-        /// </code>
-        /// And with the current statement being <c>pass</c>, the qualified name is "D.e in c in A.b".
-        /// </example>
         public static string GetQualifiedFunctionName(PythonProcess process, string filename, int lineNo, string functionName) {
             var ast = process.GetAst(filename);
             if (ast == null) {
                 return functionName;
             }
 
-            var walker = new QualifiedFunctionNameWalker(ast, lineNo, functionName);
-            try {
-                ast.Walk(walker);
-            } catch (InvalidDataException) {
-                // Walker ran into a mismatch between expected function name and AST, so we cannot
-                // rely on AST to construct an accurate qualified name. Just return what we have.
-                return functionName;
-            }
-
-            string qualName = walker.Name;
-            if (string.IsNullOrEmpty(qualName)) {
-                return functionName;
-            }
-
-            return qualName;
-        }
-
-        private class QualifiedFunctionNameWalker : PythonWalker {
-            private readonly PythonAst _ast;
-            private readonly int _lineNumber;
-            private readonly StringBuilder _name = new StringBuilder();
-            private readonly string _expectedFuncName;
-
-            public QualifiedFunctionNameWalker(PythonAst ast, int lineNumber, string expectedFuncName) {
-                _ast = ast;
-                _lineNumber = lineNumber;
-                _expectedFuncName = expectedFuncName;
-            }
-
-            public string Name {
-                get { return _name.ToString(); }
-            }
-
-            public override void PostWalk(FunctionDefinition node) {
-                int start = node.GetStart(_ast).Line;
-                int end = node.Body.GetEnd(_ast).Line + 1;
-                if (_lineNumber < start || _lineNumber >= end) {
-                    return;
-                }
-
-                string funcName = node.Name;
-                if (_name.Length == 0 && funcName != _expectedFuncName) {
-                    // The innermost function name must match the one that we've got from the code object.
-                    // If it doesn't, the source code that we're parsing is out of sync with the running program,
-                    // and cannot be used to compute the fully qualified name.
-                    throw new InvalidDataException();
-                }
-
-                for (var classDef = node.Parent as ClassDefinition; classDef != null; classDef = classDef.Parent as ClassDefinition) {
-                    funcName = classDef.Name + "." + funcName;
-                }
-
-                if (_name.Length != 0) {
-                    var inner = _name.ToString();
-                    _name.Clear();
-                    _name.Append(Strings.DebugStackFrameNameInName.FormatUI(inner, funcName));
-                } else {
-                    _name.Append(funcName);
-                }
-            }
+            return QualifiedFunctionNameWalker.GetDisplayName(
+                lineNo,
+                functionName,
+                ast,
+                (a, n) => string.IsNullOrEmpty(a) ? n : Strings.DebugStackFrameNameInName.FormatUI(n, a)
+            );
         }
     }
 

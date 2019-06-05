@@ -9,14 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.VisualStudio;
@@ -53,7 +52,7 @@ namespace Microsoft.VisualStudioTools.Project {
         public bool IsFormSubType {
             get {
                 string result = this.ItemNode.GetMetadata(ProjectFileConstants.SubType);
-                if (!String.IsNullOrEmpty(result) && string.Compare(result, ProjectFileAttributeValue.Form, true, CultureInfo.InvariantCulture) == 0)
+                if (!String.IsNullOrEmpty(result) && string.Compare(result, ProjectFileAttributeValue.Form, StringComparison.OrdinalIgnoreCase) == 0)
                     return true;
                 else
                     return false;
@@ -188,9 +187,6 @@ namespace Microsoft.VisualStudioTools.Project {
         }
 
         private ITextBuffer GetTextBufferOnUIThread(bool create) {
-            IVsTextManager textMgr = (IVsTextManager)GetService(typeof(SVsTextManager));
-            var model = GetService(typeof(SComponentModel)) as IComponentModel;
-            var adapter = model.GetService<IVsEditorAdaptersFactoryService>();
             uint itemid;
 
             IVsRunningDocumentTable rdt = ProjectMgr.GetService(typeof(SVsRunningDocumentTable)) as IVsRunningDocumentTable;
@@ -237,7 +233,12 @@ namespace Microsoft.VisualStudioTools.Project {
                 }
 
                 if (srpTextLines != null) {
-                    return adapter.GetDocumentBuffer(srpTextLines);
+                    var model = GetService(typeof(SComponentModel)) as IComponentModel;
+                    var adapter = model.GetService<IVsEditorAdaptersFactoryService>();
+                    var buffer = adapter.GetDocumentBuffer(srpTextLines);
+                    if (buffer != null) {
+                        return buffer;
+                    }
                 }
             }
 

@@ -9,17 +9,20 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using Microsoft.PythonTools.Debugger.DebugEngine;
 using Microsoft.PythonTools.Debugger.Transports;
-using Microsoft.PythonTools.DkmDebugger;
 using Microsoft.PythonTools.Infrastructure;
+using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Debugger.Interop;
 
@@ -30,6 +33,9 @@ namespace Microsoft.PythonTools.Debugger.Remote {
     public class PythonRemoteDebugPortSupplier : IDebugPortSupplier2, IDebugPortSupplierDescription2 {
         public const string PortSupplierId = "{FEB76325-D127-4E02-B59D-B16D93D46CF5}";
         public static readonly Guid PortSupplierGuid = new Guid(PortSupplierId);
+        private readonly List<IDebugPort2> _ports = new List<IDebugPort2>();
+
+        internal static TextWriter DebugLog { get; set; }
 
         // Qualifier for our transport has one of the following formats:
         //
@@ -68,18 +74,21 @@ namespace Microsoft.PythonTools.Debugger.Remote {
                 return validationError.HResult;
             }
 
-            var port = new PythonRemoteDebugPort(this, pRequest, uri);
+            var port = new PythonRemoteDebugPort(this, pRequest, uri, DebugLog);
 
-            // Validate connection early. Debugger automation (DTE) objects are not consistent in error checking from this
-            // point on, so errors reported from EnumProcesses and further calls may be ignored and treated as successes
-            // (with empty result). Reporting an error here works around that.
-            IEnumDebugProcesses2 processes;
-            int hr = port.EnumProcesses(out processes);
-            if (hr < 0) {
-                return hr;
+            if (PythonDebugOptionsServiceHelper.Options.UseLegacyDebugger) {
+                // Validate connection early. Debugger automation (DTE) objects are not consistent in error checking from this
+                // point on, so errors reported from EnumProcesses and further calls may be ignored and treated as successes
+                // (with empty result). Reporting an error here works around that.
+                int hr = port.EnumProcesses(out IEnumDebugProcesses2 processes);
+                if (hr < 0) {
+                    return hr;
+                }
             }
 
             ppPort = port;
+            _ports.Add(port);
+
             return VSConstants.S_OK;
         }
 
@@ -88,13 +97,21 @@ namespace Microsoft.PythonTools.Debugger.Remote {
         }
 
         public int EnumPorts(out IEnumDebugPorts2 ppEnum) {
-            ppEnum = null;
+            ppEnum = new AD7DebugPortsEnum(_ports.ToArray());
             return VSConstants.S_OK;
         }
 
         public int GetPort(ref Guid guidPort, out IDebugPort2 ppPort) {
+            // Never called, so this code has not been verified
+            foreach (var port in _ports) {
+                Guid currentGuid;
+                if (port.GetPortId(out currentGuid) == VSConstants.S_OK && currentGuid == guidPort) {
+                    ppPort = port;
+                    return VSConstants.S_OK;
+                }
+            }
             ppPort = null;
-            return VSConstants.E_NOTIMPL;
+            return DebuggerConstants.E_PORTSUPPLIER_NO_PORT;
         }
 
         public int GetPortSupplierId(out Guid pguidPortSupplier) {
@@ -109,7 +126,9 @@ namespace Microsoft.PythonTools.Debugger.Remote {
         }
 
         public int RemovePort(IDebugPort2 pPort) {
-            return VSConstants.S_OK;
+            // Never called, so this code has not been verified
+            bool removed = _ports.Remove(pPort);
+            return removed ? VSConstants.S_OK : DebuggerConstants.E_PORTSUPPLIER_NO_PORT;
         }
 
         public int GetDescription(enum_PORT_SUPPLIER_DESCRIPTION_FLAGS[] pdwFlags, out string pbstrText) {

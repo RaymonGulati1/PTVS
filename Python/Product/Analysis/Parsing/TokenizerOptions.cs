@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -43,6 +43,11 @@ namespace Microsoft.PythonTools.Parsing {
         /// To successfully parse the function defintion even though we have no idea we should
         /// be looking at indents/dedents after the open grouping starts.
         /// </summary>
-        GroupingRecovery = 0x04
+        GroupingRecovery = 0x04,
+        /// <summary>
+        /// Enables parsing of stub files. Stub files act like Python 3.6 or later, regardless
+        /// of the specified version.
+        /// </summary>
+        StubFile = 0x08,
     }
 }

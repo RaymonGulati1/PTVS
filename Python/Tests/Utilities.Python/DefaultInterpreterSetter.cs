@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,7 +20,6 @@ using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudio.ComponentModelHost;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Microsoft.VisualStudioTools.VSTestHost;
 
 namespace TestUtilities.UI {
     public class DefaultInterpreterSetter : IDisposable {
@@ -28,9 +27,9 @@ namespace TestUtilities.UI {
         public readonly IPythonInterpreterFactory OriginalInterpreter;
         private bool _isDisposed;
 
-        public DefaultInterpreterSetter(IPythonInterpreterFactory factory, IServiceProvider site = null) {
+        public DefaultInterpreterSetter(IPythonInterpreterFactory factory, IServiceProvider site) {
             Assert.IsNotNull(factory, "Cannot set default to null");
-            _model = (IComponentModel)(site ?? VSTestContext.ServiceProvider).GetService(typeof(SComponentModel));
+            _model = (IComponentModel)(site).GetService(typeof(SComponentModel));
             var interpreterService = _model.GetService<IInterpreterOptionsService>();
             Assert.IsNotNull(interpreterService);
 
@@ -55,8 +54,7 @@ namespace TestUtilities.UI {
             if (!_isDisposed) {
                 _isDisposed = true;
 
-                var model = (IComponentModel)VSTestContext.ServiceProvider.GetService(typeof(SComponentModel));
-                var interpreterService = model.GetService<IInterpreterOptionsService>();
+                var interpreterService = _model.GetService<IInterpreterOptionsService>();
                 Assert.IsNotNull(interpreterService);
                 interpreterService.DefaultInterpreter = OriginalInterpreter;
             }

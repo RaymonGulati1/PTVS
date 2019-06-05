@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -98,7 +98,12 @@ namespace Microsoft.VisualStudioTools.Project {
         }
 
         private void GetFeeds(string feed) {
-            var doc = new XPathDocument(feed);
+            XPathDocument doc;
+            var settings = new XmlReaderSettings();
+            settings.XmlResolver = null;
+            using (var reader = XmlReader.Create(feed, settings))
+                doc = new XPathDocument(reader);
+
             XmlNamespaceManager mngr = new XmlNamespaceManager(new NameTable());
             mngr.AddNamespace("x", "http://www.w3.org/2005/Atom");
 
@@ -198,7 +203,7 @@ namespace Microsoft.VisualStudioTools.Project {
                     res = String.Compare(
                        itemX.SubItems[0].Text,
                        itemY.SubItems[0].Text,
-                       true
+                       StringComparison.CurrentCultureIgnoreCase
                    );
                 }
 
@@ -210,8 +215,8 @@ namespace Microsoft.VisualStudioTools.Project {
 
             #endregion
         }
-        private void AddNewFeedClick(object sender, EventArgs e) {
-            RequestFeeds(_newFeedUrl.Text).DoNotWait();
+        private async void AddNewFeedClick(object sender, EventArgs e) {
+            await RequestFeeds(_newFeedUrl.Text);
         }
 
         protected override void DefWndProc(ref Message m) {
@@ -220,7 +225,7 @@ namespace Microsoft.VisualStudioTools.Project {
                     SetWindowStyleOnStaticHostControl();
                     goto default;
                 case VSConstants.CPPM_INITIALIZELIST:
-                    RequestFeeds(_defaultFeeds).DoNotWait();
+                    var t = RequestFeeds(_defaultFeeds);
                     break;
                 case VSConstants.CPPM_SETMULTISELECT:
                     _productsList.MultiSelect = (m.WParam != IntPtr.Zero);

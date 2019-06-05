@@ -9,31 +9,16 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.PythonTools.Analysis;
-using Microsoft.PythonTools.Infrastructure;
+using System.IO;
 
 namespace Microsoft.PythonTools.Interpreter {
     public static class PythonInterpreterFactoryExtensions {
-        /// <summary>
-        /// Executes the interpreter with the specified arguments. Any output is
-        /// captured and returned via the <see cref="ProcessOutput"/> object.
-        /// </summary>
-        internal static ProcessOutput Run(
-            this IPythonInterpreterFactory factory,
-            params string[] arguments) {
-            return ProcessOutput.RunHiddenAndCapture(factory.Configuration.InterpreterPath, arguments);
-        }
-
         /// <summary>
         /// Determines whether two interpreter factories are equivalent.
         /// </summary>
@@ -46,81 +31,6 @@ namespace Microsoft.PythonTools.Interpreter {
             }
 
             return x.Configuration.Equals(y.Configuration);
-        }
-
-        /// <summary>
-        /// Determines whether the interpreter factory contains the specified
-        /// modules.
-        /// </summary>
-        /// <returns>The names of the modules that were found.</returns>
-        public static async Task<HashSet<string>> FindModulesAsync(this IPythonInterpreterFactory factory, params string[] moduleNames) {
-            var finding = new HashSet<string>(moduleNames);
-            var found = new HashSet<string>();
-            var withPackages = factory.PackageManager;
-            if (withPackages != null) {
-                foreach (var m in finding) {
-                    if ((await withPackages.GetInstalledPackageAsync(new PackageSpec(m), CancellationToken.None)).IsValid) {
-                        found.Add(m);
-                    }
-                }
-                finding.ExceptWith(found);
-                if (!finding.Any()) {
-                    // Found all of them, so stop searching
-                    return found;
-                }
-            }
-
-            var withDb = factory as PythonInterpreterFactoryWithDatabase;
-            if (withDb != null && withDb.IsCurrent) {
-                var db = withDb.GetCurrentDatabase();
-                found.UnionWith(finding.Where(m => db.GetModule(m) != null));
-
-                // Always stop searching after this step
-                return found;
-            }
-
-            if (withDb != null) {
-                try {
-                    var paths = await PythonTypeDatabase.GetDatabaseSearchPathsAsync(withDb);
-                    found.UnionWith(PythonTypeDatabase.GetDatabaseExpectedModules(withDb.Configuration.Version, paths)
-                        .SelectMany()
-                        .Select(g => g.ModuleName)
-                        .Where(m => finding.Contains(m)));
-                } catch (InvalidOperationException) {
-                }
-
-                finding.ExceptWith(found);
-                if (!finding.Any()) {
-                    // Found all of them, so stop searching
-                    return found;
-                }
-            }
-
-            return await Task.Run(() => {
-                foreach (var mp in ModulePath.GetModulesInLib(factory.Configuration)) {
-                    if (finding.Remove(mp.ModuleName)) {
-                        found.Add(mp.ModuleName);
-                    }
-
-                    if (!finding.Any()) {
-                        break;
-                    }
-                }
-                return found;
-            });
-        }
-
-        /// <summary>
-        /// Generates the completion database and returns a task that will
-        /// complete when the database is regenerated.
-        /// </summary>
-        internal static Task<int> GenerateDatabaseAsync(
-            this IPythonInterpreterFactoryWithDatabase factory,
-            GenerateDatabaseOptions options
-        ) {
-            var tcs = new TaskCompletionSource<int>();
-            factory.GenerateDatabase(options, tcs.SetResult);
-            return tcs.Task;
         }
 
         /// <summary>
@@ -194,6 +104,82 @@ namespace Microsoft.PythonTools.Interpreter {
             return factory != null &&
                 factory.Configuration != null &&
                 !factory.Configuration.UIMode.HasFlag(InterpreterUIMode.CannotBeConfigured);
+        }
+
+        /// <summary>
+        /// Returns true if the factory can be run. This checks whether the
+        /// configured InterpreterPath value is an actual file.
+        /// </summary>
+        public static bool IsRunnable(this IPythonInterpreterFactory factory) {
+            return factory != null && factory.Configuration.IsRunnable();
+        }
+
+        /// <summary>
+        /// Returns true if the configuration can be run. This checks whether
+        /// the configured InterpreterPath value is an actual file.
+        /// </summary>
+        public static bool IsRunnable(this InterpreterConfiguration config) {
+            return config != null &&
+                !InterpreterRegistryConstants.IsNoInterpretersFactory(config.Id) &&
+                File.Exists(config.InterpreterPath);
+        }
+
+        /// <summary>
+        /// Checks whether the factory can be run and throws the appropriate
+        /// exception if it cannot.
+        /// </summary>
+        /// <exception cref="ArgumentNullException">
+        /// factory is null and parameterName is provided.
+        /// </exception>
+        /// <exception cref="NullReferenceException">
+        /// factory is null and parameterName is not provided, or the factory
+        /// has no configuration.
+        /// </exception>
+        /// <exception cref="NoInterpretersException">
+        /// factory is the sentinel used when no environments are installed.
+        /// </exception>
+        /// <exception cref="FileNotFoundException">
+        /// factory's InterpreterPath does not exist on disk.
+        /// </exception>
+        public static void ThrowIfNotRunnable(this IPythonInterpreterFactory factory, string parameterName = null) {
+            if (factory == null) {
+                if (string.IsNullOrEmpty(parameterName)) {
+                    throw new NullReferenceException();
+                } else {
+                    throw new ArgumentNullException(parameterName);
+                }
+            }
+            factory.Configuration.ThrowIfNotRunnable();
+        }
+
+        /// <summary>
+        /// Checks whether the configuration can be run and throws the
+        /// appropriate exception if it cannot.
+        /// </summary>
+        /// <exception cref="ArgumentNullException">
+        /// config is null and parameterName is provided.
+        /// </exception>
+        /// <exception cref="NullReferenceException">
+        /// config is null and parameterName is not provided.
+        /// </exception>
+        /// <exception cref="NoInterpretersException">
+        /// config is the sentinel used when no environments are installed.
+        /// </exception>
+        /// <exception cref="FileNotFoundException">
+        /// config's InterpreterPath does not exist on disk.
+        /// </exception>
+        public static void ThrowIfNotRunnable(this InterpreterConfiguration config, string parameterName = null) {
+            if (config == null) {
+                if (string.IsNullOrEmpty(parameterName)) {
+                    throw new NullReferenceException();
+                } else {
+                    throw new ArgumentNullException(parameterName);
+                }
+            } else if (InterpreterRegistryConstants.IsNoInterpretersFactory(config.Id)) {
+                throw new NoInterpretersException();
+            } else if (!File.Exists(config.InterpreterPath)) {
+                throw new FileNotFoundException(config.InterpreterPath ?? "(null)");
+            }
         }
     }
 }

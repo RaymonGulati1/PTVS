@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -22,7 +22,7 @@ using System.Runtime.CompilerServices;
 using System.Security;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using Microsoft.CookiecutterTools;
+using Microsoft.CookiecutterTools.Telemetry;
 using Microsoft.VisualStudio.Shell;
 using Task = System.Threading.Tasks.Task;
 
@@ -72,27 +72,32 @@ namespace Microsoft.CookiecutterTools.Infrastructure {
                 // Unknown error prevented writing to the log
             }
 
-            if (allowUI) {
-                lock (_displayedMessages) {
-                    if (!string.IsNullOrEmpty(logFile) &&
-                        _displayedMessages.Add(string.Format("{0}:{1}", callerFile, callerLineNumber))) {
-                        // First time we've seen this error, so let the user know
-                        MessageBox.Show(Strings.SeeActivityLog.FormatUI(logFile), Strings.ProductTitle);
-                    }
-                }
-            }
-
             try {
                 ActivityLog.LogError(Strings.ProductTitle, message);
             } catch (InvalidOperationException) {
                 // Activity Log is unavailable.
+            }
+
+            bool alreadySeen = true;
+            var key = "{0}:{1}:{2}".FormatInvariant(callerFile, callerLineNumber, ex.GetType().Name);
+            lock (_displayedMessages) {
+                if (_displayedMessages.Add(key)) {
+                    alreadySeen = false;
+                }
+            }
+
+            CookiecutterTelemetry.Current?.TelemetryService?.ReportFault(ex, null, !alreadySeen);
+
+            if (allowUI && !alreadySeen && !string.IsNullOrEmpty(logFile)) {
+                // First time we've seen this error, so let the user know
+                MessageBox.Show(Strings.SeeActivityLog.FormatUI(logFile), Strings.ProductTitle);
             }
         }
 
         /// <summary>
         /// Waits for a task to complete and logs all exceptions except those
         /// that return true from <see cref="IsCriticalException"/>, which are
-        /// rethrown.
+        /// rethrown, and <see cref="OperationCanceledException"/>, which is always ignored.
         /// </summary>
         public static T WaitAndHandleAllExceptions<T>(
             this Task<T> task,
@@ -110,7 +115,8 @@ namespace Microsoft.CookiecutterTools.Infrastructure {
 
         /// <summary>
         /// Logs all exceptions from a task except those that return true from
-        /// <see cref="IsCriticalException"/>, which are rethrown.
+        /// <see cref="IsCriticalException"/>, which are rethrown, and
+        /// <see cref="OperationCanceledException"/>, which is always ignored.
         /// If an exception is thrown, <c>default(T)</c> is returned.
         /// </summary>
         public static async Task<T> HandleAllExceptions<T>(
@@ -126,11 +132,13 @@ namespace Microsoft.CookiecutterTools.Infrastructure {
             try {
                 result = await task;
             } catch (Exception ex) {
-                if (ex.IsCriticalException()) {
-                    throw;
-                }
+                if (task.IsFaulted) {
+                    if (ex.IsCriticalException()) {
+                        throw;
+                    }
 
-                ex.ReportUnhandledException(site, callerType, callerFile, callerLineNumber, callerName, allowUI);
+                    ex.ReportUnhandledException(site, callerType, callerFile, callerLineNumber, callerName, allowUI);
+                }
             }
             return result;
         }
@@ -138,7 +146,7 @@ namespace Microsoft.CookiecutterTools.Infrastructure {
         /// <summary>
         /// Waits for a task to complete and logs all exceptions except those
         /// that return true from <see cref="IsCriticalException"/>, which are
-        /// rethrown.
+        /// rethrown, and <see cref="OperationCanceledException"/>, which is always ignored.
         /// </summary>
         public static void WaitAndHandleAllExceptions(
             this Task task,
@@ -156,7 +164,8 @@ namespace Microsoft.CookiecutterTools.Infrastructure {
 
         /// <summary>
         /// Logs all exceptions from a task except those that return true from
-        /// <see cref="IsCriticalException"/>, which are rethrown.
+        /// <see cref="IsCriticalException"/>, which are rethrown, and
+        /// <see cref="OperationCanceledException"/>, which is always ignored.
         /// </summary>
         public static async Task HandleAllExceptions(
             this Task task,
@@ -170,11 +179,13 @@ namespace Microsoft.CookiecutterTools.Infrastructure {
             try {
                 await task;
             } catch (Exception ex) {
-                if (ex.IsCriticalException()) {
-                    throw;
-                }
+                if (task.IsFaulted) {
+                    if (ex.IsCriticalException()) {
+                        throw;
+                    }
 
-                ex.ReportUnhandledException(site, callerType, callerFile, callerLineNumber, callerName, allowUI);
+                    ex.ReportUnhandledException(site, callerType, callerFile, callerLineNumber, callerName, allowUI);
+                }
             }
         }
     }

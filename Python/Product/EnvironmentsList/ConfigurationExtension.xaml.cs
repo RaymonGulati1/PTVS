@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -184,7 +184,7 @@ namespace Microsoft.PythonTools.EnvironmentsList {
                     }
                 }
 
-                var arch = InterpreterArchitecture.FromExe(view.InterpreterPath);
+                var arch = CPythonInterpreterFactoryProvider.ArchitectureFromExe(view.InterpreterPath);
                 if (arch != InterpreterArchitecture.Unknown) {
                     view.ArchitectureName = arch.ToString();
                 }
@@ -329,7 +329,8 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             "3.3",
             "3.4",
             "3.5",
-            "3.6"
+            "3.6",
+            "3.7"
         };
 
         private readonly EnvironmentView _view;

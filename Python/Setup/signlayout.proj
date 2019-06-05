@@ -26,12 +26,14 @@
         Microsoft.PythonTools.Attacher.exe;
         Microsoft.PythonTools.AttacherX86.exe;
         Microsoft.PythonTools.BuildTasks.dll;
+        Microsoft.PythonTools.BuildTasks.Core.dll;
         Microsoft.PythonTools.Common.dll;
         Microsoft.PythonTools.Debugger.dll;
+        Microsoft.PythonTools.Debugger.Concord.dll;
         Microsoft.PythonTools.dll;
         Microsoft.PythonTools.EnvironmentsList.dll;
-        Microsoft.PythonTools.ImportWizard.dll;
         Microsoft.PythonTools.Ipc.Json.dll;
+        Microsoft.PythonTools.LiveShare.dll;
         Microsoft.PythonTools.Profiling.dll;
         Microsoft.PythonTools.ProjectWizards.dll;
         Microsoft.PythonTools.RunElevated.exe;
@@ -47,19 +49,29 @@
         "/>
 
     <ManagedFiles Include="
-        Microsoft.PythonTools.Django.Analysis.dll;
+        ExternalProfilerDriver.exe;
+        " Condition="$(IncludeExternalProfilerDriver)" />
+
+    <ManagedFiles Include="
         Microsoft.PythonTools.Django.dll;
         " Condition="$(IncludeDjango)" />
+    <ManagedFiles Include="
+        Microsoft.PythonTools.Django.Analysis.dll;
+        " Condition="$(IncludeDjango) and $(IncludeDjangoHtmlExtensions)" />
     <ManagedFiles Include="
         Microsoft.IronPythonTools.Resolver.dll;
         Microsoft.PythonTools.IronPython.dll;
         Microsoft.PythonTools.IronPython.Interpreter.dll;
         " Condition="$(IncludeIronPython)" />
     <ManagedFiles Include="
-        Microsoft.PythonTools.Uwp.dll;
-        Microsoft.PythonTools.Uwp.Interpreter.dll;
-        Microsoft.PythonTools.Uwp.Wizards.dll;
-    " Condition="$(IncludeUwp)" />
+        Microsoft.PythonTools.Miniconda.dll;
+        " Condition="$(IncludeMiniconda)" />
+    <ManagedFiles Include="
+        Microsoft.PythonTools.Debugger.VCLauncher.dll;
+        " Condition="$(IncludeVCDebugLauncher)" />
+    <ManagedFiles Include="
+        Microsoft.PythonTools.Wsl.dll;
+        " Condition="$(IncludeWsl)" />
 
     <UnmanagedFiles Include="
         Microsoft.PythonTools.Debugger.Helper.x64.dll;
@@ -118,8 +130,6 @@
 
   <Target Name="_UpdateLayoutWithSignedBinaries"
           DependsOnTargets="_GetBinariesInLayout"
-          Inputs="%(_BinariesToCopy.FullPath)"
-          Outputs="%(_BinariesToCopy.TargetPath)"
           AfterTargets="SignFiles">
     <Copy SourceFiles="%(_BinariesToCopy.FullPath)" DestinationFiles="%(_BinariesToCopy.TargetPath)" />
   </Target>

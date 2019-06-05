@@ -9,13 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Microsoft.VisualStudio.Telemetry;
 
 namespace Microsoft.CookiecutterTools.Telemetry {
@@ -57,6 +58,25 @@ namespace Microsoft.CookiecutterTools.Telemetry {
                     }
                 }
                 _session.PostEvent(telemetryEvent);
+            }
+        }
+
+        public void RecordFault(string eventName, Exception ex, string description, bool dumpProcess) {
+            if (this.IsEnabled) {
+                var fault = new FaultEvent(
+                    eventName,
+                    !string.IsNullOrEmpty(description) ? description : "Unhandled exception in Cookiecutter extension.",
+                    ex
+                );
+
+                if (dumpProcess) {
+                    fault.AddProcessDump(Process.GetCurrentProcess().Id);
+                    fault.IsIncludedInWatsonSample = true;
+                } else {
+                    fault.IsIncludedInWatsonSample = false;
+                }
+
+                _session.PostEvent(fault);
             }
         }
 

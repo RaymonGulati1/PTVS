@@ -9,41 +9,26 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
-using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using Microsoft.PythonTools.Parsing.Ast;
 
 namespace Microsoft.PythonTools.Analysis {
-    public sealed class VariablesResult : IEnumerable<IAnalysisVariable> {
+    sealed class VariablesResult : IEnumerable<IAnalysisVariable> {
         private readonly IEnumerable<IAnalysisVariable> _vars;
-        private readonly PythonAst _ast;
 
         internal VariablesResult(IEnumerable<IAnalysisVariable> variables, PythonAst expr) {
             _vars = variables;
-            _ast = expr;
+            Ast = expr;
         }
 
-        public IEnumerator<IAnalysisVariable> GetEnumerator() {
-            return _vars.GetEnumerator();
-        }
-
-        IEnumerator IEnumerable.GetEnumerator() {
-            return _vars.GetEnumerator();
-        }
-
-        public PythonAst Ast {
-            get {
-                return _ast;
-            }
-        }
+        public IEnumerator<IAnalysisVariable> GetEnumerator() => _vars.GetEnumerator();
+        IEnumerator IEnumerable.GetEnumerator() => _vars.GetEnumerator();
+        public PythonAst Ast { get; }
     }
 }

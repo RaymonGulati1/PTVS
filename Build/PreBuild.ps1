@@ -5,10 +5,10 @@ param ($vstarget, $source, $outdir)
 # These packages require a versionless symlink pointing to the versioned install.
 $need_symlink = @(
     "python",
+    "python2",
     "MicroBuild.Core",
     "Microsoft.VSSDK.BuildTools",
-    "Newtonsoft.Json",
-    "Wix"
+    "Newtonsoft.Json"
 )
 
 if (-not $vstarget) {
@@ -32,26 +32,25 @@ $outdir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPat
 
 pushd "$buildroot\Build"
 try {
-    if ($source) {
-        .\nuget.exe sources add -Name PreBuildSource -Source $source
+    $arglist = "restore", "$vstarget\packages.config", "-OutputDirectory", $outdir, "-Config", "$vstarget\nuget.config", "-NonInteractive"
+    $nuget = gcm nuget.exe -EA 0
+    if (-not $nuget) {
+        $nuget = gcm .\nuget.exe
     }
-    $arglist = "restore", "$vstarget\packages.config", "-OutputDirectory", $outdir
+    Start-Process -Wait -NoNewWindow $nuget.Source -ErrorAction Stop -ArgumentList $arglist
 
-    try {
-        Start-Process -Wait -NoNewWindow .\nuget.exe -ErrorAction Stop -ArgumentList $arglist
-    } finally {
-        if ($source) {
-            .\nuget.exe sources remove -Name PreBuildSource
-        }
-    }
-    
     $versions = @{}
     ([xml](gc "$vstarget\packages.config")).packages.package | %{ $versions[$_.id] = $_.version }
-    
+
     $need_symlink | ?{ $versions[$_] } | %{
         $existing = gi "$outdir\$_" -EA 0
         if ($existing) {
-            $existing.Delete()
+            if ($existing.LinkType) {
+                $existing.Delete()
+            } else {
+                Write-Host "Deleting directory $existing to create a symlink"
+                del -Recurse -Force $existing
+            }
         }
         Write-Host "Creating symlink for $_.$($versions[$_])"
         New-Item -ItemType Junction "$outdir\$_" -Value "$outdir\$_.$($versions[$_])"

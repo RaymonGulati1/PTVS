@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,130 +21,84 @@ using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing.Ast;
 
 namespace Microsoft.PythonTools.Analysis.Values {
-    internal class BoundMethodInfo : AnalysisValue, IHasRichDescription {
-        private readonly FunctionInfo _function;
-        private readonly AnalysisValue _instanceInfo;
-
+    internal class BoundMethodInfo : AnalysisValue, IHasRichDescription, IHasQualifiedName {
         public BoundMethodInfo(FunctionInfo function, AnalysisValue instance) {
-            _function = function;
-            _instanceInfo = instance;
+            Function = function;
+            Instance = instance;
         }
 
         public override AnalysisUnit AnalysisUnit {
             get {
-                return _function.AnalysisUnit;
+                return Function.AnalysisUnit;
             }
         }
 
         public override IAnalysisSet Call(Node node, AnalysisUnit unit, IAnalysisSet[] args, NameExpression[] keywordArgNames) {
-            return _function.Call(node, unit, Utils.Concat(_instanceInfo.SelfSet, args), keywordArgNames);
+            return Function.Call(node, unit, Utils.Concat(Instance.SelfSet, args), keywordArgNames);
         }
 
-        public FunctionInfo Function {
-            get {
-                return _function;
-            }
-        }
-
-        public AnalysisValue Instance {
-            get {
-                return _instanceInfo;
-            }
-        }
-
-        public override IPythonProjectEntry DeclaringModule {
-            get {
-                return _function.DeclaringModule;
-            }
-        }
-
-        public override int DeclaringVersion {
-            get {
-                return _function.DeclaringVersion;
-            }
-        }
-
-        public override IEnumerable<LocationInfo> Locations {
-            get {
-                return _function.Locations;
-            }
-        }
+        public FunctionInfo Function { get; }
+        public AnalysisValue Instance { get; }
+        public override IPythonProjectEntry DeclaringModule => Function.DeclaringModule;
+        public override int DeclaringVersion => Function.DeclaringVersion;
+        public override IEnumerable<LocationInfo> Locations => Function.Locations;
 
         public IEnumerable<KeyValuePair<string, string>> GetRichDescription() {
-            yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Misc, "method ");
-            yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Name, _function.FunctionDefinition.Name);
-
-            var ii = _instanceInfo as InstanceInfo;
-            if (ii != null) {
-                yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Misc, " of ");
-                yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Name, ii.ClassInfo.ClassDefinition.Name);
-                yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Misc, " objects ");
-            }
-
-            foreach (var kv in FunctionInfo.GetReturnTypeString(_function.GetReturnValue)) {
-                yield return kv;
-            }
-
-            bool needsNl = true;
-            var nlKind = WellKnownRichDescriptionKinds.EndOfDeclaration;
-
-            foreach (var kv in FunctionInfo.GetDocumentationString(_function.Documentation)) {
-                if (needsNl) {
-                    yield return new KeyValuePair<string, string>(nlKind, "\r\n");
-                    nlKind = WellKnownRichDescriptionKinds.Misc;
-                    needsNl = false;
+            if (Push()) {
+                try {
+                    return GetRichDescriptionWorker(true).ToArray();
+                } finally {
+                    Pop();
                 }
-                yield return kv;
             }
+            return GetRichDescriptionWorker(false);
+        }
+
+        private IEnumerable<KeyValuePair<string, string>> GetRichDescriptionWorker(bool includeTypes) {
+            yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Misc, "method ");
+            yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Name, Function.FunctionDefinition.Name);
+
+            if (Instance is InstanceInfo ii) {
+                yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Misc, " of ");
+                yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Name, ii.ClassInfo.FullyQualifiedName);
+                yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.Misc, " objects");
+            }
+
+            if (includeTypes) {
+                foreach (var kv in FunctionInfo.GetReturnTypeString(Function.GetReturnValue)) {
+                    yield return kv;
+                }
+            }
+            yield return new KeyValuePair<string, string>(WellKnownRichDescriptionKinds.EndOfDeclaration, string.Empty);
         }
 
         public override IEnumerable<OverloadResult> Overloads {
             get {
-                var p = _function.FunctionDefinition.Parameters;
-
-                var pp = p.Count == 0 ? new ParameterResult[0] : new ParameterResult[p.Count - 1];
-                for (int i = 1; i < p.Count; i++) {
-                    pp[i - 1] = new ParameterResult(
-                        FunctionInfo.MakeParameterName(p[i]),
-                        string.Empty,
-                        "object",
-                        false,
-                        null,
-                        FunctionInfo.GetDefaultValue(_function.ProjectState, p[i], DeclaringModule.Tree)
-                    );
+                foreach (var p in Function.Overloads) {
+                    yield return p.Parameters.Length > 0 ? p.WithoutLeadingParameters(1) : p;
                 }
-                string doc = _function.Documentation;
-
-                yield return new SimpleOverloadResult(pp, _function.FunctionDefinition.Name, doc);
             }
         }
 
-        public override string Documentation {
-            get {
-                return _function.Documentation;
-            }
-        }
-
-        public override PythonMemberType MemberType {
-            get {
-                return PythonMemberType.Method;
-            }
-        }
+        public override string Documentation => Function.Documentation;
+        public override PythonMemberType MemberType => PythonMemberType.Method;
+        public string FullyQualifiedName => Function.FullyQualifiedName;
+        public KeyValuePair<string, string> FullyQualifiedNamePair => Function.FullyQualifiedNamePair;
 
         public override string ToString() {
-            var name = _function.FunctionDefinition.Name;
+            var name = Function.FunctionDefinition.Name;
             return "Method" /* + hex(id(self)) */ + " " + name;
         }
 
         internal override AnalysisValue UnionMergeTypes(AnalysisValue ns, int strength) {
             var bmi = ns as BoundMethodInfo;
-            if (bmi == null || (Function.Equals(bmi.Function) && _instanceInfo.Equals(bmi._instanceInfo))) {
+            if (bmi == null || (Function.Equals(bmi.Function) && Instance.Equals(bmi.Instance))) {
                 return this;
             } else {
                 bool changed1, changed2;
                 var cmp = UnionComparer.Instances[strength];
                 var newFunc = cmp.MergeTypes(Function, bmi.Function, out changed1) as FunctionInfo;
-                var newInst = cmp.MergeTypes(_instanceInfo, bmi._instanceInfo, out changed2);
+                var newInst = cmp.MergeTypes(Instance, bmi.Instance, out changed2);
                 if (newFunc != null && newInst != null && (changed1 | changed2)) {
                     return new BoundMethodInfo(newFunc, newInst);
                 }
@@ -154,11 +108,11 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
         internal override bool UnionEquals(AnalysisValue ns, int strength) {
             var bmi = ns as BoundMethodInfo;
-            return bmi != null && _instanceInfo.UnionEquals(bmi._instanceInfo, strength) && Function.UnionEquals(bmi.Function, strength);
+            return bmi != null && Instance.UnionEquals(bmi.Instance, strength) && Function.UnionEquals(bmi.Function, strength);
         }
 
         internal override int UnionHashCode(int strength) {
-            return _instanceInfo.UnionHashCode(strength) ^ Function.UnionHashCode(strength);
+            return Instance.UnionHashCode(strength) ^ Function.UnionHashCode(strength);
         }
     }
 }

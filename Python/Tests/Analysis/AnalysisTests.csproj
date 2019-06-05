@@ -11,14 +11,14 @@
         <OldToolsVersion>14.0</OldToolsVersion>
       </PropertyGroup>
     </When>
-    <When Condition=" '$(VisualStudioVersion)'=='14.0'  Or '$(TargetVisualStudioVersion)'=='VS140' ">
+    <When Condition=" '$(VisualStudioVersion)'=='16.0'  Or '$(TargetVisualStudioVersion)'=='VS160' ">
       <PropertyGroup>
-        <MinimumVisualStudioVersion>14.0</MinimumVisualStudioVersion>
+        <MinimumVisualStudioVersion>16.0</MinimumVisualStudioVersion>
         <FileUpgradeFlags>
         </FileUpgradeFlags>
         <UpgradeBackupLocation>
         </UpgradeBackupLocation>
-        <OldToolsVersion>14.0</OldToolsVersion>
+        <OldToolsVersion>16.0</OldToolsVersion>
       </PropertyGroup>
     </When>
   </Choose>
@@ -42,15 +42,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.CSharp" />
-    <Reference Include="Microsoft.Dynamic">
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="Microsoft.Scripting">
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="Microsoft.Scripting.Metadata">
-      <Private>true</Private>
-    </Reference>
     <Reference Include="Microsoft.VisualStudio.QualityTools.UnitTestFramework, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
     <Reference Include="System" />
     <Reference Include="System.Core">
@@ -60,19 +51,23 @@
     <Reference Include="System.XML" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="AnalysisSaveTest.cs" />
     <Compile Include="AnalysisTest.cs" />
     <Compile Include="AnalysisTest.Perf.cs" />
-    <Compile Include="AnalyzerTests.cs" />
+    <Compile Include="AssemblySetup.cs" />
     <Compile Include="AstAnalysisTests.cs" />
     <Compile Include="BaseAnalysisTest.cs" />
-    <Compile Include="CompletionDBTest.cs" />
-    <Compile Include="DatabaseTest.cs" />
-    <Compile Include="DeserializationTests.cs" />
-    <Compile Include="DotNetAnalysis\Generics.cs" />
+    <Compile Include="DocumentBufferTests.cs" />
+    <Compile Include="EventTaskSources.cs" />
+    <Compile Include="ExpressionFinderTests.cs" />
+    <Compile Include="FunctionBodyAnalysisTests.cs" />
+    <Compile Include="LanguageServerTests.cs" />
+    <Compile Include="LongestCommonSequenceTests.cs" />
     <Compile Include="ModulePathTests.cs" />
     <Compile Include="ModuleTableTests.cs" />
-    <Compile Include="ProcessOutputTests.cs" />
+    <Compile Include="ParserEncodingTests.cs" />
+    <Compile Include="PathEqualityComparerTests.cs" />
+    <Compile Include="PriorityProducerConsumerTest.cs" />
+    <Compile Include="ProcessHelperTests.cs" />
     <Compile Include="MutateStdLibTest.cs" />
     <Compile Include="TestExpressions.cs" />
     <Compile Include="TestRunner.cs" />
@@ -82,13 +77,13 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ThreadingTest.cs" />
     <Compile Include="TokenizerRoundTripTest.cs" />
-    <Compile Include="UpdaterTests.cs" />
+    <Compile Include="TypeAnnotationTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\Product\Analysis\Analysis.csproj">
       <Project>{A85D479D-67A9-4BDB-904A-7D86DAF68A6F}</Project>
       <Name>Analysis</Name>
-      <Aliases>global,analysis</Aliases>
+      <Aliases>global</Aliases>
     </ProjectReference>
     <ProjectReference Include="..\..\Product\Analyzer\Analyzer.csproj">
       <Project>{29a4fa1f-a562-4ed1-86fb-5850ef5da92c}</Project>

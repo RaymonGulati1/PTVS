@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,7 +19,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
-using Microsoft.PythonTools.Commands;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Options;
 using Microsoft.PythonTools.Parsing;
@@ -31,7 +30,7 @@ namespace Microsoft.PythonTools {
     /// can be fetched using Dte.GetObject("VsPython").
     /// </summary>
     [ComVisible(true)]
-    public sealed class PythonAutomation : IVsPython, IPythonOptions, IPythonIntellisenseOptions {
+    public sealed class PythonAutomation : IVsPython, IPythonOptions2, IPythonIntellisenseOptions {
         private readonly IServiceProvider _serviceProvider;
         private readonly PythonToolsService _pyService;
         private AutomationInteractiveOptions _interactiveOptions;
@@ -117,6 +116,16 @@ namespace Microsoft.PythonTools {
             }
         }
 
+        bool IPythonOptions2.UseLegacyDebugger {
+            get {
+                return _pyService.DebuggerOptions.UseLegacyDebugger;
+            }
+            set {
+                _pyService.DebuggerOptions.UseLegacyDebugger = value;
+                _pyService.DebuggerOptions.Save();
+            }
+        }
+
         #endregion
 
         #region IPythonIntellisenseOptions Members
@@ -183,9 +192,9 @@ namespace Microsoft.PythonTools {
             var provider = compModel.GetService<InteractiveWindowProvider>();
             var interpreters = compModel.GetService<IInterpreterRegistryService>();
 
-            var factory = interpreters.Configurations.FirstOrDefault(
-                f => f.Description.Equals(description, StringComparison.CurrentCultureIgnoreCase)
-            );
+            var factory = interpreters.Configurations
+                .Where(PythonInterpreterFactoryExtensions.IsRunnable)
+                .FirstOrDefault(f => f.Description.Equals(description, StringComparison.CurrentCultureIgnoreCase));
             if (factory == null) {
                 throw new KeyNotFoundException("Could not create interactive window with name: " + description);
             }

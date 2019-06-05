@@ -189,7 +189,7 @@ Error:
     <value>Executable files (*.exe;*.bat;*.cmd)|*.exe;*.bat;*.cmd|All Files (*.*)|*.*</value>
   </data>
   <data name="PythonFilesFilter" xml:space="preserve">
-    <value>Python files (*.py;*.pyw)|*.py;*.pyw|All Files (*.*)|*.*</value>
+    <value>Python files (*.py;*.pyw;*.pyi)|*.py;*.pyw;*.pyi|All Files (*.*)|*.*</value>
   </data>
   <data name="PerformanceReportFilesFilter" xml:space="preserve">
     <value>Performance Report Files (*.vsp;*.vsps)|*.vsp;*.vsps|All Files (*.*)|*.*</value>
@@ -287,5 +287,19 @@ Error:
   </data>
   <data name="LaunchProfiling_WorkingDirectoryBrowseButtonDescription" xml:space="preserve">
     <value>Browse folder dialog for working directory</value>
+  </data>
+  <data name="Reports" xml:space="preserve">
+    <value>Reports</value>
+    <comment>Tree view node that contains the set of profiling reports</comment>
+  </data>
+  <data name="LaunchProfiling_MixedModeProfiling" xml:space="preserve">
+    <value>Mi_xed Mode Profiling</value>
+  </data>
+  <data name="CannotFindPythonInterpreter" xml:space="preserve">
+    <value>Can't find specified Python interpreter</value>
+    <comment>ExternalProfilerDriver cannot find the Python executable to run</comment>
+  </data>
+  <data name="CannotFindGeneratedFile" xml:space="preserve">
+    <value>Can't find expected output file</value>
   </data>
 </root>

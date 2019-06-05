@@ -9,13 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.IO;
+using System.Threading;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Intellisense;
 using Microsoft.VisualStudio;
@@ -51,8 +52,26 @@ namespace Microsoft.PythonTools.Project {
                 }
             }
 
+            public bool EnsureDocumentIsOpen() {
+                var view = TextView;
+                if (view == null) {
+                    var viewGuid = Guid.Empty;
+                    if (ErrorHandler.Failed(_node.GetDocumentManager().Open(ref viewGuid, IntPtr.Zero, out _, WindowFrameShowAction.Show))) {
+                        return false;
+                    }
+                    view = TextView;
+                    if (view == null) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
             public string[] FindMethods(string className, int? paramCount) {
-                var fileInfo = _node.GetAnalysisEntry();
+                var fileInfo = _node.TryGetAnalysisEntry();
+                if (fileInfo == null) {
+                    return Array.Empty<string>();
+                }
                 return fileInfo.Analyzer.WaitForRequest(fileInfo.Analyzer.FindMethodsAsync(
                     fileInfo,
                     _node.GetTextBuffer(),
@@ -62,16 +81,22 @@ namespace Microsoft.PythonTools.Project {
             }
 
             public InsertionPoint GetInsertionPoint(string className) {
-                var fileInfo = _node.GetAnalysisEntry();
+                var fileInfo = _node.TryGetAnalysisEntry();
+                if (fileInfo == null) {
+                    return null;
+                }
                 return fileInfo.Analyzer.WaitForRequest(fileInfo.Analyzer.GetInsertionPointAsync(
-                    fileInfo,
-                    _node.GetTextBuffer(),
-                    className
+                    Buffer?.CurrentSnapshot,
+                    className,
+                    fileInfo
                 ), "PythonNonCodeFileNode.GetInsertionPoint");
             }
 
             public MethodInformation GetMethodInfo(string className, string methodName) {
-                var fileInfo = _node.GetAnalysisEntry();
+                var fileInfo = _node.TryGetAnalysisEntry();
+                if (fileInfo == null) {
+                    return null;
+                }
                 var info = fileInfo.Analyzer.WaitForRequest(
                     fileInfo.Analyzer.GetMethodInfoAsync(fileInfo, _node.GetTextBuffer(), className, methodName),
                     "PythonNonCodeFileNode.GetMethodInfo"

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,6 +17,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 
 namespace Microsoft.PythonTools.Parsing.Ast {
 
@@ -255,11 +256,7 @@ namespace Microsoft.PythonTools.Parsing.Ast {
 
                                 // report syntax error
                                 binder.ReportSyntaxError(
-                                    String.Format(
-                                        System.Globalization.CultureInfo.InvariantCulture,
-                                        "can not delete variable '{0}' referenced in nested scope",
-                                        reference.Name
-                                        ),
+                                    "can not delete variable '{0}' referenced in nested scope".FormatUI(reference.Name),
                                     this);
                             }
                         }
@@ -284,7 +281,7 @@ namespace Microsoft.PythonTools.Parsing.Ast {
                     }
 
                     if (!bound) {
-                        binder.ReportSyntaxError(String.Format("no binding for nonlocal '{0}' found", variableName.Name), variableName);
+                        binder.ReportSyntaxError("no binding for nonlocal '{0}' found".FormatUI(variableName.Name), variableName);
                     }
                 }
             }

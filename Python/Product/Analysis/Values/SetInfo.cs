@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -25,6 +25,9 @@ namespace Microsoft.PythonTools.Analysis.Values {
     internal class SetInfo : SequenceInfo {
         public SetInfo(PythonAnalyzer projectState, Node node, ProjectEntry entry)
             : base(VariableDef.EmptyArray, projectState.ClassInfos[BuiltinTypeId.Set], node, entry) { }
+
+        internal SetInfo(BuiltinClassInfo seqType, Node node, ProjectEntry entry, VariableDef[] indexTypes)
+            : base(indexTypes, seqType, node, entry) { }
 
         public void AddTypes(AnalysisUnit unit, IAnalysisSet types) {
             base.AddTypes(unit, new[] { types });

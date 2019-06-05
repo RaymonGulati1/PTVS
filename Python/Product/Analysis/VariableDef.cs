@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,6 +19,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using Microsoft.PythonTools.Analysis.Analyzer;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Parsing.Ast;
 
 namespace Microsoft.PythonTools.Analysis {
@@ -158,6 +159,7 @@ namespace Microsoft.PythonTools.Analysis {
         static readonly object LockedVariableDefsValue = new object();
 
         protected IAnalysisSet _emptySet = AnalysisSet.Empty;
+        private IAnalysisSet _cache;
 
         /// <summary>
         /// Marks the current VariableDef as exceeding the limit and not to be
@@ -178,7 +180,7 @@ namespace Microsoft.PythonTools.Analysis {
                 int total = 0;
                 var typeCounts = new Dictionary<string, int>();
                 foreach (var type in TypesNoCopy) {
-                    var str = type.ToString();
+                    var str = type.ToString() ?? "";
                     int count;
                     if (!typeCounts.TryGetValue(str, out count)) {
                         count = 0;
@@ -186,8 +188,8 @@ namespace Microsoft.PythonTools.Analysis {
                     typeCounts[str] = count + 1;
                     total += 1;
                 }
-                var typeCountList = typeCounts.OrderByDescending(kv => kv.Value).Select(kv => string.Format("{0}x {1}", kv.Value, kv.Key)).ToList();
-                Debug.Write(string.Format("{0} exceeded type limit.\nStack trace:\n{1}\nContents:\n    Count = {2}\n    {3}\n",
+                var typeCountList = typeCounts.OrderByDescending(kv => kv.Value).Select(kv => "{0}x {1}".FormatInvariant(kv.Value, kv.Key)).ToList();
+                Debug.Write("{0} exceeded type limit.\nStack trace:\n{1}\nContents:\n    Count = {2}\n    {3}\n".FormatInvariant(
                     GetType().Name,
                     new StackTrace(true),
                     total,
@@ -195,55 +197,6 @@ namespace Microsoft.PythonTools.Analysis {
                 AnalysisLog.ExceedsTypeLimit(GetType().Name, total, string.Join(", ", typeCountList));
             }
         }
-
-#if VARDEF_STATS
-        internal static Dictionary<string, int> _variableDefStats = new Dictionary<string, int>();
-
-        ~VariableDef() {
-            if (_dependencies.Count == 0) {
-                IncStat("NoDeps");
-            } else {
-                IncStat(String.Format("TypeCount_{0:D3}", Types.Count));
-                IncStat(String.Format("DepCount_{0:D3}", _dependencies.Count));
-                IncStat(
-                    String.Format(
-                        "TypeXDepCount_{0:D3},{1:D3}", 
-                        Types.Count, 
-                        _dependencies.Count
-                    )
-                );
-                IncStat(String.Format("References_{0:D3}", References.Count()));
-                IncStat(String.Format("Assignments_{0:D3}", Definitions.Count()));
-                foreach (var dep in _dependencies.Values) {
-                    IncStat(String.Format("DepUnits_{0:D3}", dep.DependentUnits == null ? 0 : dep.DependentUnits.Count));
-                }
-            }
-        }
-
-        private static void IncStat(string stat) {
-            if (_variableDefStats.ContainsKey(stat)) {
-                _variableDefStats[stat] += 1;
-            } else {
-                _variableDefStats[stat] = 1;
-            }
-        }
-
-        internal static void DumpStats() {
-            for (int i = 0; i < 3; i++) {
-                GC.Collect(2, GCCollectionMode.Forced);
-                GC.WaitForPendingFinalizers();
-            }
-
-            List<string> values = new List<string>();
-            foreach (var keyValue in VariableDef._variableDefStats) {
-                values.Add(String.Format("{0}: {1}", keyValue.Key, keyValue.Value));
-            }
-            values.Sort();
-            foreach (var value in values) {
-                Console.WriteLine(value);
-            }
-        }
-#endif
 
         protected int EstimateTypeCount(IAnalysisSet extraTypes = null) {
             // Use a fast estimate of the number of types we have, since this
@@ -266,7 +219,9 @@ namespace Microsoft.PythonTools.Analysis {
         // are memory intensive, since they perform the add an extra time. The
         // flag is static but non-const to allow it to be enabled while
         // debugging.
-#if FULL_VALIDATION || DEBUG
+#if FULL_VALIDATION
+        private static bool ENABLE_SET_CHECK = true;
+#elif DEBUG
         private static bool ENABLE_SET_CHECK = false;
 #endif
 
@@ -289,9 +244,15 @@ namespace Microsoft.PythonTools.Analysis {
                         var afterAdded = original.Add(value, out testAdded, false);
                         if (afterAdded.Comparer == original.Comparer) {
                             if (testAdded) {
-                                Validation.Assert(!ObjectComparer.Instance.Equals(afterAdded, original));
-                            } else {
-                                Validation.Assert(ObjectComparer.Instance.Equals(afterAdded, original));
+                                if (!ObjectComparer.Instance.Equals(afterAdded, original)) {
+                                    // Double validation, as sometimes testAdded is a false positive
+                                    afterAdded = original.Add(value, out testAdded, false);
+                                    if (testAdded) {
+                                        Validation.Assert(!ObjectComparer.Instance.Equals(afterAdded, original), $"Inconsistency adding {value} to {original}");
+                                    }
+                                }
+                            } else if (afterAdded.Count == original.Count) {
+                                Validation.Assert(ObjectComparer.Instance.Equals(afterAdded, original), $"Inconsistency not adding {value} to {original}");
                             }
                         }
                     }
@@ -303,6 +264,9 @@ namespace Microsoft.PythonTools.Analysis {
                 }
             }
 
+            if (added) {
+                _cache = null;
+            }
             if (added && enqueue) {
                 EnqueueDependents(projectEntry, declaringScope);
             }
@@ -362,6 +326,10 @@ namespace Microsoft.PythonTools.Analysis {
                 if (_dependencies.Count == 0) {
                     return false;
                 }
+                if (_cache?.Count > 0) {
+                    return true;
+                }
+
                 T oneDependency;
                 if (_dependencies.TryGetSingleValue(out oneDependency)) {
                     return oneDependency.Types.Count > 0;
@@ -384,7 +352,11 @@ namespace Microsoft.PythonTools.Analysis {
         /// </summary>
         public IAnalysisSet TypesNoCopy {
             get {
-                var res = _emptySet;
+                var res = _cache;
+                if (res != null) {
+                    return res;
+                }
+                res = _emptySet;
                 if (_dependencies.Count != 0) {
                     T oneDependency;
                     if (_dependencies.TryGetSingleValue(out oneDependency)) {
@@ -403,7 +375,7 @@ namespace Microsoft.PythonTools.Analysis {
                     ExceedsTypeLimit();
                 }
 
-                return res;
+                return _cache = res;
             }
         }
 
@@ -412,17 +384,9 @@ namespace Microsoft.PythonTools.Analysis {
         /// resulting set will not mutate in the future even if the types in the VariableDef
         /// change in the future.
         /// </summary>
-        public IAnalysisSet Types {
-            get {
-                return TypesNoCopy.Clone();
-            }
-        }
+        public IAnalysisSet Types => TypesNoCopy;
 
-        public virtual bool IsEphemeral {
-            get {
-                return false;
-            }
-        }    
+        public virtual bool IsEphemeral => false;
 
         /// <summary>
         /// If the number of types associated with this variable exceeds a
@@ -459,6 +423,7 @@ namespace Microsoft.PythonTools.Analysis {
                 }
 
                 if (anyChanged) {
+                    _cache = null;
                     EnqueueDependents();
                     return true;
                 }
@@ -498,13 +463,28 @@ namespace Microsoft.PythonTools.Analysis {
 
     }
 
-    class VariableDef : TypedDef<ReferenceableDependencyInfo>, IReferenceable {
+    class VariableDef : TypedDef<ReferenceableDependencyInfo>, IVariableDefinition, IReferenceable {
         internal static VariableDef[] EmptyArray = new VariableDef[0];
 
 #if VARDEF_STATS
         ~VariableDef() {
-            IncStat(String.Format("References_{0:D3}", References.Count()));
-            IncStat(String.Format("Assignments_{0:D3}", Definitions.Count()));
+            if (_dependencies.Count == 0) {
+                IncStat("NoDeps");
+            } else {
+                IncStat("TypeCount_{0:D3}".FormatInvariant(Types.Count));
+                IncStat("DepCount_{0:D3}".FormatInvariant(_dependencies.Count));
+                IncStat(
+                    "TypeXDepCount_{0:D3},{1:D3}".FormatInvariant(
+                        Types.Count,
+                        _dependencies.Count
+                    )
+                );
+                IncStat("References_{0:D3}".FormatInvariant(References.Count()));
+                IncStat("Assignments_{0:D3}".FormatInvariant(Definitions.Count()));
+                foreach (var dep in _dependencies.Values) {
+                    IncStat("DepUnits_{0:D3}".FormatInvariant(dep.DependentUnits.MaybeEnumerate().Count()));
+                }
+            }
         }
 #endif
 
@@ -546,20 +526,14 @@ namespace Microsoft.PythonTools.Analysis {
                 var dependencies = keyValue.Value;
 
                 anyChange |= to.AddTypes(projEntry, dependencies.Types, false);
-                if (dependencies.DependentUnits != null) {
-                    foreach (var unit in dependencies.DependentUnits) {
-                        anyChange |= to.AddDependency(unit);
-                    }
+                foreach (var unit in dependencies.DependentUnits) {
+                    anyChange |= to.AddDependency(unit);
                 }
-                if (dependencies._references != null) {
-                    foreach (var encodedLoc in dependencies._references) {
-                        anyChange |= to.AddReference(encodedLoc, projEntry);
-                    }
+                foreach (var encodedLoc in dependencies._references) {
+                    anyChange |= to.AddReference(encodedLoc, projEntry);
                 }
-                if (dependencies._assignments != null) {
-                    foreach (var assignment in dependencies._assignments) {
-                        anyChange |= to.AddAssignment(assignment, projEntry);
-                    }
+                foreach (var assignment in dependencies._assignments) {
+                    anyChange |= to.AddAssignment(assignment, projEntry);
                 }
             }
             return anyChange;
@@ -592,7 +566,7 @@ namespace Microsoft.PythonTools.Analysis {
             return false;
         }
 
-        public IEnumerable<EncodedLocation> References {
+        public virtual IEnumerable<EncodedLocation> References {
             get {
                 if (_dependencies.Count != 0) {
                     foreach (var keyValue in _dependencies) {
@@ -606,7 +580,7 @@ namespace Microsoft.PythonTools.Analysis {
             }
         }
 
-        public IEnumerable<EncodedLocation> Definitions {
+        public virtual IEnumerable<EncodedLocation> Definitions {
             get {
                 if (_dependencies.Count != 0) {
                     foreach (var keyValue in _dependencies) {
@@ -620,6 +594,37 @@ namespace Microsoft.PythonTools.Analysis {
             }
         }
 
+        internal virtual bool IsAlwaysAssigned { get; set; }
+
+        internal virtual bool IsAssigned => IsAlwaysAssigned || _dependencies.Any(d => d.Value._assignments.Count != 0);
+
+#if VARDEF_STATS
+        internal static Dictionary<string, int> _variableDefStats = new Dictionary<string, int>();
+
+        private static void IncStat(string stat) {
+            if (_variableDefStats.ContainsKey(stat)) {
+                _variableDefStats[stat] += 1;
+            } else {
+                _variableDefStats[stat] = 1;
+            }
+        }
+
+        internal static void DumpStats() {
+            for (int i = 0; i < 3; i++) {
+                System.GC.Collect(2, System.GCCollectionMode.Forced);
+                System.GC.WaitForPendingFinalizers();
+            }
+
+            List<string> values = new List<string>();
+            foreach (var keyValue in _variableDefStats) {
+                values.Add("{0}: {1}".FormatInvariant(keyValue.Key, keyValue.Value));
+            }
+            values.Sort();
+            foreach (var value in values) {
+                System.Console.WriteLine(value);
+            }
+        }
+#endif
     }
 
 
@@ -641,46 +646,26 @@ namespace Microsoft.PythonTools.Analysis {
     /// A variable def which has a specific location where it is defined (currently just function parameters).
     /// </summary>
     class LocatedVariableDef : VariableDef {
-        private readonly ProjectEntry _entry;
-        private int _declaringVersion;
-        private Node _location;
-
-        public LocatedVariableDef(ProjectEntry entry, Node location) {
-            _entry = entry;
-            _location = location;
-            _declaringVersion = entry.AnalysisVersion;
+        public LocatedVariableDef(ProjectEntry entry, EncodedLocation location) {
+            Entry = entry;
+            Location = location;
+            DeclaringVersion = entry.AnalysisVersion;
         }
 
-        public LocatedVariableDef(ProjectEntry entry, Node location, VariableDef copy) {
-            _entry = entry;
-            _location = location;
+        public LocatedVariableDef(ProjectEntry entry, EncodedLocation location, VariableDef copy) {
+            Entry = entry;
+            Location = location;
             _dependencies = copy._dependencies;
-            _declaringVersion = entry.AnalysisVersion;
+            DeclaringVersion = entry.AnalysisVersion;
         }
 
-        public int DeclaringVersion {
-            get {
-                return _declaringVersion;
-            }
-            set {
-                _declaringVersion = value;
-            }
-        }
+        public int DeclaringVersion { get; set; }
+        public ProjectEntry Entry { get; }
+        public EncodedLocation Location { get; set; }
+        internal override bool IsAssigned => true;
 
-        public ProjectEntry Entry {
-            get {
-                return _entry;
-            }
-        }
-
-        public Node Node {
-            get {
-                return _location;
-            }
-            set {
-                _location = value;
-            }
-        }
+        public override IEnumerable<EncodedLocation> Definitions =>
+            Enumerable.Repeat(Location, 1).Concat(base.Definitions);
     }
 
 }

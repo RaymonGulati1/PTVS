@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,6 +21,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
 using Microsoft.CookiecutterTools.Infrastructure;
 using Microsoft.CookiecutterTools.Model;
 using Microsoft.CookiecutterTools.Telemetry;
@@ -28,6 +31,8 @@ using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.OLE.Interop;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Threading;
+using Task = System.Threading.Tasks.Task;
 
 namespace Microsoft.CookiecutterTools {
     /// <summary>
@@ -42,7 +47,7 @@ namespace Microsoft.CookiecutterTools {
     /// </summary>
     // This attribute tells the PkgDef creation utility (CreatePkgDef.exe) that this class is
     // a package.
-    [PackageRegistration(UseManagedResourcesOnly = true)]
+    [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
     // This attribute is used to register the informations needed to show the this package
     // in the Help/About dialog of Visual Studio.
     [InstalledProductRegistration("#110", "#112", AssemblyVersionInfo.Version, IconResourceID = 400)]
@@ -50,14 +55,12 @@ namespace Microsoft.CookiecutterTools {
     [ProvideMenuResource("Menus.ctmenu", 1)]
     [ProvideToolWindow(typeof(CookiecutterToolWindow), Style = VsDockStyle.Linked, Window = ToolWindowGuids80.ServerExplorer)]
     [ProvideOptionPage(typeof(CookiecutterOptionPage), "Cookiecutter", "General", 113, 114, true)]
-    [ProvideProfileAttribute(typeof(CookiecutterOptionPage), "Cookiecutter", "General", 113, 114, isToolsOptionPage: true, DescriptionResourceID = 115)]
+    [ProvideProfile(typeof(CookiecutterOptionPage), "Cookiecutter", "General", 113, 114, isToolsOptionPage: true, DescriptionResourceID = 115)]
     [Guid(PackageGuids.guidCookiecutterPkgString)]
-    public sealed class CookiecutterPackage : Package, IOleCommandTarget {
+    public sealed class CookiecutterPackage : AsyncPackage, IOleCommandTarget {
         internal static CookiecutterPackage Instance;
 
-        private static readonly object _commandsLock = new object();
-        private static readonly Dictionary<Command, MenuCommand> _commands = new Dictionary<Command, MenuCommand>();
-
+        //private readonly 
         private ProjectSystemClient _projectSystem;
 
         /// <summary>
@@ -68,7 +71,7 @@ namespace Microsoft.CookiecutterTools {
         /// initialization is the Initialize method.
         /// </summary>
         public CookiecutterPackage() {
-            Trace.WriteLine(string.Format(CultureInfo.CurrentCulture, "Entering constructor for: {0}", this.ToString()));
+            Trace.WriteLine("Entering constructor for: {0}".FormatInvariant(this));
             Instance = this;
         }
 
@@ -80,20 +83,30 @@ namespace Microsoft.CookiecutterTools {
         /// Initialization of the package; this method is called right after the package is sited, so this is the place
         /// where you can put all the initilaization code that rely on services provided by VisualStudio.
         /// </summary>
-        protected override void Initialize() {
-            Trace.WriteLine(string.Format(CultureInfo.CurrentCulture, "Entering Initialize() of: {0}", this.ToString()));
-            base.Initialize();
+        protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress) {
+            Trace.WriteLine("Entering {0}.InitializeAsync()".FormatInvariant(this));
 
-            UIThread.EnsureService(this);
+            await base.InitializeAsync(cancellationToken, progress);
+            await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
 
-            _projectSystem = new ProjectSystemClient(DTE);
+            if (GetService(typeof(UIThreadBase)) == null) {
+                ((IServiceContainer) this).AddService(typeof(UIThreadBase), new UIThread(JoinableTaskFactory), true);
+            }
 
             CookiecutterTelemetry.Initialize();
+            
+            _projectSystem = new ProjectSystemClient(DTE);
+            Trace.WriteLine("Leaving {0}.InitializeAsync()".FormatInvariant(this));
         }
+
+        public override IVsAsyncToolWindowFactory GetAsyncToolWindowFactory(Guid toolWindowType) 
+            => toolWindowType == typeof(CookiecutterToolWindow).GUID ? this : base.GetAsyncToolWindowFactory(toolWindowType);
+
+        protected override Task<object> InitializeToolWindowAsync(Type toolWindowType, int id, CancellationToken cancellationToken) 
+            => toolWindowType == typeof(CookiecutterToolWindow) ? Task.FromResult<object>(this) : base.InitializeToolWindowAsync(toolWindowType, id, cancellationToken);
 
         protected override void Dispose(bool disposing) {
             CookiecutterTelemetry.Current.Dispose();
-
             base.Dispose(disposing);
         }
 
@@ -113,13 +126,16 @@ namespace Microsoft.CookiecutterTools {
                     hr = ViewExternalBrowser(variantIn, variantOut, commandExecOpt);
                     break;
                 case PackageIds.cmdidCookiecutterExplorer:
-                    ShowWindowPane(typeof(CookiecutterToolWindow), true);
+                    ShowWindowPaneAsync<CookiecutterToolWindow>(true).DoNotWait();
                     break;
                 case PackageIds.cmdidCreateFromCookiecutter:
-                    NewCookiecutterSession();
+                    NewCookiecutterSessionAsync().DoNotWait();
                     break;
                 case PackageIds.cmdidAddFromCookiecutter:
-                    NewCookiecutterSession(_projectSystem.GetSelectedFolderProjectLocation());
+                    NewCookiecutterSessionAsync(new CookiecutterSessionStartInfo(_projectSystem.GetSelectedFolderProjectLocation())).DoNotWait();
+                    break;
+                case PackageIds.cmdidNewProjectFromTemplate:
+                    hr = NewProjectFromTemplate(variantIn, variantOut, commandExecOpt);
                     break;
                 default:
                     Debug.Assert(false);
@@ -133,9 +149,10 @@ namespace Microsoft.CookiecutterTools {
             if (commandGroup == PackageGuids.guidCookiecutterCmdSet && commandsCount == 1) {
                 switch (commands[0].cmdID) {
                     case PackageIds.cmdidAddFromCookiecutter:
-                        var location = _projectSystem.GetSelectedFolderProjectLocation() != null ?
-                            (uint)(OLECMDF.OLECMDF_ENABLED | OLECMDF.OLECMDF_SUPPORTED) :
-                            0;
+                        commands[0].cmdf = DTE.Debugger.CurrentMode == EnvDTE.dbgDebugMode.dbgDesignMode &&
+                                           _projectSystem.GetSelectedFolderProjectLocation() != null
+                            ? (uint)(OLECMDF.OLECMDF_ENABLED | OLECMDF.OLECMDF_SUPPORTED)
+                            : (uint)(OLECMDF.OLECMDF_INVISIBLE | OLECMDF.OLECMDF_SUPPORTED);
                         break;
                     default:
                         commands[0].cmdf = 0;
@@ -179,15 +196,7 @@ namespace Microsoft.CookiecutterTools {
             return service as T;
         }
 
-        internal new object GetService(Type serviceType) {
-            return base.GetService(serviceType);
-        }
-
-        public EnvDTE80.DTE2 DTE {
-            get {
-                return GetGlobalService<EnvDTE.DTE, EnvDTE80.DTE2>();
-            }
-        }
+        public EnvDTE80.DTE2 DTE => GetGlobalService<EnvDTE.DTE, EnvDTE80.DTE2>();
 
         internal static void ShowContextMenu(CommandID commandId, int x, int y, IOleCommandTarget commandTarget) {
             var shell = CookiecutterPackage.GetGlobalService(typeof(SVsUIShell)) as IVsUIShell;
@@ -197,28 +206,19 @@ namespace Microsoft.CookiecutterTools {
             shell.ShowContextMenu(0, commandId.Guid, commandId.ID, pts, commandTarget);
         }
 
-        internal WindowPane ShowWindowPane(Type windowType, bool focus) {
-            var window = FindWindowPane(windowType, 0, true) as ToolWindowPane;
-            if (window != null) {
-                var frame = window.Frame as IVsWindowFrame;
-                if (frame != null) {
-                    ErrorHandler.ThrowOnFailure(frame.Show());
-                }
-
-                if (focus) {
-                    var content = window.Content as System.Windows.UIElement;
-                    if (content != null) {
-                        content.Focus();
-                    }
-                }
+        internal async Task<T> ShowWindowPaneAsync<T>(bool focus) where T : ToolWindowPane {
+            await JoinableTaskFactory.SwitchToMainThreadAsync(DisposalToken);
+            var toolWindow = await ShowToolWindowAsync(typeof(T), 0, true, DisposalToken);
+            if (focus && toolWindow.Content is UIElement content) {
+                content.Focus();
             }
 
-            return window;
+            return (T)toolWindow;
         }
 
-        internal void NewCookiecutterSession(ProjectLocation location = null) {
-            var pane = ShowWindowPane(typeof(CookiecutterToolWindow), true) as CookiecutterToolWindow;
-            pane.NewSession(location);
+        internal async Task NewCookiecutterSessionAsync(CookiecutterSessionStartInfo ssi = null) {
+            var pane = await ShowWindowPaneAsync<CookiecutterToolWindow>(true);
+            pane.NewSession(ssi);
         }
 
         private int ViewExternalBrowser(IntPtr variantIn, IntPtr variantOut, uint commandExecOpt) {
@@ -244,6 +244,32 @@ namespace Microsoft.CookiecutterTools {
                     }
                 }
             }
+
+            return VSConstants.S_OK;
+        }
+
+        private int NewProjectFromTemplate(IntPtr variantIn, IntPtr variantOut, uint commandExecOpt) {
+            if (IsQueryParameterList(variantIn, variantOut, commandExecOpt)) {
+                Marshal.GetNativeVariantForObject("url", variantOut);
+                return VSConstants.S_OK;
+            }
+
+            var name = GetStringArgument(variantIn) ?? "";
+            var args = name.Split('|');
+            if (args.Length != 3) {
+                return VSConstants.E_FAIL;
+            }
+
+            var projectName = args[0];
+            var targetFolder = args[1];
+            var templateUri = args[2].Trim('"');
+            var projectFolder = Path.Combine(targetFolder, projectName);
+
+            // Erase the "project creation failed" message from the status bar.
+            var statusBar = (IVsStatusbar)GetService(typeof(SVsStatusbar));
+            statusBar.SetText(string.Empty);
+
+            NewCookiecutterSessionAsync(new CookiecutterSessionStartInfo(projectName, projectFolder, templateUri)).DoNotWait();
 
             return VSConstants.S_OK;
         }

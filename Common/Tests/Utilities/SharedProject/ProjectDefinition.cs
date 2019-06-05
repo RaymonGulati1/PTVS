@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -57,6 +57,10 @@ namespace TestUtilities.SharedProject {
         public ProjectDefinition(string name, ProjectType projectType, bool isUserProject, params ProjectContentGenerator[] items)
             : this(name, projectType, items) {
             _isUserProject  = isUserProject;
+        }
+
+        public ProjectDefinition(ProjectType newProjectType, ProjectDefinition wrap)
+            : this(wrap.Name, newProjectType, wrap._isUserProject, wrap.Items) {
         }
 
         /// <summary>
@@ -109,20 +113,18 @@ namespace TestUtilities.SharedProject {
             return project;
         }
 
-        public Guid TypeGuid {
-            get { return ProjectType.ProjectTypeGuid; }
-        }
+        public Guid TypeGuid => ProjectType.ProjectTypeGuid;
 
         public SolutionElementFlags Flags {
             get {
                 if (ProjectType == ProjectType.Generic) {
-                    return SolutionElementFlags.ExcludeFromConfiguration | 
+                    return SolutionElementFlags.ExcludeFromConfiguration |
                         SolutionElementFlags.ExcludeFromSolution;
                 } else if (_isUserProject) {
                     return SolutionElementFlags.ExcludeFromSolution;
                 }
 
-                return SolutionElementFlags.None; 
+                return SolutionElementFlags.None;
             }
         }
 

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,6 +17,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
+using System.Diagnostics;
 using Microsoft.VisualStudio.Telemetry;
 
 namespace Microsoft.PythonTools.Logging {
@@ -73,6 +74,34 @@ namespace Microsoft.PythonTools.Logging {
             }
 
             session.PostEvent(evt);
+        }
+
+        public void LogFault(Exception ex, string description, bool dumpProcess) {
+            var session = _session.Value;
+            // No session is not a fatal error
+            if (session == null) {
+                return;
+            }
+
+            // Never send events when users have not opted in.
+            if (!session.IsOptedIn) {
+                return;
+            }
+
+            var fault = new FaultEvent(
+                EventPrefix + "UnhandledException",
+                !string.IsNullOrEmpty(description) ? description : "Unhandled exception in Python extension.",
+                ex
+            );
+
+            if (dumpProcess) {
+                fault.AddProcessDump(Process.GetCurrentProcess().Id);
+                fault.IsIncludedInWatsonSample = true;
+            } else {
+                fault.IsIncludedInWatsonSample = false;
+            }
+
+            session.PostEvent(fault);
         }
     }
 }

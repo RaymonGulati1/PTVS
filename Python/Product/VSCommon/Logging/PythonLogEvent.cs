@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,7 +18,7 @@ namespace Microsoft.PythonTools.Logging {
     /// <summary>
     /// Defines the list of events which PTVS will log to a IPythonToolsLogger.
     /// </summary>
-    public enum PythonLogEvent {
+    enum PythonLogEvent {
         /// <summary>
         /// Logs a debug launch.  Data supplied should be 1 or 0 indicating whether
         /// the launch was without debugging or with.
@@ -48,6 +48,10 @@ namespace Microsoft.PythonTools.Logging {
         /// </summary>
         PythonPackage,
         /// <summary>
+        /// The analyzer is initializing for project, REPL, etc.
+        /// </summary>
+        AnalysisInitializing,
+        /// <summary>
         /// The number of seconds that it took to analyze a DB
         /// </summary>
         AnalysisCompleted,
@@ -75,6 +79,50 @@ namespace Microsoft.PythonTools.Logging {
         /// <summary>
         /// Information about a debug REPL connection event
         /// </summary>
-        DebugRepl
+        DebugRepl,
+        /// <summary>
+        /// Information about enabled experimental features
+        /// </summary>
+        Experiments,
+        /// <summary>
+        /// Summary info about requests processed by an analyzer
+        /// </summary>
+        AnalysisRequestSummary,
+        /// <summary>
+        /// Info about slow GetExpressionAtPoint events
+        /// </summary>
+        GetExpressionAtPoint,
+        /// <summary>
+        /// Info about debugger launch or attach timeouts on slower machines
+        /// </summary>
+        DebugAdapterConnectionTimeout,
+        /// <summary>
+        /// Create conda environment info bar
+        /// </summary>
+        CondaEnvCreateInfoBar,
+        /// <summary>
+        /// Create virtual environment info bar
+        /// </summary>
+        VirtualEnvCreateInfoBar,
+        /// <summary>
+        /// Install packages info bar
+        /// </summary>
+        PackageInstallInfoBar,
+        /// <summary>
+        /// Create conda environment
+        /// </summary>
+        CreateCondaEnv,
+        /// <summary>
+        /// Create virtual environment
+        /// </summary>
+        CreateVirtualEnv,
+        /// <summary>
+        /// Add existing environment
+        /// </summary>
+        AddExistingEnv,
+        /// <summary>
+        /// Install environment
+        /// </summary>
+        InstallEnv,
     }
 }

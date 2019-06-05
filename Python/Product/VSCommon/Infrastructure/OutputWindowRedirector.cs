@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,7 +21,7 @@ using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudioTools;
 
 namespace Microsoft.PythonTools.Infrastructure {
-    public sealed class OutputWindowRedirector : Redirector {
+    sealed class OutputWindowRedirector : Redirector {
         private static readonly Guid OutputWindowGuid = new Guid("{34E76E81-EE4A-11D0-AE2E-00A0C90FFFC3}");
         static OutputWindowRedirector _generalPane;
         private readonly IServiceProvider _serviceProvider;
@@ -58,7 +58,7 @@ namespace Microsoft.PythonTools.Infrastructure {
         /// not be found or created.</exception>
         public static OutputWindowRedirector GetGeneral(IServiceProvider provider) {
             if (_generalPane == null) {
-                _generalPane = Get(provider, VSConstants.OutputWindowPaneGuid.GeneralPane_guid, "General");
+                _generalPane = Get(provider, VSConstants.OutputWindowPaneGuid.GeneralPane_guid, Strings.GeneralPaneName);
             }
             return _generalPane;
         }
@@ -103,7 +103,7 @@ namespace Microsoft.PythonTools.Infrastructure {
             try {
                 GetUIThread(_serviceProvider).Invoke(() => ErrorHandler.ThrowOnFailure(_pane.Activate()));
             } catch (Exception ex) when (!ex.IsCriticalException()) {
-                ex.ReportUnhandledException(_serviceProvider, GetType());
+                Debug.Fail(ex.ToUnhandledExceptionMessage(GetType()));
             }
         }
 
@@ -116,7 +116,7 @@ namespace Microsoft.PythonTools.Infrastructure {
                     }
                 });
             } catch (Exception ex) when (!ex.IsCriticalException()) {
-                ex.ReportUnhandledException(_serviceProvider, GetType());
+                Debug.Fail(ex.ToUnhandledExceptionMessage(GetType()));
             }
         }
 

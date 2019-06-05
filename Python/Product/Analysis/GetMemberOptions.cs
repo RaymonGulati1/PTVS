@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -73,24 +73,26 @@ namespace Microsoft.PythonTools.Analysis {
         /// returns type, and the 2nd member access will not continue to recurse through
         /// the hierarchy.
         /// </summary>
-        NoMemberRecursion = 0x80
+        NoMemberRecursion = 0x80,
+
+        /// <summary>
+        /// Only include members which are valid (or likely) exception types
+        /// </summary>
+        ExceptionsOnly = 0x100,
+
+        /// <summary>
+        /// Preserves old values in types. Typically used when obtaining
+        /// members for the completion list.
+        /// </summary>
+        ForEval = 0x0200
     }
 
-    internal static class GetMemberOptionsExtensions {
-        public static bool Intersect(this GetMemberOptions self) {
-            return (self & GetMemberOptions.IntersectMultipleResults) != 0;
-        }
-        public static bool HideAdvanced(this GetMemberOptions self) {
-            return (self & GetMemberOptions.HideAdvancedMembers) != 0;
-        }
-        public static bool Keywords(this GetMemberOptions self) {
-            return (self & GetMemberOptions.IncludeStatementKeywords  | GetMemberOptions.IncludeExpressionKeywords) != 0;
-        }
-        public static bool StatementKeywords(this GetMemberOptions self) {
-            return (self & GetMemberOptions.IncludeStatementKeywords) != 0;
-        }
-        public static bool ExpressionKeywords(this GetMemberOptions self) {
-            return (self & GetMemberOptions.IncludeExpressionKeywords) != 0;
-        }
+    public static class GetMemberOptionsExtensions {
+        public static bool Intersect(this GetMemberOptions self) => self.HasFlag(GetMemberOptions.IntersectMultipleResults);
+        public static bool HideAdvanced(this GetMemberOptions self) => self.HasFlag(GetMemberOptions.HideAdvancedMembers);
+        public static bool StatementKeywords(this GetMemberOptions self) => self.HasFlag(GetMemberOptions.IncludeStatementKeywords);
+        public static bool ExpressionKeywords(this GetMemberOptions self) => self.HasFlag(GetMemberOptions.IncludeExpressionKeywords);
+        public static bool Exceptions(this GetMemberOptions self) => (self & GetMemberOptions.ExceptionsOnly) != 0;
+        public static bool ForEval(this GetMemberOptions self) => (self & GetMemberOptions.ForEval) != 0;
     }
 }

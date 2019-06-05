@@ -40,21 +40,21 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="CookiecutterDictionary.xaml" />
                 <ResourceDictionary>
-                    <wpf:Lambda x:Key="OperationStatusInProgressToVisibleOrCollapsed">(OperationStatus s) => s == OperationStatus.InProgress ? Visibility.Visible : Visibility.Collapsed</wpf:Lambda>
-                    <wpf:Lambda x:Key="OperationStatusFailedToVisibleOrCollapsed">(OperationStatus s) => s == OperationStatus.Failed ? Visibility.Visible : Visibility.Collapsed</wpf:Lambda>
+                    <wpf:Lambda x:Key="OperationStatusInProgressToVisibleOrHidden">(OperationStatus s) => s == OperationStatus.InProgress ? Visibility.Visible : Visibility.Hidden</wpf:Lambda>
+                    <wpf:Lambda x:Key="OperationStatusFailedToVisibleOrHidden">(OperationStatus s) => s == OperationStatus.Failed ? Visibility.Visible : Visibility.Hidden</wpf:Lambda>
                     <wpf:Lambda x:Key="OperationStatusSucceededToVisibleOrCollapsed">(OperationStatus s) => s == OperationStatus.Succeeded ? Visibility.Visible : Visibility.Collapsed</wpf:Lambda>
                     <wpf:Lambda x:Key="BoolToVisibleOrCollapsed">(bool b) => b ? Visibility.Visible : Visibility.Collapsed</wpf:Lambda>
                     <wpf:Lambda x:Key="BoolToVisible">(bool b) => b ? Visibility.Visible : Visibility.Hidden</wpf:Lambda>
                     <wpf:Lambda x:Key="BoolToNotVisible">(bool b) => b ? Visibility.Hidden : Visibility.Visible</wpf:Lambda>
                     <wpf:Lambda x:Key="EmptyStringToVisibleOrCollapsed">(string s) => !string.IsNullOrEmpty(s) ? Visibility.Collapsed: Visibility.Visible</wpf:Lambda>
                     <wpf:Lambda x:Key="EmptyStringToNotVisibleOrCollapsed">(string s) => string.IsNullOrEmpty(s) ? Visibility.Collapsed : Visibility.Visible</wpf:Lambda>
-                    <wpf:Lambda x:Key="TargetProjectLocationUniqueProjectNameNotEmpty">(ProjectLocation loc) => !string.IsNullOrEmpty(loc?.ProjectUniqueName)</wpf:Lambda>
                     <Style x:Key="BrowseOdbcButton" TargetType="{x:Type Button}" BasedOn="{StaticResource BrowseButton}">
                         <Setter Property="Command" Value="{x:Static view:SqlCommands.BrowseOdbc}" />
                     </Style>
                     <view:TemplateContextItemTemplateSelector x:Key="contextItemSelector"/>
                     <DataTemplate x:Key="stringTemplate">
-                        <StackPanel Orientation="Vertical">
+                        <StackPanel Orientation="Vertical"
+                                    Visibility="{Binding Visible, Converter={StaticResource BoolToVisibleOrCollapsed}}">
                             <TextBlock x:Name="Label_NotClickable"
                                        Margin="8 4 4 0"
                                        Text="{Binding Label}"
@@ -70,7 +70,8 @@
                                                               Text="{Binding Val, Mode=TwoWay}"
                                                               HelpText="{Binding Description}"
                                                               Watermark="{Binding Default}"
-                                                              AutomationProperties.Name="{Binding Label}"/>
+                                                              AutomationProperties.Name="{Binding Label}"
+                                                              AutomationProperties.HelpText="{Binding Description}"/>
                         </StackPanel>
                         <DataTemplate.Triggers>
                             <DataTrigger Binding="{Binding Url,Mode=OneWay}" Value="">
@@ -80,7 +81,8 @@
                         </DataTemplate.Triggers>
                     </DataTemplate>
                     <DataTemplate x:Key="odbcconnectionTemplate">
-                        <StackPanel Orientation="Vertical">
+                        <StackPanel Orientation="Vertical"
+                                    Visibility="{Binding Visible, Converter={StaticResource BoolToVisibleOrCollapsed}}">
                             <TextBlock x:Name="Label_NotClickable"
                                        Margin="8 4 4 0"
                                        Text="{Binding Label}"
@@ -97,7 +99,9 @@
                                                               HelpText="{Binding Description}"
                                                               Watermark="{Binding Default}"
                                                               BrowseButtonStyle="{StaticResource BrowseOdbcButton}"
-                                                              AutomationProperties.Name="{Binding Label}"/>
+                                                              BrowseAutomationName="{x:Static cct:Strings.OptionsPage_OdbcConnectionBrowseAutomationName}"
+                                                              AutomationProperties.Name="{Binding Label}"
+                                                              AutomationProperties.HelpText="{Binding Description}"/>
                         </StackPanel>
                         <DataTemplate.Triggers>
                             <DataTrigger Binding="{Binding Url,Mode=OneWay}" Value="">
@@ -107,7 +111,8 @@
                         </DataTemplate.Triggers>
                     </DataTemplate>
                     <DataTemplate x:Key="listTemplate">
-                        <StackPanel Orientation="Vertical">
+                        <StackPanel Orientation="Vertical"
+                                    Visibility="{Binding Visible, Converter={StaticResource BoolToVisibleOrCollapsed}}">
                             <TextBlock x:Name="Label_NotClickable"
                                        Margin="8 4 4 0"
                                        Text="{Binding Label}"
@@ -123,7 +128,8 @@
                                                                Value="{Binding Val, Mode=TwoWay}"
                                                                Values="{Binding Items}"
                                                                HelpText="{Binding Description}"
-                                                               AutomationProperties.Name="{Binding Label}"/>
+                                                               AutomationProperties.Name="{Binding Label}"
+                                                               AutomationProperties.HelpText="{Binding Description}"/>
                         </StackPanel>
                         <DataTemplate.Triggers>
                             <DataTrigger Binding="{Binding Url,Mode=OneWay}" Value="">
@@ -133,7 +139,8 @@
                         </DataTemplate.Triggers>
                     </DataTemplate>
                     <DataTemplate x:Key="yesnoTemplate">
-                        <StackPanel Orientation="Vertical">
+                        <StackPanel Orientation="Vertical"
+                                    Visibility="{Binding Visible, Converter={StaticResource BoolToVisibleOrCollapsed}}">
                             <StackPanel.Resources>
                                 <x:Array x:Key="yesnoValues" Type="sys:String">
                                     <sys:String>y</sys:String>
@@ -155,7 +162,8 @@
                                                                Value="{Binding Val, Mode=TwoWay}"
                                                                Values="{StaticResource ResourceKey=yesnoValues}"
                                                                HelpText="{Binding Description}"
-                                                               AutomationProperties.Name="{Binding Label}"/>
+                                                               AutomationProperties.Name="{Binding Label}"
+                                                               AutomationProperties.HelpText="{Binding Description}"/>
                         </StackPanel>
                         <DataTemplate.Triggers>
                             <DataTrigger Binding="{Binding Url,Mode=OneWay}" Value="">
@@ -189,6 +197,7 @@
                                               Watermark="{x:Static cct:Strings.OptionsPage_CreateToWatermark}"
                                               BrowseButtonStyle="{StaticResource BrowseFolderButton}"
                                               AutomationProperties.Name="{x:Static cct:Strings.OptionsPage_CreateToAutomationName}"
+                                              BrowseAutomationName="{x:Static cct:Strings.OptionsPage_CreateToBrowseAutomationName}"
                                               HelpText="{x:Static cct:Strings.OptionsPage_CreateToTooltip}">
                 <wpf:ConfigurationTextBoxWithHelp.Resources>
                     <Style TargetType="{x:Type Button}">
@@ -196,7 +205,7 @@
                     </Style>
                 </wpf:ConfigurationTextBoxWithHelp.Resources>
             </wpf:ConfigurationTextBoxWithHelp>
-            <StackPanel Margin="4 4 4 8" Orientation="Horizontal" Visibility="{Binding FixedOutputFolder, Converter={StaticResource BoolToVisibleOrCollapsed}}">
+            <StackPanel Margin="4 4 4 8" Orientation="Horizontal" Visibility="{Binding AddingToExistingProject, Converter={StaticResource BoolToVisibleOrCollapsed}}">
                 <imaging:CrispImage Width="16" Height="16" Moniker="{x:Static imagecatalog:KnownMonikers.StatusInformation}"/>
                 <TextBlock Margin="4 0 0 0"
                            Text="{x:Static cct:Strings.OptionsPage_AddingToProject}"
@@ -221,8 +230,17 @@
                         <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                             <Setter Property="Content" Value="{x:Static cct:Strings.OptionsPage_Create}"/>
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding Path=TargetProjectLocation, Converter={StaticResource TargetProjectLocationUniqueProjectNameNotEmpty}}" Value="True">
+                                <DataTrigger Binding="{Binding Path=PostCreate}" Value="{x:Static vm:PostCreateAction.AddToProject}">
                                     <Setter Property="Content" Value="{x:Static cct:Strings.OptionsPage_AddToProject}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Path=PostCreate}" Value="{x:Static vm:PostCreateAction.AddToSolution}">
+                                    <Setter Property="Content" Value="{x:Static cct:Strings.OptionsPage_AddToSolution}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Path=PostCreate}" Value="{x:Static vm:PostCreateAction.OpenProject}">
+                                    <Setter Property="Content" Value="{x:Static cct:Strings.OptionsPage_CreateAndOpenProject}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Path=PostCreate}" Value="{x:Static vm:PostCreateAction.OpenFolder}">
+                                    <Setter Property="Content" Value="{x:Static cct:Strings.OptionsPage_CreateAndOpenFolder}"/>
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
@@ -233,22 +251,24 @@
                         Content="{x:Static cct:Strings.OptionsPage_Cancel}"/>
             </StackPanel>
 
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Vertical"
-                        Visibility="{Binding Path=CreatingStatus, Converter={StaticResource OperationStatusInProgressToVisibleOrCollapsed}}">
-                <TextBlock Text="{x:Static cct:Strings.OptionsPage_CreatingFiles}"/>
-                <ProgressBar Margin="4" IsIndeterminate="True"/>
-            </StackPanel>
-
-            <StackPanel Margin="4 4 4 8"
-                        Orientation="Horizontal"
-                        Visibility="{Binding Path=CreatingStatus, Converter={StaticResource OperationStatusFailedToVisibleOrCollapsed}}">
-                <imaging:CrispImage Width="16" Height="16" Moniker="{x:Static imagecatalog:KnownMonikers.StatusError}"/>
-                <TextBlock Margin="4 0 0 0"
-                           TextWrapping="Wrap"
-                           Text="{x:Static cct:Strings.OptionsPage_CreatingFilesError}"/>
-            </StackPanel>
-
+            <Grid Margin="4">
+                <StackPanel Orientation="Vertical" Visibility="{Binding Path=CreatingStatus, Converter={StaticResource OperationStatusInProgressToVisibleOrHidden}}">
+                    <TextBlock Text="{x:Static cct:Strings.OptionsPage_CreatingFiles}"/>
+                    <ProgressBar Margin="4" IsIndeterminate="True"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal"
+                            Visibility="{Binding Path=CreatingStatus, Converter={StaticResource OperationStatusFailedToVisibleOrHidden}}">
+                    <imaging:CrispImage
+                        Width="16"
+                        Height="16"
+                        Moniker="{x:Static imagecatalog:KnownMonikers.StatusError}"/>
+                    <TextBlock Margin="4 0 0 0"
+                               MinHeight="16"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap"
+                               Text="{x:Static cct:Strings.OptionsPage_CreatingFilesError}"/>
+                </StackPanel>
+            </Grid>
         </StackPanel>
     </Grid>
 </Page>

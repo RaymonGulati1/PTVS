@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -71,15 +71,77 @@ namespace Microsoft.CookiecutterTools.Model {
 
         public async Task CreateCookiecutterEnv() {
             // Create a virtual environment using the global interpreter
-            var interpreterPath = _interpreter.InterpreterExecutablePath;
-            var output = ProcessOutput.RunHiddenAndCapture(interpreterPath, "-m", "venv", _envFolderPath);
+            try {
+                await CreateVenv();
+            } catch (ProcessException ex) when (ex.Result.ExitCode == 1) {
+                // Create fails on some Anaconda due to venv failing to install pip.
+                // Try again by installing pip ourselves.
+                await CreateVenvWithoutPipThenInstallPip();
+            }
+        }
 
-            await WaitForOutput(interpreterPath, output);
+        private async Task CreateVenv() {
+            RemoveExistingVenv();
+
+            _redirector.WriteLine(Strings.InstallingCookiecutterCreateEnv.FormatUI(_envFolderPath));
+            var output = ProcessOutput.Run(
+                _interpreter.InterpreterExecutablePath,
+                new[] { "-m", "venv", _envFolderPath },
+                null,
+                null,
+                false,
+                _redirector
+            );
+            await WaitForOutput(_interpreter.InterpreterExecutablePath, output);
+        }
+
+        private async Task CreateVenvWithoutPipThenInstallPip() {
+            RemoveExistingVenv();
+
+            _redirector.WriteLine(Strings.InstallingCookiecutterCreateEnvWithoutPip.FormatUI(_envFolderPath));
+            var output = ProcessOutput.Run(
+                _interpreter.InterpreterExecutablePath,
+                new[] { "-m", "venv", _envFolderPath, "--without-pip" },
+                null,
+                null,
+                false,
+                _redirector
+            );
+            await WaitForOutput(_interpreter.InterpreterExecutablePath, output);
+
+            _redirector.WriteLine(Strings.InstallingCookiecutterInstallPip.FormatUI(_envFolderPath));
+            var pipScriptPath = PythonToolsInstallPath.GetFile("pip_downloader.py");
+            output = ProcessOutput.Run(
+                _envInterpreterPath,
+                new[] { pipScriptPath },
+                _interpreter.PrefixPath,
+                null,
+                false,
+                _redirector
+            );
+            await WaitForOutput(_interpreter.InterpreterExecutablePath, output);
+        }
+
+        private void RemoveExistingVenv() {
+            if (Directory.Exists(_envFolderPath)) {
+                _redirector.WriteLine(Strings.InstallingCookiecutterDeleteEnv.FormatUI(_envFolderPath));
+                try {
+                    Directory.Delete(_envFolderPath, true);
+                } catch (DirectoryNotFoundException) {
+                }
+            }
         }
 
         public async Task InstallPackage() {
-            // Install the package into the virtual environment
-            var output = ProcessOutput.RunHiddenAndCapture(_envInterpreterPath, "-m", "pip", "install", "cookiecutter<1.5");
+            _redirector.WriteLine(Strings.InstallingCookiecutterInstallPackages.FormatUI(_envFolderPath));
+            var output = ProcessOutput.Run(
+                _envInterpreterPath,
+                new[] { "-m", "pip", "install", "cookiecutter<1.5" },
+                null,
+                null,
+                false,
+                _redirector
+            );
 
             await WaitForOutput(_envInterpreterPath, output);
         }
@@ -100,7 +162,7 @@ namespace Microsoft.CookiecutterTools.Model {
                 foreach (JProperty prop in context) {
                     // Properties that start with underscore are for internal use,
                     // and cookiecutter doesn't prompt for them.
-                    if (!prop.Name.StartsWith("_")) {
+                    if (!prop.Name.StartsWithOrdinal("_")) {
                         if (prop.Value.Type == JTokenType.String ||
                             prop.Value.Type == JTokenType.Integer ||
                             prop.Value.Type == JTokenType.Float) {
@@ -152,7 +214,7 @@ namespace Microsoft.CookiecutterTools.Model {
                 foreach (JProperty prop in context) {
                     // Properties that start with underscore are for internal use,
                     // and cookiecutter doesn't prompt for them.
-                    if (!prop.Name.StartsWith("_")) {
+                    if (!prop.Name.StartsWithOrdinal("_")) {
                         if (prop.Value.Type == JTokenType.String ||
                             prop.Value.Type == JTokenType.Integer ||
                             prop.Value.Type == JTokenType.Float) {
@@ -330,7 +392,7 @@ namespace Microsoft.CookiecutterTools.Model {
                     args.Append(" ");
                 }
 
-                if (val.EndsWith(":")) {
+                if (val.EndsWithOrdinal(":")) {
                     args.Append(val);
                     // no space after a switch that takes a value
                     insertSpace = false;
@@ -359,6 +421,10 @@ namespace Microsoft.CookiecutterTools.Model {
             //     "description" : "Description for variable 2",
             //     "url" : "http://azure.microsoft.com",
             //     "selector" : "odbcConnection"
+            //   },
+            //   "create_vs_project" : {
+            //     "visible" : false,
+            //     "value_source" : "IsNewProject"
             //   }
             // }
             //
@@ -378,6 +444,8 @@ namespace Microsoft.CookiecutterTools.Model {
                             ReadDescription(item, itemObj);
                             ReadUrl(item, itemObj);
                             ReadSelector(item, itemObj);
+                            ReadVisible(item, itemObj);
+                            ReadValueSource(item, itemObj);
                         } else {
                             WrongJsonType(prop.Name, JTokenType.Object, prop.Value.Type);
                         }
@@ -390,30 +458,18 @@ namespace Microsoft.CookiecutterTools.Model {
             }
         }
 
-        private JToken ReadLabel(ContextItem item, JObject itemObj) {
-            var labelToken = itemObj.SelectToken("label");
-            if (labelToken != null) {
-                if (labelToken.Type == JTokenType.String) {
-                    item.Label = labelToken.Value<string>();
-                } else {
-                    WrongJsonType("label", JTokenType.String, labelToken.Type);
-                }
+        private void ReadLabel(ContextItem item, JObject itemObj) {
+            var val = ReadString(itemObj, "label");
+            if (val != null) {
+                item.Label = val;
             }
-
-            return labelToken;
         }
 
-        private JToken ReadDescription(ContextItem item, JObject itemObj) {
-            var descriptionToken = itemObj.SelectToken("description");
-            if (descriptionToken != null) {
-                if (descriptionToken.Type == JTokenType.String) {
-                    item.Description = descriptionToken.Value<string>();
-                } else {
-                    WrongJsonType("description", JTokenType.String, descriptionToken.Type);
-                }
+        private void ReadDescription(ContextItem item, JObject itemObj) {
+            var val = ReadString(itemObj, "description");
+            if (val != null) {
+                item.Description = val;
             }
-
-            return descriptionToken;
         }
 
         private JToken ReadUrl(ContextItem item, JObject itemObj) {
@@ -440,14 +496,50 @@ namespace Microsoft.CookiecutterTools.Model {
         }
 
         private void ReadSelector(ContextItem item, JObject itemObj) {
-            var selectorToken = itemObj.SelectToken("selector");
-            if (selectorToken != null) {
-                if (selectorToken.Type == JTokenType.String) {
-                    item.Selector = selectorToken.Value<string>();
+            var val = ReadString(itemObj, "selector");
+            if (val != null) {
+                item.Selector = val;
+            }
+        }
+
+        private void ReadValueSource(ContextItem item, JObject itemObj) {
+            var val = ReadString(itemObj, "value_source");
+            if (val != null) {
+                item.ValueSource = val;
+            }
+        }
+
+        private void ReadVisible(ContextItem item, JObject itemObj) {
+            var val = ReadBool(itemObj, "visible");
+            if (val != null) {
+                item.Visible = val.Value;
+            }
+        }
+
+        private string ReadString(JObject itemObj, string fieldName) {
+            var token = itemObj.SelectToken(fieldName);
+            if (token != null) {
+                if (token.Type == JTokenType.String) {
+                    return token.Value<string>();
                 } else {
-                    WrongJsonType("selector", JTokenType.String, selectorToken.Type);
+                    WrongJsonType(fieldName, JTokenType.String, token.Type);
                 }
             }
+
+            return null;
+        }
+
+        private bool? ReadBool(JObject itemObj, string fieldName) {
+            var token = itemObj.SelectToken(fieldName);
+            if (token != null) {
+                if (token.Type == JTokenType.Boolean) {
+                    return token.Value<bool>();
+                } else {
+                    WrongJsonType(fieldName, JTokenType.Boolean, token.Type);
+                }
+            }
+
+            return null;
         }
 
         private void InvalidUrl(string url) {

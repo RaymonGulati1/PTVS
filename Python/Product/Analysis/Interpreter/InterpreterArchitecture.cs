@@ -9,15 +9,12 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
-using System.Diagnostics;
-using System.Reflection;
-using Microsoft.PythonTools.Infrastructure;
 
 namespace Microsoft.PythonTools.Interpreter {
     public abstract class InterpreterArchitecture : 
@@ -76,20 +73,6 @@ namespace Microsoft.PythonTools.Interpreter {
             return result;
         }
 
-        public static InterpreterArchitecture FromExe(string path) {
-            try {
-                switch (NativeMethods.GetBinaryType(path)) {
-                    case ProcessorArchitecture.X86:
-                        return x86;
-                    case ProcessorArchitecture.Amd64:
-                        return x64;
-                }
-            } catch (Exception ex) {
-                Debug.Fail(ex.ToUnhandledExceptionMessage(typeof(InterpreterArchitecture)));
-            }
-            return Unknown;
-        }
-
         public int CompareTo(InterpreterArchitecture other) {
             // We implement the full comparison here rather than delegating to
             // subclasses so that we have some way to handle extra
@@ -122,7 +105,7 @@ namespace Microsoft.PythonTools.Interpreter {
                 return -1;
             }
 
-            return GetType().Name.CompareTo(other.GetType().Name);
+            return string.CompareOrdinal(GetType().Name, other.GetType().Name);
         }
 
         public static bool operator ==(InterpreterArchitecture x, InterpreterArchitecture y)

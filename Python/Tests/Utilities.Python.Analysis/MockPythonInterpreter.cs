@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -23,7 +23,7 @@ using Microsoft.PythonTools.Analysis;
 using Microsoft.PythonTools.Interpreter;
 
 namespace TestUtilities.Python {
-    public class MockPythonInterpreter : IPythonInterpreter {
+    public class MockPythonInterpreter : IPythonInterpreter2 {
         public readonly Dictionary<string, IPythonModule> _modules;
         public readonly HashSet<string> _moduleNames;
         public bool IsDatabaseInvalid;
@@ -39,7 +39,7 @@ namespace TestUtilities.Python {
             _modules[name] = module;
             ModuleNamesChanged?.Invoke(this, EventArgs.Empty);
         }
-        
+
         /// <summary>
         /// Removes a module. If <c>retainName</c> is true, keeps returning
         /// the module name from <see cref="GetModuleNames"/>.
@@ -65,6 +65,9 @@ namespace TestUtilities.Python {
 
         public event EventHandler ModuleNamesChanged;
 
+        public Task<IPythonModule> ImportModuleAsync(string name, CancellationToken token)
+            => Task.FromResult(ImportModule(name));
+
         public IPythonModule ImportModule(string name) {
             IPythonModule res;
             _modules.TryGetValue(name, out res);
@@ -72,7 +75,7 @@ namespace TestUtilities.Python {
         }
 
         public IModuleContext CreateModuleContext() {
-            throw new NotImplementedException();
+            return null;
         }
 
         public Task AddReferenceAsync(ProjectReference reference, CancellationToken cancellationToken = default(CancellationToken)) {

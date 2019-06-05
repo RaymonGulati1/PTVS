@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -23,9 +23,11 @@ namespace Microsoft.PythonTools.Analysis.Values {
     class SysModuleInfo : BuiltinModule {
         public SysModulesDictionaryInfo _modules;
         
-        public SysModuleInfo(BuiltinModule inner)
+        private SysModuleInfo(BuiltinModule inner)
             : base(inner.InterpreterModule, inner.ProjectState) {
         }
+
+        public static BuiltinModule Wrap(BuiltinModule inner) => new SysModuleInfo(inner);
 
         public Dictionary<string, IAnalysisSet> Modules { get; private set; }
 
@@ -57,9 +59,8 @@ namespace Microsoft.PythonTools.Analysis.Values {
             public override IAnalysisSet GetIndex(Node node, AnalysisUnit unit, IAnalysisSet index) {
                 var res = base.GetIndex(node, unit, index);
 
-                var names = index.OfType<ConstantInfo>()
-                    .Select(ci => ci.GetConstantValueAsString())
-                    .Where(s => !string.IsNullOrEmpty(s))
+                var names = index.GetConstantValueAsString()
+                    .Where(s => !string.IsNullOrEmpty(s) && ModulePath.IsImportable(s))
                     .Distinct()
                     .ToArray();
 
@@ -82,7 +83,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
                 }
 
                 ModuleReference modRef;
-                if (unit.ProjectState.Modules.TryImport(name, out modRef)) {
+                if (unit.State.Modules.TryImport(name, out modRef)) {
                     return modRef.AnalysisModule;
                 }
 
@@ -102,7 +103,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
                     var modules = value.OfType<ModuleInfo>().ToArray();
 
-                    var modRef = unit.ProjectState.Modules.GetOrAdd(name);
+                    var modRef = unit.State.Modules.GetOrAdd(name);
 
                     MultipleMemberInfo mmi;
                     ModuleInfo mi;

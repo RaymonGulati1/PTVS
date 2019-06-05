@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,6 +18,11 @@
 namespace TestUtilities {
     // http://msdn.microsoft.com/en-us/library/ms645505(VS.85).aspx
     public enum MessageBoxButton {
+        /// <summary>
+        /// A meta-value used to indicate that the "normal" close behavior should be used.
+        /// </summary>
+        Close = 0,
+
         Abort = 3,
         Cancel = 2,
         Continue = 11,
@@ -27,6 +32,5 @@ namespace TestUtilities {
         Retry = 4,
         TryAgain = 10,
         Yes = 6
-
     }
 }

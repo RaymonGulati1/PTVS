@@ -9,13 +9,17 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using System.IO;
 using System.Windows.Forms;
+using Microsoft.PythonTools.Debugger;
+using Microsoft.PythonTools.Infrastructure;
+using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudioTools.Project;
 
@@ -52,19 +56,39 @@ namespace Microsoft.PythonTools.Project {
                 }
             }
 
+            string errorMessage = null;
             try {
                 return base.DebugLaunch(flags);
             } catch (MissingInterpreterException ex) {
                 if (_project.ActiveInterpreter == _project.InterpreterRegistry.NoInterpretersValue) {
                     PythonToolsPackage.OpenNoInterpretersHelpPage(ProjectMgr.Site, ex.HelpPage);
                 } else {
-                    MessageBox.Show(ex.Message, Strings.ProductTitle, MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
+                    errorMessage = ex.Message;
                 }
-                return VSConstants.S_OK;
             } catch (NoInterpretersException ex) {
                 PythonToolsPackage.OpenNoInterpretersHelpPage(ProjectMgr.Site, ex.HelpPage);
-                return VSConstants.S_OK;
+            } catch (IOException ex) {
+                errorMessage = ex.Message;
+            } catch (NoStartupFileException ex) {
+                errorMessage = ex.Message;
+            } catch (ArgumentException ex) {
+                // Previously used to handle "No startup file" which now has its own exception.
+                // Keeping it in case some launchers started relying on us catching this.
+                errorMessage = ex.Message;
             }
+
+            if (!string.IsNullOrEmpty(errorMessage)) {
+                var td = new TaskDialog(ProjectMgr.Site) {
+                    Title = Strings.ProductTitle,
+                    MainInstruction = Strings.FailedToLaunchDebugger,
+                    Content = errorMessage,
+                    AllowCancellation = true
+                };
+                td.Buttons.Add(TaskDialogButton.Close);
+                td.ShowModal();
+            }
+
+            return VSConstants.S_OK;
         }
     }
 }

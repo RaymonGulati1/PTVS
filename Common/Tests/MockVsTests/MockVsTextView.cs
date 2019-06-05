@@ -9,12 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.VisualStudio;
@@ -291,7 +292,17 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
         }
 
         public void Type(string text) {
-            _commandTarget.Type(text);
+            if (string.IsNullOrEmpty(text)) {
+                return;
+            }
+
+            using (var mre = new ManualResetEventSlim()) {
+                EventHandler<TextContentChangedEventArgs> evt = (s, e) => mre.SetIfNotDisposed();
+                _view.TextBuffer.ChangedLowPriority += evt;
+                _commandTarget.Type(text);
+                Assert.IsTrue(mre.Wait(1000), "No change event seen");
+                _view.TextBuffer.ChangedLowPriority -= evt;
+            }
         }
 
         int IOleCommandTarget.Exec(ref Guid pguidCmdGroup, uint nCmdID, uint nCmdexecopt, IntPtr pvaIn, IntPtr pvaOut) {
@@ -365,7 +376,7 @@ namespace Microsoft.VisualStudioTools.MockVsTests {
                 if (sessionStack.TopSession is T) {
                     break;
                 }
-                System.Threading.Thread.Sleep(25);
+                Thread.Sleep(Debugger.IsAttached ? 1000 : 25);
             }
 
             if (!(sessionStack.TopSession is T)) {

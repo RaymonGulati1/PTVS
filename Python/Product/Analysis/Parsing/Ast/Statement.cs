@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -27,6 +27,16 @@ namespace Microsoft.PythonTools.Parsing.Ast {
             }
         }
 
+        /// <summary>
+        /// Returns the length of the keywords (including internal whitespace), such
+        /// that StartIndex + KeywordLength represents the end of leading keywords.
+        /// </summary>
+        public virtual int KeywordLength => 0;
+        /// <summary>
+        /// The index of the end of the leading keywords.
+        /// </summary>
+        public virtual int KeywordEndIndex => StartIndex + KeywordLength;
+
         internal override sealed void AppendCodeString(StringBuilder res, PythonAst ast, CodeFormattingOptions format) {
             AppendCodeStringStmt(res, ast, format);
         }
@@ -41,10 +51,10 @@ namespace Microsoft.PythonTools.Parsing.Ast {
         /// New in 1.1.
         /// </summary>
         public static Expression GetExpression(Statement statement) {
-            if (statement is ExpressionStatement) {
-                return ((ExpressionStatement)statement).Expression;
-            } else if (statement is ReturnStatement) {
-                return ((ReturnStatement)statement).Expression;
+            if (statement is ExpressionStatement exprStmt) {
+                return exprStmt.Expression;
+            } else if (statement is ReturnStatement retStmt) {
+                return retStmt.Expression;
             } else {
                 return null;
             }

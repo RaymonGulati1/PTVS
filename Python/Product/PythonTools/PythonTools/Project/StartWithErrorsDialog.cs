@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,27 +21,18 @@ using System;
 
 namespace Microsoft.PythonTools.Project {
     public partial class StartWithErrorsDialog : Form {
-        private readonly PythonToolsService _pyService;
+        internal PythonToolsService PythonService { get; }
 
         public StartWithErrorsDialog(PythonToolsService pyService) {
-            _pyService = pyService;
+            PythonService = pyService;
             InitializeComponent();
             _icon.Image = SystemIcons.Warning.ToBitmap();
         }
 
-        [Obsolete("Use PythonToolsService.DebuggerOptions.PromptBeforeRunningWithBuildError instead")]
-        public static bool ShouldShow {
-            get {
-                var pyService = (PythonToolsService)PythonToolsPackage.GetGlobalService(typeof(PythonToolsService));
-
-                return pyService.DebuggerOptions.PromptBeforeRunningWithBuildError;
-            }
-        }
-
         protected override void OnClosing(CancelEventArgs e) {
             if (_dontShowAgainCheckbox.Checked) {
-                _pyService.DebuggerOptions.PromptBeforeRunningWithBuildError = false;
-                _pyService.DebuggerOptions.Save();
+                PythonService.DebuggerOptions.PromptBeforeRunningWithBuildError = false;
+                PythonService.DebuggerOptions.Save();
             }
         }
 
@@ -53,12 +44,6 @@ namespace Microsoft.PythonTools.Project {
         private void NoButtonClick(object sender, System.EventArgs e) {
             this.DialogResult = System.Windows.Forms.DialogResult.No;
             Close();
-        }
-
-        internal PythonToolsService PythonService {
-            get {
-                return _pyService;
-            }
         }
     }
 }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -39,30 +39,11 @@ namespace Microsoft.PythonTools.Analysis.Values {
             StringBuilder result = new StringBuilder(doc.Length);
             foreach (string line in doc.Split('\n')) {
                 if (result.Length > 0) {
-                    result.Append("\r\n");
+                    result.AppendLine();
                 }
-                result.Append(line.Trim());
+                result.Append(line.TrimEnd());
             }
             return result.ToString();
-        }
-
-        internal static string CleanDocumentation(string doc) {
-            int ctr = 0;
-            var result = new StringBuilder(doc.Length);
-            foreach (char c in doc) {
-                if (c == '\r') {
-                    // pass
-                } else if (c == '\n') {
-                    ctr++;
-                    if (ctr < 3) {
-                        result.Append("\r\n");
-                    }
-                } else {
-                    result.Append(c);
-                    ctr = 0;
-                }
-            }
-            return result.ToString().Trim();
         }
 
         internal static IAnalysisSet GetReturnTypes(IPythonFunction func, PythonAnalyzer projectState) {

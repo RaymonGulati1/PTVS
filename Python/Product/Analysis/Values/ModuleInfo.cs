@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,10 +17,12 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using Microsoft.PythonTools.Analysis.Analyzer;
-using Microsoft.PythonTools.Infrastructure;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
+using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Parsing.Ast;
 
 namespace Microsoft.PythonTools.Analysis.Values {
@@ -60,6 +62,33 @@ namespace Microsoft.PythonTools.Analysis.Values {
             _unresolvedModules.Clear();
         }
 
+        internal void EnsureModuleVariables(PythonAnalyzer state) {
+            var entry = ProjectEntry;
+
+            _scope.SetModuleVariable("__builtins__", state.ClassInfos[BuiltinTypeId.Dict].Instance);
+            _scope.SetModuleVariable("__file__", GetStr(state, entry.FilePath));
+            _scope.SetModuleVariable("__name__", GetStr(state, Name));
+            _scope.SetModuleVariable("__package__", GetStr(state, ParentPackage?.Name));
+            if (state.LanguageVersion.Is3x()) {
+                _scope.SetModuleVariable("__cached__", GetStr(state));
+                if (ModulePath.IsInitPyFile(entry.FilePath)) {
+                    _scope.SetModuleVariable("__path__", state.ClassInfos[BuiltinTypeId.List].Instance);
+                }
+                _scope.SetModuleVariable("__spec__", state.ClassInfos[BuiltinTypeId.Object].Instance);
+            }
+            ModuleDefinition.EnqueueDependents();
+
+        }
+        private static IAnalysisSet GetStr(PythonAnalyzer state, string s = null) {
+            if (string.IsNullOrEmpty(s)) {
+                return state.ClassInfos[BuiltinTypeId.Str].Instance;
+            }
+            if (state.LanguageVersion.Is2x()) {
+                return state.GetConstant(new AsciiString(new UTF8Encoding(false).GetBytes(s), s));
+            }
+            return state.GetConstant(s);
+        }
+
         /// <summary>
         /// Returns all the absolute module names that need to be resolved from
         /// this module.
@@ -73,7 +102,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
         }
 
         internal void AddUnresolvedModule(string relativeModuleName, bool absoluteImports) {
-            _unresolvedModules.UnionWith(PythonAnalyzer.ResolvePotentialModuleNames(_projectEntry, relativeModuleName, absoluteImports));
+            _unresolvedModules.UnionWith(ModuleResolver.ResolvePotentialModuleNames(_projectEntry, relativeModuleName, absoluteImports));
             _projectEntry.ProjectState.ModuleHasUnresolvedImports(this, true);
         }
 
@@ -85,7 +114,9 @@ namespace Microsoft.PythonTools.Analysis.Values {
         public override IDictionary<string, IAnalysisSet> GetAllMembers(IModuleContext moduleContext, GetMemberOptions options = GetMemberOptions.None) {
             var res = new Dictionary<string, IAnalysisSet>();
             foreach (var kvp in _scope.AllVariables) {
-                kvp.Value.ClearOldValues();
+                if (!options.ForEval()) {
+                    kvp.Value.ClearOldValues();
+                }
                 if (kvp.Value._dependencies.Count > 0) {
                     var types = kvp.Value.Types;
                     if (types.Count > 0) {
@@ -96,11 +127,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
             return res;
         }
 
-        public IModuleContext InterpreterContext {
-            get {
-                return _context;
-            }
-        }
+        public IModuleContext InterpreterContext => _context;
 
         public ModuleInfo ParentPackage {
             get { return _parentPackage; }
@@ -150,7 +177,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
         public void AddModuleReference(ModuleReference moduleRef) {
             if (moduleRef == null) {
                 Debug.Fail("moduleRef should never be null");
-                throw new ArgumentNullException("moduleRef");
+                throw new ArgumentNullException(nameof(moduleRef));
             }
             _referencedModules.Add(moduleRef);
             moduleRef.AddReference(this);
@@ -162,12 +189,7 @@ namespace Microsoft.PythonTools.Analysis.Values {
             }
         }
 
-        public IEnumerable<ModuleReference> ModuleReferences {
-            get {
-                return _referencedModules;
-            }
-        }
-
+        public IEnumerable<ModuleReference> ModuleReferences => _referencedModules;
         public void SpecializeFunction(string name, CallDelegate callable, bool mergeOriginalAnalysis) {
             lock (this) {
                 if (_specialized == null) {
@@ -279,15 +301,8 @@ namespace Microsoft.PythonTools.Analysis.Values {
             }
         }
 
-        public override string ToString() {
-            return "Module " + base.ToString();
-        }
-
-        public override string ShortDescription {
-            get {
-                return "Python module " + Name;
-            }
-        }
+        public override string ToString()  => $"Module {base.ToString()}";
+        public override string ShortDescription => $"Python module {Name}";
 
         public override string Description {
             get {
@@ -311,15 +326,11 @@ namespace Microsoft.PythonTools.Analysis.Values {
             }
         }
 
-        public override IEnumerable<LocationInfo> Locations {
-            get {
-                return new[] { new LocationInfo(ProjectEntry.FilePath, 1, 1) };
-            }
-        }
+        public override IEnumerable<LocationInfo> Locations 
+             => new[] { new LocationInfo(ProjectEntry.FilePath, ProjectEntry.DocumentUri, 1, 1) };
 
-        public override IPythonType PythonType {
-            get { return this.ProjectEntry.ProjectState.Types[BuiltinTypeId.Module]; }
-        }
+        public override IPythonType PythonType
+            => ProjectEntry.ProjectState.Types[BuiltinTypeId.Module];
 
         internal override BuiltinTypeId TypeId => BuiltinTypeId.Module;
 
@@ -334,10 +345,8 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
         #endregion
 
-
-
         public IAnalysisSet GetModuleMember(Node node, AnalysisUnit unit, string name, bool addRef = true, InterpreterScope linkedScope = null, string linkedName = null) {
-            var importedValue = Scope.CreateVariable(node, unit, name, addRef);
+            var importedValue = Scope.CreateEphemeralVariable(node, unit, name, addRef);
             ModuleDefinition.AddDependency(unit);
 
             if (linkedScope != null) {
@@ -348,7 +357,14 @@ namespace Microsoft.PythonTools.Analysis.Values {
 
 
         public IEnumerable<string> GetModuleMemberNames(IModuleContext context) {
-            return Scope.AllVariables.Keys();
+            return Scope.AllVariables.Select(kv => kv.Key);
+        }
+
+        public bool IsMemberDefined(IModuleContext context, string member) {
+            if (Scope.TryGetVariable(member, out VariableDef v)) {
+                return v.TypesNoCopy.Any(m => m.DeclaringModule == _projectEntry);
+            }
+            return false;
         }
 
         public void Imported(AnalysisUnit unit) {

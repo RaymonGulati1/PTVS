@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,13 +19,15 @@ using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Diagnostics;
 using System.Linq;
-using Microsoft.VisualStudio.InteractiveWindow;
-using Microsoft.VisualStudio.InteractiveWindow.Shell;
+using System.Threading;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudio.Imaging;
+using Microsoft.VisualStudio.InteractiveWindow;
+using Microsoft.VisualStudio.InteractiveWindow.Shell;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Utilities;
+using Microsoft.VisualStudioTools;
 
 namespace Microsoft.PythonTools.Repl {
     [Export(typeof(InteractiveWindowProvider))]
@@ -34,7 +36,10 @@ namespace Microsoft.PythonTools.Repl {
         private readonly Dictionary<int, IVsInteractiveWindow> _windows = new Dictionary<int, IVsInteractiveWindow>();
         private int _nextId = 1;
 
-        private readonly List<IVsInteractiveWindow> _mruWindows = new List<IVsInteractiveWindow>();
+        /// <summary>
+        /// A reverse-ordered list of recently used windows. Last item is most recently used.
+        /// </summary>
+        private readonly List<IVsInteractiveWindow> _lruWindows = new List<IVsInteractiveWindow>();
         private readonly Dictionary<string, int> _temporaryWindows = new Dictionary<string, int>();
 
         private readonly IServiceProvider _serviceProvider;
@@ -81,7 +86,7 @@ namespace Microsoft.PythonTools.Repl {
 
         private bool EnsureInterpretersAvailable() {
             var registry = _serviceProvider.GetComponentModel().GetService<IInterpreterRegistryService>();
-            if (registry.Configurations.Any()) {
+            if (registry.Configurations.Where(PythonInterpreterFactoryExtensions.IsRunnable).Any()) {
                 return true;
             }
 
@@ -89,13 +94,27 @@ namespace Microsoft.PythonTools.Repl {
             return false;
         }
 
-        public IVsInteractiveWindow Open(string replId) {
+        public void OnWindowUsed(IVsInteractiveWindow window) {
+            if (window == null) {
+                throw new ArgumentNullException(nameof(window));
+            }
+
+            lock (_windows) {
+                _lruWindows.Remove(window);
+                _lruWindows.Add(window);
+            }
+        }
+
+        public IVsInteractiveWindow Open(string replId) => Open(replId, null);
+
+        public IVsInteractiveWindow Open(string replId, Func<IInteractiveEvaluator, bool> predicate) {
             EnsureInterpretersAvailable();
 
             lock (_windows) {
-                foreach(var window in _windows.Values) {
+                foreach(var window in _lruWindows.AsEnumerable().Reverse().Concat(_windows.Values)) {
                     var eval = window.InteractiveWindow?.Evaluator as SelectableReplEvaluator;
-                    if (eval?.CurrentEvaluator == replId) {
+                    if (eval?.CurrentEvaluator == replId && predicate?.Invoke(eval) != false) {
+                        OnWindowUsed(window);
                         window.Show(true);
                         return window;
                     }
@@ -105,14 +124,17 @@ namespace Microsoft.PythonTools.Repl {
             return null;
         }
 
-        public IVsInteractiveWindow OpenOrCreate(string replId) {
+        public IVsInteractiveWindow OpenOrCreate(string replId) => OpenOrCreate(replId, null);
+
+        public IVsInteractiveWindow OpenOrCreate(string replId, Func<IInteractiveEvaluator, bool> predicate) {
             EnsureInterpretersAvailable();
 
             IVsInteractiveWindow wnd;
             lock (_windows) {
-                foreach(var window in _windows.Values) {
+                foreach(var window in _lruWindows.AsEnumerable().Reverse().Concat(_windows.Values)) {
                     var eval = window.InteractiveWindow?.Evaluator as SelectableReplEvaluator;
-                    if (eval?.CurrentEvaluator == replId) {
+                    if (eval?.CurrentEvaluator == replId && predicate?.Invoke(eval) != false) {
+                        OnWindowUsed(window);
                         window.Show(true);
                         return window;
                     }
@@ -143,12 +165,14 @@ namespace Microsoft.PythonTools.Repl {
 
             lock (_windows) {
                 _windows[curId] = window;
+                _lruWindows.Add(window);
             }
 
             window.InteractiveWindow.TextView.Closed += (s, e) => {
                 lock (_windows) {
                     Debug.Assert(ReferenceEquals(_windows[curId], window));
                     _windows.Remove(curId);
+                    _lruWindows.Remove(window);
                 }
             };
 
@@ -200,6 +224,7 @@ namespace Microsoft.PythonTools.Repl {
             lock (_windows) {
                 _windows[curId] = window;
                 _temporaryWindows[replId] = curId;
+                _lruWindows.Add(window);
             }
 
             window.InteractiveWindow.TextView.Closed += (s, e) => {
@@ -207,6 +232,7 @@ namespace Microsoft.PythonTools.Repl {
                     Debug.Assert(ReferenceEquals(_windows[curId], window));
                     _windows.Remove(curId);
                     _temporaryWindows.Remove(replId);
+                    _lruWindows.Remove(window);
                 }
             };
 
@@ -259,12 +285,13 @@ namespace Microsoft.PythonTools.Repl {
                 toolWindow.BitmapImageMoniker = KnownMonikers.PYInteractiveWindow;
             }
             replWindow.SetLanguage(GuidList.guidPythonLanguageServiceGuid, contentType);
-            replWindow.InteractiveWindow.InitializeAsync();
 
             var selectEval = evaluator as SelectableReplEvaluator;
             if (selectEval != null) {
                 selectEval.ProvideInteractiveWindowEvents(InteractiveWindowEvents.GetOrCreate(replWindow));
             }
+
+            _serviceProvider.GetUIThread().InvokeTaskSync(() => replWindow.InteractiveWindow.InitializeAsync(), CancellationToken.None);
 
             return replWindow;
         }

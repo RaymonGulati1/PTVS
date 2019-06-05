@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -24,12 +24,8 @@ namespace Microsoft.PythonTools.Options {
         private const string _optionsKey = "Options";
         private readonly WritableSettingsStore _settingsStore;
 
-        public static object CreateService(IServiceContainer container, Type serviceType) {
-            if (serviceType.IsEquivalentTo(typeof(IPythonToolsOptionsService))) {
-                return new PythonToolsOptionsService(container);
-            }
-            return null;
-        }
+        public static object CreateService(IServiceContainer container, Type serviceType) 
+            => serviceType.IsEquivalentTo(typeof(IPythonToolsOptionsService)) ? new PythonToolsOptionsService(container) : null;
 
         private PythonToolsOptionsService(IServiceProvider serviceProvider) {
             var settingsManager = SettingsManagerCreator.GetSettingsManager(serviceProvider);

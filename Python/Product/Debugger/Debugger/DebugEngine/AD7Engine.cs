@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -24,7 +24,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
 using System.Windows.Forms;
-using Microsoft.PythonTools.DkmDebugger;
 using Microsoft.PythonTools.Debugger.Remote;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Parsing;
@@ -139,6 +138,11 @@ namespace Microsoft.PythonTools.Debugger.DebugEngine {
         /// Specifies if the debugger should step/break into std lib code.
         /// </summary>
         public const string DebugStdLib = "DEBUG_STDLIB";
+
+        /// <summary>
+        /// Specifies if the debugger should display the function return values in locals window
+        /// </summary>
+        public const string ShowReturnValue = "SHOW_RETURN_VALUE";
 
         /// <summary>
         /// Specifies if the debugger should treat the application as if it doesn't have a console.
@@ -345,7 +349,7 @@ namespace Microsoft.PythonTools.Debugger.DebugEngine {
                         query += "&" + DebugOptionsKey + "=" + _debugOptions;
                         uriBuilder.Query = query;
 
-                        _process = TaskHelpers.RunSynchronouslyOnUIThread(ct => PythonRemoteProcess.AttachAsync(uriBuilder.Uri, true, ct));
+                        _process = TaskHelpers.RunSynchronouslyOnUIThread(ct => PythonRemoteProcess.AttachAsync(uriBuilder.Uri, true, null, ct));
                     } else {
                         _process = PythonProcess.Attach(processId, _debugOptions);
                     }
@@ -743,7 +747,7 @@ namespace Microsoft.PythonTools.Debugger.DebugEngine {
                 _attached = true;
                 _pseudoAttach = true;
             } else {
-                _process = new PythonProcess(_languageVersion, exe, args, dir, env, _interpreterOptions, _debugOptions, _dirMapping);
+                _process = new PythonProcess(_languageVersion, exe, args, dir, env, _interpreterOptions, _debugOptions, dirMapping: _dirMapping);
             }
 
             if (!_debugOptions.HasFlag(PythonDebugOptions.AttachRunning)) {
@@ -874,10 +878,21 @@ namespace Microsoft.PythonTools.Debugger.DebugEngine {
 
         private static PythonLanguageVersion GetLanguageVersion(string options) {
             PythonLanguageVersion langVersion;
-            if (options == null || !Enum.TryParse<PythonLanguageVersion>(options, out langVersion)) {
-                langVersion = DefaultVersion;
+            Version ver;
+            if (string.IsNullOrEmpty(options)) {
+                return DefaultVersion;
             }
-            return langVersion;
+            if (Enum.TryParse(options, out langVersion)) {
+                return langVersion;
+            }
+            if (Version.TryParse(options, out ver)) {
+                try {
+                    return ver.ToLanguageVersion();
+                } catch (InvalidOperationException) {
+                    // Version is not supported
+                }
+            }
+            return DefaultVersion;
         }
 
         // Resume a process launched by IDebugEngineLaunch2.LaunchSuspended
@@ -1436,9 +1451,13 @@ namespace Microsoft.PythonTools.Debugger.DebugEngine {
         }
 
         private void OnDebuggerOutput(object sender, OutputEventArgs e) {
-            AD7Thread thread;
-            if (!_threads.TryGetValue(e.Thread, out thread)) {
-                _threads[e.Thread] = thread = new AD7Thread(this, e.Thread);
+            // Output from debug REPL code execution may be run on debugger
+            // event handling thread, and e.Thread will be null.
+            AD7Thread thread = null;
+            if (e.Thread != null) {
+                if (!_threads.TryGetValue(e.Thread, out thread)) {
+                    _threads[e.Thread] = thread = new AD7Thread(this, e.Thread);
+                }
             }
 
             Send(new AD7DebugOutputStringEvent2(e.Output), AD7DebugOutputStringEvent2.IID, thread);
@@ -1453,7 +1472,7 @@ namespace Microsoft.PythonTools.Debugger.DebugEngine {
         /// 
         /// New in 1.5.
         /// </summary>
-        public static IDebugDocumentContext2 GetCodeMappingDocument(int processId, int threadId, int frame) {
+        internal static IDebugDocumentContext2 GetCodeMappingDocument(int processId, int threadId, int frame) {
             if (frame < 0) {
                 return null;
             }

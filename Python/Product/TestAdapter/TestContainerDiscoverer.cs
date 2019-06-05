@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,7 +18,6 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Projects;
 using Microsoft.VisualStudio;
@@ -35,7 +34,6 @@ namespace Microsoft.PythonTools.TestAdapter {
     [Export(typeof(TestContainerDiscoverer))]
     class TestContainerDiscoverer : ITestContainerDiscoverer, IDisposable {
         private readonly IServiceProvider _serviceProvider;
-        private readonly UIThreadBase _uiThread;
         private readonly SolutionEventsListener _solutionListener;
         private readonly Dictionary<PythonProject, ProjectInfo> _projectInfo;
         private bool _firstLoad, _isDisposed;
@@ -43,29 +41,12 @@ namespace Microsoft.PythonTools.TestAdapter {
         public static readonly Uri _ExecutorUri = new Uri(ExecutorUriString);
 
         [ImportingConstructor]
-        private TestContainerDiscoverer([Import(typeof(SVsServiceProvider))]IServiceProvider serviceProvider, [Import(typeof(IOperationState))]IOperationState operationState)
-            : this(serviceProvider,
-                   new SolutionEventsListener(serviceProvider),
-                    operationState) { }
-
-        internal bool IsProjectKnown(IVsProject project) {
-            var pyProj = PythonProject.FromObject(project);
-            return pyProj != null && _projectInfo.ContainsKey(pyProj);
-        }
-
-        public TestContainerDiscoverer(IServiceProvider serviceProvider,
-                                       SolutionEventsListener solutionListener,
-                                       IOperationState operationState) {
-            ValidateArg.NotNull(serviceProvider, "serviceProvider");
-            ValidateArg.NotNull(solutionListener, "solutionListener");
-            ValidateArg.NotNull(operationState, "operationState");
+        private TestContainerDiscoverer([Import(typeof(SVsServiceProvider))]IServiceProvider serviceProvider, [Import(typeof(IOperationState))]IOperationState operationState) {
+            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
 
             _projectInfo = new Dictionary<PythonProject, ProjectInfo>();
 
-            _serviceProvider = serviceProvider;
-            _uiThread = _serviceProvider.GetUIThread();
-
-            _solutionListener = solutionListener;
+            _solutionListener = new SolutionEventsListener(serviceProvider);
             _solutionListener.ProjectLoaded += OnProjectLoaded;
             _solutionListener.ProjectUnloading += OnProjectUnloaded;
             _solutionListener.ProjectClosing += OnProjectUnloaded;
@@ -91,7 +72,8 @@ namespace Microsoft.PythonTools.TestAdapter {
                 if (_firstLoad) {
                     // The first time through, we don't know about any loaded
                     // projects.
-                    _uiThread.Invoke(() => {
+                    ThreadHelper.JoinableTaskFactory.Run(async () => {
+                        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                         if (_firstLoad) {
                             _firstLoad = false;
                             // Get current solution
@@ -104,7 +86,7 @@ namespace Microsoft.PythonTools.TestAdapter {
                     });
                 }
 
-                return _projectInfo.Values.SelectMany(x => x._containers).Select(x => x.Value);
+                return _projectInfo.Values.SelectMany(x => x.GetAllContainers());
             }
         }
 
@@ -112,7 +94,7 @@ namespace Microsoft.PythonTools.TestAdapter {
             ProjectInfo projectInfo;
             if (_projectInfo.TryGetValue(project, out projectInfo)) {
                 TestContainer container;
-                if (projectInfo._containers.TryGetValue(path, out container)) {
+                if (projectInfo.TryGetContainer(path, out container)) {
                     return container;
                 }
             }
@@ -140,10 +122,16 @@ namespace Microsoft.PythonTools.TestAdapter {
         public event EventHandler TestContainersUpdated;
 
         private void OnProjectLoaded(object sender, ProjectEventArgs e) {
-            var pyProj = PythonProject.FromObject(e.Project);
+            OnProjectLoadedAsync(e.Project).HandleAllExceptions(_serviceProvider, GetType()).DoNotWait();
+        }
+
+        private async Task OnProjectLoadedAsync(IVsProject project) {
+            var pyProj = PythonProject.FromObject(project);
             if (pyProj != null) {
-                var analyzer = pyProj.Analyzer;
-                _projectInfo[pyProj] = new ProjectInfo(this, pyProj);
+                var analyzer = await pyProj.GetAnalyzerAsync();
+                if (analyzer != null) {
+                    _projectInfo[pyProj] = new ProjectInfo(this, pyProj);
+                }
             }
 
             TestContainersUpdated?.Invoke(this, EventArgs.Empty);
@@ -166,16 +154,20 @@ namespace Microsoft.PythonTools.TestAdapter {
         sealed class ProjectInfo : IDisposable {
             private readonly PythonProject _project;
             private readonly TestContainerDiscoverer _discoverer;
-            public readonly Dictionary<string, TestContainer> _containers;
+            private readonly Dictionary<string, TestContainer> _containers;
+            private readonly object _containersLock = new object();
             private ProjectAnalyzer _analyzer;
+
+            private List<string> _pendingRequests;
 
             public ProjectInfo(TestContainerDiscoverer discoverer, PythonProject project) {
                 _project = project;
                 _discoverer = discoverer;
                 _containers = new Dictionary<string, TestContainer>(StringComparer.OrdinalIgnoreCase);
+                _pendingRequests = new List<string>();
 
                 project.ProjectAnalyzerChanged += ProjectAnalyzerChanged;
-                RegisterWithAnalyzer();
+                RegisterWithAnalyzerAsync().HandleAllExceptions(_discoverer._serviceProvider, GetType()).DoNotWait();
             }
 
             public void Dispose() {
@@ -185,88 +177,112 @@ namespace Microsoft.PythonTools.TestAdapter {
                 _project.ProjectAnalyzerChanged -= ProjectAnalyzerChanged;
             }
 
-            private async void RegisterWithAnalyzer() {
+            public TestContainer[] GetAllContainers() {
+                lock (_containersLock) {
+                    return _containers.Select(x => x.Value).ToArray();
+                }
+            }
+
+            public bool TryGetContainer(string path, out TestContainer container) {
+                lock (_containersLock) {
+                    return _containers.TryGetValue(path, out container);
+                }
+            }
+
+            private bool RemoveContainer(string path) {
+                lock (_containersLock) {
+                    return _containers.Remove(path);
+                }
+            }
+
+            private async Task RegisterWithAnalyzerAsync() {
                 if (_analyzer != null) {
                     _analyzer.AnalysisComplete -= AnalysisComplete;
                 }
-                _analyzer = _project.Analyzer;
-                _analyzer.RegisterExtension(typeof(TestAnalyzer).Assembly.Location);
-                _analyzer.AnalysisComplete += AnalysisComplete;
-
-                await UpdateTestCasesAsync(_analyzer.Files).HandleAllExceptions(_discoverer._serviceProvider, GetType());
-            }
-
-            private async void AnalysisComplete(object sender, AnalysisCompleteEventArgs e) {
-                await UpdateTestCasesAsync(e.Path, true).HandleAllExceptions(_discoverer._serviceProvider, GetType());
-            }
-
-            private async Task UpdateTestCasesAsync(IEnumerable<string> paths) {
-                var pathList = paths.ToList();
-                bool notify = false;
-                foreach(var p in pathList) {
-                    notify |= await UpdateTestCasesAsync(p, false);
-                }
-                if (notify) {
-                    ContainersChanged();
+                _analyzer = await _project.GetAnalyzerAsync();
+                if (_analyzer != null) {
+                    _analyzer.AnalysisComplete += AnalysisComplete;
+                    await _analyzer.RegisterExtensionAsync(typeof(TestAnalyzer)).ConfigureAwait(false);
+                    await UpdateTestCasesAsync(_analyzer, _analyzer.Files, false).ConfigureAwait(false);
                 }
             }
 
-            private async Task<bool> UpdateTestCasesAsync(string path, bool notify) {
-                var testCaseData = await _project.Analyzer.SendExtensionCommandAsync(
-                    TestAnalyzer.Name, 
+            private void AnalysisComplete(object sender, AnalysisCompleteEventArgs e) {
+                PendOrSubmitRequests((ProjectAnalyzer)sender, e.Path)
+                    .HandleAllExceptions(_discoverer._serviceProvider, GetType())
+                    .DoNotWait();
+            }
+
+            private async Task PendOrSubmitRequests(ProjectAnalyzer analyzer, string path) {
+                List<string> pendingRequests;
+                int originalCount;
+                lock (_containersLock) {
+                    pendingRequests = _pendingRequests;
+                    _pendingRequests.Add(path);
+                    originalCount = _pendingRequests.Count;
+
+                    if (originalCount > 50) {
+                        _pendingRequests = new List<string>();
+                    }
+                }
+
+                await Task.Delay(100).ConfigureAwait(false);
+
+                lock (_containersLock) {
+                    if (pendingRequests.Count != originalCount) {
+                        return;
+                    }
+                    if (_pendingRequests == pendingRequests) {
+                        _pendingRequests = new List<string>();
+                    }
+                }
+
+                await UpdateTestCasesAsync(analyzer, pendingRequests, true).ConfigureAwait(false);
+            }
+
+            private async Task UpdateTestCasesAsync(ProjectAnalyzer analyzer, IEnumerable<string> paths, bool notify) {
+                var testCaseData = await analyzer.SendExtensionCommandAsync(
+                    TestAnalyzer.Name,
                     TestAnalyzer.GetTestCasesCommand,
-                    path
+                    string.Join(";", paths.Select(PathUtils.NormalizePath).Distinct(StringComparer.OrdinalIgnoreCase))
                 );
 
                 if (testCaseData == null) {
-                    return false;
+                    return;
                 }
 
-                var testCases = TestAnalyzer.GetTestCases(testCaseData);
+                var testCaseGroups = TestAnalyzer.GetTestCases(testCaseData).GroupBy(tc => tc.Filename);
 
-                if (testCases.Length != 0) {
-                    TestContainer existing;
-                    bool changed = true;
-                    if (_containers.TryGetValue(path, out existing)) {
-                        // we have an existing entry, let's see if any of the tests actually changed.
-                        if (existing.TestCases.Length == testCases.Length) {
-                            changed = false;
+                bool anythingToNotify = false;
 
-                            for (int i = 0; i < existing.TestCases.Length; i++) {
-                                if (!existing.TestCases[i].Equals(testCases[i])) {
-                                    changed = true;
-                                    break;
-                                }
+                foreach (var testCases in testCaseGroups) {
+                    var path = testCases.Key;
+                    if (testCases.Any()) {
+                        if (!TryGetContainer(path, out TestContainer existing) || !existing.TestCases.SequenceEqual(testCases)) {
+                            // we have a new entry or some of the tests changed
+                            int version = (existing?.Version ?? 0) + 1;
+                            lock (_containersLock) {
+                                _containers[path] = new TestContainer(
+                                    _discoverer,
+                                    path,
+                                    _project,
+                                    version,
+                                    Architecture,
+                                    testCases.ToArray()
+                                );
                             }
-                        }
-                    }
 
-                    if (changed) {
-                        // we have a new entry or some of the tests changed
-                        int version = (existing?.Version ?? 0) + 1;
-                        _containers[path] = new TestContainer(
-                            _discoverer,
-                            path,
-                            _project,
-                            version,
-                            Architecture,
-                            testCases
-                        );
-
-                        if (notify) {
-                            ContainersChanged();
+                            anythingToNotify = true;
                         }
-                        return true;
+                    } else if (RemoveContainer(path)) {
+                        // Raise containers changed event...
+                        anythingToNotify = true;
                     }
-                } else if (_containers.Remove(path)) {
-                    // Raise containers changed event...
-                    if (notify) {
-                        ContainersChanged();
-                    }
-                    return true;
                 }
 
-                return false;
+                if (notify && anythingToNotify) {
+                    ContainersChanged();
+                }
             }
 
             private Architecture Architecture => Architecture.Default;
@@ -276,7 +292,7 @@ namespace Microsoft.PythonTools.TestAdapter {
             }
 
             public void ProjectAnalyzerChanged(object sender, EventArgs e) {
-                RegisterWithAnalyzer();
+                RegisterWithAnalyzerAsync().HandleAllExceptions(_discoverer._serviceProvider, GetType()).DoNotWait();
             }
         }
     }

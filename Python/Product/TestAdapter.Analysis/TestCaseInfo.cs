@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -57,6 +57,12 @@ namespace Microsoft.PythonTools.TestAdapter {
                 { TestAnalyzer.Serialize.Kind, Kind.ToString() },
             };
         }
+
+        // Compare based on Python name, so that editing the file doesn't replace the object
+        private object CompareKey => new { Filename, ClassName, MethodName, StartLine };
+
+        public override bool Equals(object obj) => CompareKey.Equals((obj as TestCaseInfo)?.CompareKey);
+        public override int GetHashCode() => CompareKey.GetHashCode();
     }
 
     internal enum TestCaseKind {

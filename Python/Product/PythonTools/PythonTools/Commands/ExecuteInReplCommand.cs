@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -50,19 +50,21 @@ namespace Microsoft.PythonTools.Commands {
             var projectId = project != null ? PythonReplEvaluatorProvider.GetEvaluatorId(project) : null;
             var configId = config != null ? PythonReplEvaluatorProvider.GetEvaluatorId(config) : null;
 
+            if (config?.IsRunnable() == false) {
+                throw new MissingInterpreterException(
+                    Strings.MissingEnvironment.FormatUI(config.Description, config.Version)
+                );
+            }
+
             IVsInteractiveWindow window;
 
             // If we find an open window for the project, prefer that to a per-config one
             if (!string.IsNullOrEmpty(projectId)) {
-                window = provider.Open(projectId);
+                window = provider.Open(
+                    projectId,
+                    e => ((e as SelectableReplEvaluator)?.Evaluator as PythonCommonInteractiveEvaluator)?.AssociatedProjectHasChanged != true
+                );
                 if (window != null) {
-                    if (window.InteractiveWindow.GetPythonEvaluator()?.AssociatedProjectHasChanged == true) {
-                        // We have an existing window, but it needs to be reset.
-                        // Let's create a new one
-                        window = provider.Create(projectId);
-                        project.AddActionOnClose(window, w => InteractiveWindowProvider.CloseIfEvaluatorMatches(w, projectId));
-                    }
-
                     return window;
                 }
             }
@@ -139,6 +141,17 @@ namespace Microsoft.PythonTools.Commands {
             var pyProj = CommonPackage.GetStartupProject(_serviceProvider) as PythonProjectNode;
             var textView = CommonPackage.GetActiveTextView(_serviceProvider);
 
+            var scriptName = textView?.GetFilePath();
+
+            if (!string.IsNullOrEmpty(scriptName) && pyProj != null) {
+                if (pyProj.FindNodeByFullPath(scriptName) == null) {
+                    // Starting a script that isn't in the project.
+                    // Try and find the project. If we fail, we will
+                    // use the default environment.
+                    pyProj = _serviceProvider.GetProjectFromFile(scriptName);
+                }
+            }
+
             LaunchConfiguration config = null;
             try {
                 config = pyProj?.GetLaunchConfigurationOrThrow();
@@ -146,21 +159,32 @@ namespace Microsoft.PythonTools.Commands {
                 MessageBox.Show(ex.Message, Strings.ProductTitle);
                 return;
             }
-            if (config == null && textView != null) {
+            if (config == null) {
                 var interpreters = _serviceProvider.GetComponentModel().GetService<IInterpreterOptionsService>();
-                config = new LaunchConfiguration(interpreters.DefaultInterpreter.Configuration) {
-                    ScriptName = textView.GetFilePath(),
-                    WorkingDirectory = PathUtils.GetParent(textView.GetFilePath())
-                };
+                config = new LaunchConfiguration(interpreters.DefaultInterpreter.Configuration);
+            } else {
+                config = config.Clone();
             }
+
+            if (!string.IsNullOrEmpty(scriptName)) {
+                config.ScriptName = scriptName;
+                config.WorkingDirectory = PathUtils.GetParent(scriptName);
+            }
+
             if (config == null) {
                 Debug.Fail("Should not be executing command when it is invisible");
                 return;
             }
 
-            var window = EnsureReplWindow(_serviceProvider, config.Interpreter, pyProj);
-            window.Show(true);
+            IVsInteractiveWindow window;
+            try {
+                window = EnsureReplWindow(_serviceProvider, config.Interpreter, pyProj);
+            } catch (MissingInterpreterException ex) {
+                MessageBox.Show(ex.Message, Strings.ProductTitle);
+                return;
+            }
 
+            window.Show(true);
             var eval = (IPythonInteractiveEvaluator)window.InteractiveWindow.Evaluator;
 
             // The interpreter may take some time to startup, do this off the UI thread.

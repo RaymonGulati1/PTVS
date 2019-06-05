@@ -9,49 +9,40 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.IO;
-using Microsoft.Win32;
+using System.Runtime.InteropServices;
+using Microsoft.VisualStudio.Setup.Configuration;
 
 namespace TestUtilities {
     public static class VisualStudioPath {
-        private static string _root = GetRootPath();
+        private static Lazy<string> RootLazy { get; } = new Lazy<string>(GetVsRoot);
+        private static Lazy<string> CommonExtensionsLazy { get; } = new Lazy<string>(() => Root == null ? null : Path.Combine(Root, @"CommonExtensions\"));
+        private static Lazy<string> PrivateAssembliesLazy { get; } = new Lazy<string>(() => Root == null ? null : Path.Combine(Root, @"PrivateAssemblies\"));
+        private static Lazy<string> PublicAssembliesLazy { get; } = new Lazy<string>(() => Root == null ? null : Path.Combine(Root, @"PublicAssemblies\"));
 
-        private static string GetRootPath() {
-            string vsDir = null;
-            using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32))
-            using (var key = baseKey.OpenSubKey("SOFTWARE\\Microsoft\\VisualStudio\\SxS\\VS7")) {
-                if (key != null) {
-                    vsDir = key.GetValue(AssemblyVersionInfo.VSVersion) as string;
+        public static string Root => RootLazy.Value;
+        public static string CommonExtensions => CommonExtensionsLazy.Value;
+        public static string PrivateAssemblies => PrivateAssembliesLazy.Value;
+        public static string PublicAssemblies => PublicAssembliesLazy.Value;
+
+        private static string GetVsRoot() {
+            try {
+                var configuration = (ISetupConfiguration2)new SetupConfiguration();
+                var current = (ISetupInstance2)configuration.GetInstanceForCurrentProcess();
+                var path = current.ResolvePath(current.GetProductPath());
+                return Path.GetDirectoryName(path);
+            } catch (COMException) {
+                var path = Environment.GetEnvironmentVariable($"VisualStudio_IDE_{AssemblyVersionInfo.VSVersion}");
+                if (string.IsNullOrEmpty(path)) {
+                    path = Environment.GetEnvironmentVariable("VisualStudio_IDE");
                 }
-            }
-
-            return vsDir;
-        }
-
-        public static string Root {
-            get {
-                if (!Directory.Exists(_root)) {
-                    throw new InvalidOperationException("Cannot find VS installation");
-                }
-                return _root;
-            }
-        }
-
-        public static string PublicAssemblies {
-            get {
-                return Path.Combine(Root, "Common7", "IDE", "PublicAssemblies");
-            }
-        }
-
-        public static string PrivateAssemblies {
-            get {
-                return Path.Combine(Root, "Common7", "IDE", "PrivateAssemblies");
+                return path;
             }
         }
     }

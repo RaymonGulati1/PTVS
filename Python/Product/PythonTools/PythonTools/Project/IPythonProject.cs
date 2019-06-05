@@ -9,14 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using Microsoft.Build.Execution;
-using Microsoft.PythonTools.Intellisense;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudioTools.Project;
 
@@ -43,6 +42,7 @@ namespace Microsoft.PythonTools.Project {
         /// <param name="name"></param>
         /// <param name="value"></param>
         void SetProperty(string name, string value);
+        void SetOrAddPropertyAfter(string name, string value, string afterProperty);
 
         /// <summary>
         /// Gets the working directory that the program should be launched in.  This is either
@@ -108,7 +108,7 @@ namespace Microsoft.PythonTools.Project {
         /// 
         /// New in 2.0.
         /// </summary>
-        VsProjectAnalyzer GetProjectAnalyzer();
+        Projects.ProjectAnalyzer GetProjectAnalyzer();
 
         /// <summary>
         /// Raised when the analyzer for the project has changed.

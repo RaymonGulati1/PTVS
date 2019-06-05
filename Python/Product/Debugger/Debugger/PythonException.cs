@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -92,7 +92,7 @@ namespace Microsoft.PythonTools.Debugger {
                 if (endQuote == null) {
                     if (string.IsNullOrEmpty(bit)) {
                         yield return string.Empty;
-                    } else if (bit.StartsWith("\"") || bit.StartsWith("'")) {
+                    } else if (bit.StartsWithOrdinal("\"") || bit.StartsWithOrdinal("'")) {
                         endQuote = bit.Remove(1);
                         element.Append(bit.Substring(1));
                         added = true;
@@ -101,7 +101,7 @@ namespace Microsoft.PythonTools.Debugger {
                     }
                 }
 
-                if (endQuote != null && bit.EndsWith(endQuote)) {
+                if (endQuote != null && bit.EndsWithOrdinal(endQuote)) {
                     if (!added) {
                         element.Append(',');
                         element.Append(bit);

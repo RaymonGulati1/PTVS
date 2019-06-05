@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,8 +17,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Net.NetworkInformation;
+using System.Net;
 using System.Threading.Tasks;
 using Microsoft.PythonTools.Debugger;
 using Microsoft.PythonTools.Infrastructure;
@@ -79,6 +78,8 @@ namespace Microsoft.PythonTools.Project.Web {
         public int LaunchProject(bool debug) {
             var config = debug ? _debugConfig : _runConfig;
 
+            DebugLaunchHelper.RequireStartupFile(config);
+
             Uri url;
             int port;
             GetFullUrl(_serviceProvider, config, out url, out port);
@@ -91,7 +92,7 @@ namespace Microsoft.PythonTools.Project.Web {
             config.Environment = PathUtils.MergeEnvironments(env, config.Environment);
 
             try {
-                _serviceProvider.GetPythonToolsService().Logger.LogEvent(Logging.PythonLogEvent.Launch, new Logging.LaunchInfo {
+                _serviceProvider.GetPythonToolsService().Logger?.LogEvent(Logging.PythonLogEvent.Launch, new Logging.LaunchInfo {
                     IsDebug = debug,
                     IsWeb = true,
                     Version = config.Interpreter?.Version.ToString() ?? ""
@@ -139,7 +140,7 @@ namespace Microsoft.PythonTools.Project.Web {
                         try {
                             var web = _serviceProvider.GetService(typeof(SVsWebBrowsingService)) as IVsWebBrowsingService;
                             if (web == null) {
-                                CommonPackage.OpenWebBrowser(url);
+                                CommonPackage.OpenWebBrowser(_serviceProvider, url);
                                 return;
                             }
 
@@ -172,7 +173,7 @@ namespace Microsoft.PythonTools.Project.Web {
             if (int.TryParse(config.GetLaunchOption(PythonConstants.WebBrowserPortSetting) ?? "", out p)) {
                 port = p;
             } else {
-                port = GetTestServerPort();
+                SocketUtils.GetRandomPortListener(IPAddress.Loopback, out port).Stop();
                 p = -1;
             }
 
@@ -196,7 +197,8 @@ namespace Microsoft.PythonTools.Project.Web {
                 if (p >= 0) {
                     builder.Port = p;
                 } else if (builder.Port < 0 || (builder.Uri.IsDefaultPort && !host.Contains(":{0}".FormatInvariant(builder.Port)))) {
-                    builder.Port = GetTestServerPort();
+                    SocketUtils.GetRandomPortListener(IPAddress.Loopback, out port).Stop();
+                    builder.Port = port;
                 }
 
                 uri = builder.Uri;
@@ -210,12 +212,6 @@ namespace Microsoft.PythonTools.Project.Web {
                 output.ShowAndActivate();
                 uri = null;
             }
-        }
-
-        private static int GetTestServerPort() {
-            return Enumerable.Range(new Random().Next(49152, 65536), 60000)
-                .Except(IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpConnections().Select(c => c.LocalEndPoint.Port))
-                .First();
         }
     }
 }

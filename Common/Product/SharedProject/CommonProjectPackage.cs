@@ -9,15 +9,17 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using System.ComponentModel.Design;
 using System.Runtime.InteropServices;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.OLE.Interop;
+using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 
 namespace Microsoft.VisualStudioTools.Project {
@@ -61,13 +63,15 @@ namespace Microsoft.VisualStudioTools.Project {
         public abstract string GetProductVersion();
 
         protected override void Initialize() {
-            UIThread.EnsureService(this);
+            if (GetService(typeof(UIThreadBase)) == null) {
+                ((IServiceContainer)this).AddService(typeof(UIThreadBase), new UIThread(ThreadHelper.JoinableTaskFactory), true);
+            }
 
             base.Initialize();
-            this.RegisterProjectFactory(CreateProjectFactory());
+            RegisterProjectFactory(CreateProjectFactory());
             var editFactory = CreateEditorFactory();
             if (editFactory != null) {
-                this.RegisterEditorFactory(editFactory);
+                RegisterEditorFactory(editFactory);
             }
             var encodingEditorFactory = CreateEditorFactoryPromptForEncoding();
             if (encodingEditorFactory != null) {
@@ -102,14 +106,13 @@ namespace Microsoft.VisualStudioTools.Project {
         /// <param name="resourceName">Resource to load</param>
         /// <returns>String loaded for the specified resource</returns>
         public string GetResourceString(string resourceName) {
-            string resourceValue;
-            IVsResourceManager resourceManager = (IVsResourceManager)GetService(typeof(SVsResourceManager));
+            var resourceManager = (IVsResourceManager)GetService(typeof(SVsResourceManager));
             if (resourceManager == null) {
                 throw new InvalidOperationException("Could not get SVsResourceManager service. Make sure the package is Sited before calling this method");
             }
-            Guid packageGuid = this.GetType().GUID;
-            int hr = resourceManager.LoadResourceString(ref packageGuid, -1, resourceName, out resourceValue);
-            Microsoft.VisualStudio.ErrorHandler.ThrowOnFailure(hr);
+            var packageGuid = GetType().GUID;
+            int hr = resourceManager.LoadResourceString(ref packageGuid, -1, resourceName, out var resourceValue);
+            ErrorHandler.ThrowOnFailure(hr);
             return resourceValue;
         }
 

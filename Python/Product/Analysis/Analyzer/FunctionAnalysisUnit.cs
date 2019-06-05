@@ -9,57 +9,59 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Analysis.Values;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing.Ast;
 
 namespace Microsoft.PythonTools.Analysis.Analyzer {
-    /// <summary>
-    /// Provides analysis of a function called with a specific set of arguments.  We analyze each function
-    /// with each unique set of arguments (the cartesian product of the arguments).
-    /// 
-    /// It's possible that we still need to perform the analysis multiple times which can occur 
-    /// if we take a dependency on something which later gets updated.
-    /// </summary>
     class FunctionAnalysisUnit : AnalysisUnit {
         public readonly FunctionInfo Function;
 
         internal readonly AnalysisUnit _declUnit;
+        private readonly bool _concreteParameters;
         private readonly Dictionary<Node, Expression> _decoratorCalls;
 
         internal FunctionAnalysisUnit(
             FunctionInfo function,
             AnalysisUnit declUnit,
             InterpreterScope declScope,
-            IPythonProjectEntry declEntry
+            IPythonProjectEntry declEntry,
+            bool concreteParameters
         )
             : base(function.FunctionDefinition, null) {
             _declUnit = declUnit;
             Function = function;
+            _concreteParameters = concreteParameters;
             _decoratorCalls = new Dictionary<Node, Expression>();
 
             var scope = new FunctionScope(Function, Function.FunctionDefinition, declScope, declEntry);
-            scope.EnsureParameters(this);
             _scope = scope;
 
-            AnalysisLog.NewUnit(this);
+            if (GetType() == typeof(FunctionAnalysisUnit)) {
+                AnalysisLog.NewUnit(this);
+            }
         }
 
-        internal FunctionAnalysisUnit(FunctionInfo function, AnalysisUnit declUnit) : base(function.FunctionDefinition, null)  {
-            _declUnit = declUnit;
-            Function = function;
+        internal virtual void EnsureParameters() {
+            ((FunctionScope)Scope).EnsureParameters(this, usePlaceholders: !_concreteParameters);
         }
-            
+
+        internal virtual void EnsureParameterZero() {
+            ((FunctionScope)Scope).EnsureParameterZero(this);
+        }
+
         internal virtual bool UpdateParameters(ArgumentSet callArgs, bool enqueue = true) {
-            return ((FunctionScope)Scope).UpdateParameters(this, callArgs, enqueue, null);
+            return ((FunctionScope)Scope).UpdateParameters(this, callArgs, enqueue, null, usePlaceholders: !_concreteParameters);
         }
 
         internal void AddNamedParameterReferences(AnalysisUnit caller, NameExpression[] names) {
@@ -75,14 +77,18 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
             // continue to associate changes with this unit.
             ddg.Scope = _declUnit.Scope;
             AnalyzeDefaultParameters(ddg);
-            if (_decoratorCalls != null) {
-                ProcessFunctionDecorators(ddg);
-            }
+
+            var funcType = ProcessFunctionDecorators(ddg);
+            EnsureParameterZero();
+
+            _declUnit.Scope.AddLocatedVariable(Ast.Name, Ast.NameExpression, this);
 
             // Set the scope to within the function
             ddg.Scope = Scope;
 
             Ast.Body.Walk(ddg);
+
+            _declUnit.Scope.AssignVariable(Ast.Name, Ast.NameExpression, this, funcType);
         }
 
 
@@ -98,142 +104,173 @@ namespace Microsoft.PythonTools.Analysis.Analyzer {
             }
         }
 
-        internal void ProcessFunctionDecorators(DDG ddg) {
+        private bool ProcessAbstractDecorators(IAnalysisSet decorator) {
+            var res = false;
+
+            // Only handle these if they are specialized
+            foreach (var d in decorator.OfType<SpecializedCallable>()) {
+                if (d.DeclaringModule?.ModuleName != "abc") {
+                    continue;
+                }
+
+                switch (d.Name) {
+                    case "abstractmethod":
+                        res = true;
+                        break;
+                    case "abstractstaticmethod":
+                        Function.IsStatic = true;
+                        res = true;
+                        break;
+                    case "abstractclassmethod":
+                        Function.IsClassMethod = true;
+                        res = true;
+                        break;
+                    case "abstractproperty":
+                        Function.IsProperty = true;
+                        res = true;
+                        break;
+                }
+            }
+
+            return res;
+        }
+
+        internal IAnalysisSet ProcessFunctionDecorators(DDG ddg) {
+            var types = Function.SelfSet;
             if (Ast.Decorators != null) {
-                var types = Function.SelfSet;
                 Expression expr = Ast.NameExpression;
 
-                foreach (var d in Ast.Decorators.Decorators) {
+                foreach (var d in Ast.Decorators.DecoratorsInternal) {
                     if (d != null) {
                         var decorator = ddg._eval.Evaluate(d);
 
-                        if (decorator.Contains(ProjectState.ClassInfos[BuiltinTypeId.Property])) {
+                        if (decorator.Contains(State.ClassInfos[BuiltinTypeId.Property])) {
                             Function.IsProperty = true;
-                        } else if (decorator.Contains(ProjectState.ClassInfos[BuiltinTypeId.StaticMethod])) {
+                        } else if (decorator.Contains(State.ClassInfos[BuiltinTypeId.StaticMethod])) {
                             // TODO: Warn if IsClassMethod is set
                             Function.IsStatic = true;
-                        } else if (decorator.Contains(ProjectState.ClassInfos[BuiltinTypeId.ClassMethod])) {
+                        } else if (decorator.Contains(State.ClassInfos[BuiltinTypeId.ClassMethod])) {
                             // TODO: Warn if IsStatic is set
                             Function.IsClassMethod = true;
+                        } else if (ProcessAbstractDecorators(decorator)) {
+                            // No-op
                         } else {
                             Expression nextExpr;
                             if (!_decoratorCalls.TryGetValue(d, out nextExpr)) {
                                 nextExpr = _decoratorCalls[d] = new CallExpression(d, new[] { new Arg(expr) });
+                                nextExpr.SetLoc(d.IndexSpan);
                             }
                             expr = nextExpr;
                             var decorated = AnalysisSet.Empty;
+                            bool anyResults = false;
                             foreach (var ns in decorator) {
                                 var fd = ns as FunctionInfo;
                                 if (fd != null && Scope.EnumerateTowardsGlobal.Any(s => s.AnalysisValue == fd)) {
                                     continue;
                                 }
                                 decorated = decorated.Union(ns.Call(expr, this, new[] { types }, ExpressionEvaluator.EmptyNames));
+                                anyResults = true;
                             }
 
                             // If processing decorators, update the current
                             // function type. Otherwise, we are acting as if
                             // each decorator returns the function unmodified.
-                            if (ddg.ProjectState.Limits.ProcessCustomDecorators) {
+                            if (ddg.ProjectState.Limits.ProcessCustomDecorators && anyResults) {
                                 types = decorated;
                             }
                         }
                     }
                 }
-
-                ddg.Scope.AddLocatedVariable(Ast.Name, Ast.NameExpression, this).AddTypes(this, types);
             }
 
-            if (!Function.IsStatic && Ast.Parameters.Count > 0) {
-                VariableDef param;
-                IAnalysisSet firstParam;
-                var clsScope = ddg.Scope as ClassScope;
-                if (clsScope == null) {
-                    firstParam = Function.IsClassMethod ? ProjectState.ClassInfos[BuiltinTypeId.Type].SelfSet : AnalysisSet.Empty;
-                } else {
-                    firstParam = Function.IsClassMethod ? clsScope.Class.SelfSet : clsScope.Class.Instance.SelfSet;
-                }
-
-                if (Scope.TryGetVariable(Ast.Parameters[0].Name, out param)) {
-                    param.AddTypes(this, firstParam, false);
-                }
-            }
+            return types;
         }
 
         internal void AnalyzeDefaultParameters(DDG ddg) {
             VariableDef param;
-            for (int i = 0; i < Ast.Parameters.Count; ++i) {
-                var p = Ast.Parameters[i];
-                ddg._eval.EvaluateMaybeNull(p.Annotation);
+            var scope = (FunctionScope)Scope;
+            for (int i = 0; i < Ast.ParametersInternal.Length; ++i) {
+                var p = Ast.ParametersInternal[i];
+                if (p.Annotation != null) {
+                    var val = ddg._eval.EvaluateAnnotation(p.Annotation);
+                    if (val?.Any() == true && Scope.TryGetVariable(p.Name, out param)) {
+                        param.AddTypes(this, val, false);
+                        var vd = scope.GetParameter(p.Name);
+                        if (vd != null && vd != param) {
+                            vd.AddTypes(this, val, false);
+                        }
+                    }
+                }
 
                 if (p.DefaultValue != null && p.Kind != ParameterKind.List && p.Kind != ParameterKind.Dictionary &&
                     Scope.TryGetVariable(p.Name, out param)) {
                     var val = ddg._eval.Evaluate(p.DefaultValue);
                     if (val != null) {
                         param.AddTypes(this, val, false);
+                        var vd = scope.GetParameter(p.Name);
+                        if (vd != null && vd != param) {
+                            vd.AddTypes(this, val, false);
+                        }
                     }
                 }
             }
-            ddg._eval.EvaluateMaybeNull(Ast.ReturnAnnotation);
+            if (Ast.ReturnAnnotation != null) {
+                var ann = ddg._eval.EvaluateAnnotation(Ast.ReturnAnnotation);
+                var resType = ann;
+                if (Ast.IsGenerator) {
+                    if (ann.Split<ProtocolInfo>(out var gens, out resType)) {
+                        var gen = ((FunctionScope)Scope).Generator;
+                        foreach (var g in gens.SelectMany(p => p.GetProtocols<GeneratorProtocol>())) {
+                            gen.Yields.AddTypes(ProjectEntry, g.Yielded);
+                            gen.Sends.AddTypes(ProjectEntry, g.Sent);
+                            gen.Returns.AddTypes(ProjectEntry, g.Returned);
+                        }
+                    }
+                } else {
+                    ((FunctionScope)Scope).AddReturnTypes(
+                        Ast.ReturnAnnotation,
+                        ddg._unit,
+                        resType
+                    );
+                }
+            }
         }
 
         public override string ToString() {
-            return string.Format("{0}{1}({2})->{3}",
+            return "{0}{1}({2})->{3}".FormatInvariant(
                 base.ToString(),
                 " def:",
-                string.Join(", ", Ast.Parameters.Select(p => Scope.GetVariable(p.Name).TypesNoCopy.ToString())),
+                string.Join(", ", Ast.ParametersInternal.Select(p => Scope.TryGetVariable(p.Name, out var v) ? v.TypesNoCopy.ToString() : "{}")),
                 ((FunctionScope)Scope).ReturnValue.TypesNoCopy.ToString()
             );
         }
     }
 
-    class CalledFunctionAnalysisUnit : FunctionAnalysisUnit {
+    class FunctionClosureAnalysisUnit : FunctionAnalysisUnit {
         private readonly FunctionAnalysisUnit _originalUnit;
-        public readonly CallChain CallChain;
         private readonly IVersioned _agg;
 
-        public CalledFunctionAnalysisUnit(IVersioned agg, FunctionAnalysisUnit originalUnit, CallChain callChain, ArgumentSet callArgs)
-            : base(originalUnit.Function, originalUnit._declUnit) {
+        internal FunctionClosureAnalysisUnit(IVersioned agg, FunctionAnalysisUnit originalUnit, CallChain callChain) :
+            base(originalUnit.Function, originalUnit._declUnit, originalUnit._declUnit.Scope, originalUnit.ProjectEntry, true) {
             _originalUnit = originalUnit;
             _agg = agg;
             CallChain = callChain;
+            _originalUnit.Scope.AddLinkedScope(Scope);
 
-            var scope = new FunctionScope(
-                Function,
-                Ast,
-                originalUnit.Scope.OuterScope,
-                originalUnit.DeclaringModule.ProjectEntry
-            );
-            scope.UpdateParameters(this, callArgs, false, originalUnit.Scope as FunctionScope);
-            _scope = scope;
-
-            var walker = new OverviewWalker(_originalUnit.ProjectEntry, this, Tree);
-            if (Ast.Body != null) {
-                Ast.Body.Walk(walker);
-            }
+            var node = originalUnit.Function.FunctionDefinition;
+            node.Body.Walk(new OverviewWalker(originalUnit.ProjectEntry, this, originalUnit.Tree));
 
             AnalysisLog.NewUnit(this);
-            Enqueue();
         }
 
-        public override IVersioned DependencyProject {
-            get {
-                return _agg;
-            }
-        }
+        public override IVersioned DependencyProject => _agg;
+        public FunctionAnalysisUnit OriginalUnit => _originalUnit;
+        internal override ILocationResolver AlternateResolver => _originalUnit;
 
-        internal override bool UpdateParameters(ArgumentSet callArgs, bool enqueue = true) {
-            var defScope = _originalUnit.Scope;
-            return ((FunctionScope)Scope).UpdateParameters(this, callArgs, enqueue, (FunctionScope)defScope);
-        }
+        public CallChain CallChain { get; }
 
         public override string ToString() {
-            return string.Format("{0}{1}({2})->{3}",
-                base.ToString(),
-                "",
-                string.Join(", ", Ast.Parameters.Select(p => Scope.GetVariable(p.Name).TypesNoCopy.ToString())),
-                ((FunctionScope)Scope).ReturnValue.TypesNoCopy.ToString()
-            );
+            return base.ToString() + " " + CallChain.ToString();
         }
     }
-
 }

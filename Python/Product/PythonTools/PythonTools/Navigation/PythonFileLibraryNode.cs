@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -78,14 +78,14 @@ namespace Microsoft.PythonTools.Navigation {
         public override IVsSimpleObjectList2 DoSearch(VSOBSEARCHCRITERIA2 criteria) {
             var node = _hierarchy as PythonFileNode;
             if (node != null) {
-                var analysis = node.GetAnalysisEntry();
+                var analysis = node.TryGetAnalysisEntry();
 
                 if (analysis != null) {
                     string expr = criteria.szName.Substring(criteria.szName.LastIndexOf(':') + 1);
                     var exprAnalysis = analysis.Analyzer.WaitForRequest(analysis.Analyzer.AnalyzeExpressionAsync(
                         analysis,
                         criteria.szName.Substring(criteria.szName.LastIndexOf(':') + 1),
-                        new SourceLocation(0, 1, 1)
+                        new SourceLocation(1, 1)
                     ), "PythonFileLibraryNode.DoSearch");
 
                     if (exprAnalysis != null) {
@@ -204,10 +204,13 @@ namespace Microsoft.PythonTools.Navigation {
         }
 
         protected override IEnumerable<CompletionResult> GetChildren() {
-            var analysis = _hierarchy.GetAnalysisEntry();
+            var analysis = (_hierarchy as PythonFileNode)?.TryGetAnalysisEntry();
+            if (analysis == null) {
+                return Enumerable.Empty<CompletionResult>();
+            }
             var members = analysis.Analyzer.WaitForRequest(analysis.Analyzer.GetAllAvailableMembersAsync(
                 analysis,
-                new SourceLocation(0, 1, 1),
+                new SourceLocation(1, 1),
                 GetMemberOptions.ExcludeBuiltins | GetMemberOptions.DetailedInformation
             ), "PythonFileChildren.GetChildren");
             return members;
@@ -226,11 +229,14 @@ namespace Microsoft.PythonTools.Navigation {
         }
 
         protected override IEnumerable<CompletionResult> GetChildren() {
-            var analysis = _hierarchy.GetAnalysisEntry();
+            var analysis = (_hierarchy as PythonFileNode)?.TryGetAnalysisEntry();
+            if (analysis == null) {
+                return Enumerable.Empty<CompletionResult>();
+            }
             var members = analysis.Analyzer.WaitForRequest(analysis.Analyzer.GetMembersAsync(
                 analysis,
                 _member,
-                new SourceLocation(0, 1, 1),
+                new SourceLocation(1, 1),
                 GetMemberOptions.ExcludeBuiltins | GetMemberOptions.DetailedInformation | GetMemberOptions.DeclaredOnly |
                 GetMemberOptions.NoMemberRecursion
             ), "MemberChildren.GetChildren");

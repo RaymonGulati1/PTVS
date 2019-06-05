@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,18 +19,20 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Automation;
 using EnvDTE;
 using EnvDTE80;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.ComponentModelHost;
+using Microsoft.VisualStudio.Editor;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Microsoft.VisualStudioTools.VSTestHost;
 using IOleServiceProvider = Microsoft.VisualStudio.OLE.Interop.IServiceProvider;
 using Task = System.Threading.Tasks.Task;
 
@@ -41,25 +43,44 @@ namespace TestUtilities.UI {
     public class VisualStudioApp : AutomationWrapper, IDisposable {
         private SolutionExplorerTree _solutionExplorerTreeView;
         private ObjectBrowser _objectBrowser, _resourceView;
-        private AzureCloudServiceActivityLog _azureActivityLog;
         private IntPtr _mainWindowHandle;
         private readonly DTE _dte;
-        private IServiceProvider _provider;
         private List<Action> _onDispose;
         private bool _isDisposed, _skipCloseAll;
 
-        public VisualStudioApp(DTE dte = null)
-            : this(new IntPtr((dte ?? VSTestContext.DTE).MainWindow.HWnd)) {
-            _dte = dte ?? VSTestContext.DTE;
+        public VisualStudioApp(IServiceProvider site)
+            : this(new IntPtr(GetDTE(site).MainWindow.HWnd)) {
+            // TODO: Make site non-optional
+            ServiceProvider = site ?? Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider;
+            _dte = GetDTE(site);
 
             foreach (var p in ((DTE2)_dte).ToolWindows.OutputWindow.OutputWindowPanes.OfType<OutputWindowPane>()) {
                 p.Clear();
+            }
+
+            var uiShell = GetService<IVsUIShell>(typeof(IVsUIShell));
+            IntPtr hwnd;
+            ErrorHandler.ThrowOnFailure(uiShell.GetDialogOwnerHwnd(out hwnd));
+            if (hwnd != _mainWindowHandle) {
+                using (var dlg = new AutomationDialog(this, AutomationElement.FromHandle(hwnd))) {
+                    Console.WriteLine("Unexpected dialog at start of test");
+                    DumpElement(dlg.Element);
+                    dlg.WaitForClosed(TimeSpan.FromSeconds(5), dlg.CloseWindow);
+                }
             }
         }
 
         private VisualStudioApp(IntPtr windowHandle)
             : base(AutomationElement.FromHandle(windowHandle)) {
             _mainWindowHandle = windowHandle;
+        }
+
+        private static DTE GetDTE(IServiceProvider site) {
+            if (site == null) {
+                Console.WriteLine("WARNING: Assuming global service provider");
+                site = Microsoft.VisualStudio.Shell.ServiceProvider.GlobalProvider;
+            }
+            return (DTE)site.GetService(typeof(DTE));
         }
 
         public bool IsDisposed {
@@ -130,19 +151,7 @@ namespace TestUtilities.UI {
             }
         }
 
-        public IServiceProvider ServiceProvider {
-            get {
-                if (_provider == null) {
-                    if (_dte == null) {
-                        _provider = VSTestContext.ServiceProvider;
-                    } else {
-                        _provider = new ServiceProvider((IOleServiceProvider)_dte);
-                        OnDispose(() => ((ServiceProvider)_provider).Dispose());
-                    }
-                }
-                return _provider;
-            }
-        }
+        public IServiceProvider ServiceProvider { get; }
 
         public T GetService<T>(Type type = null) {
             return (T)ServiceProvider.GetService(type ?? typeof(T));
@@ -216,7 +225,7 @@ namespace TestUtilities.UI {
                 foreach (var ex in ae.InnerExceptions) {
                     Console.WriteLine(ex.ToString());
                 }
-                throw ae.InnerException;
+                ExceptionDispatchInfo.Capture(ae.InnerException).Throw();
             }
 
             if (timedOut) {
@@ -225,6 +234,23 @@ namespace TestUtilities.UI {
                 DumpVS();
                 Assert.Fail(msg);
             }
+        }
+
+        public void WaitForCommandAvailable(string commandName, TimeSpan timeout) {
+            WaitForCommandAvailable(Dte.Commands.Item(commandName), timeout);
+        }
+
+        public void WaitForCommandAvailable(Command cmd, TimeSpan timeout) {
+            var stopWatch = new Stopwatch();
+            stopWatch.Start();
+            while (stopWatch.Elapsed < timeout) {
+                if (cmd.IsAvailable) {
+                    return;
+                }
+                System.Threading.Thread.Sleep(250);
+            }
+
+            Assert.Fail($"Command {cmd.Name} failed to become available in specified timeout");
         }
 
         /// <summary>
@@ -271,6 +297,11 @@ namespace TestUtilities.UI {
             return SaveDialog.FromDte(this);
         }
 
+        public EditorWindow OpenDocument(string filename) {
+            VsShellUtilities.OpenDocument(ServiceProvider, filename);
+            return GetDocument(filename);
+        }
+
         /// <summary>
         /// Gets the specified document.  Filename should be fully qualified filename.
         /// </summary>
@@ -293,7 +324,7 @@ namespace TestUtilities.UI {
                 )
             );
 
-            return new EditorWindow(filename, elem);
+            return new EditorWindow(this, filename, elem);
         }
 
         public AutomationElement GetDocumentTab(string windowName) {
@@ -357,6 +388,7 @@ namespace TestUtilities.UI {
         }
 
         public OutputWindowPane GetOutputWindow(string name) {
+            ((DTE2)Dte).ToolWindows.OutputWindow.Parent.Activate();
             return ((DTE2)Dte).ToolWindows.OutputWindow.OutputWindowPanes.Item(name);
         }
 
@@ -380,6 +412,7 @@ namespace TestUtilities.UI {
 
         public string GetOutputWindowText(string name) {
             var window = GetOutputWindow(name);
+            window.Activate();
             var doc = window.TextDocument;
             doc.Selection.SelectAll();
             return doc.Selection.Text;
@@ -558,12 +591,23 @@ namespace TestUtilities.UI {
             }
         }
 
-        public static void CheckMessageBox(params string[] text) {
-            CheckMessageBox(MessageBoxButton.Cancel, text);
+        /// <summary>
+        /// Checks the text of a dialog and dismisses it.
+        /// </summary>
+        /// <remarks>
+        /// Task dialog will be dismissed only if it was created with
+        /// AllowCancellation=true (ensures window pattern close is enabled).
+        /// </remarks>
+        public void CheckMessageBox(params string[] text) {
+            CheckMessageBox(MessageBoxButton.Close, text);
         }
 
-        public static void CheckMessageBox(MessageBoxButton button, params string[] text) {
-            CheckAndDismissDialog(text, 65535, new IntPtr((int)button));
+        public void CheckMessageBox(MessageBoxButton button, params string[] text) {
+            CheckAndDismissDialog(text, 65535, button.ToString(), true);
+        }
+
+        public void MaybeCheckMessageBox(MessageBoxButton button, params string[] text) {
+            CheckAndDismissDialog(text, 65535, button.ToString(), false);
         }
 
         /// <summary>
@@ -572,9 +616,9 @@ namespace TestUtilities.UI {
         /// dlgField is the field to check the text of.
         /// buttonId is the button to press to dismiss.
         /// </summary>
-        private static void CheckAndDismissDialog(string[] text, int dlgField, IntPtr buttonId) {
-            var handle = new IntPtr(VSTestContext.DTE.MainWindow.HWnd);
-            IVsUIShell uiShell = VSTestContext.ServiceProvider.GetService(typeof(IVsUIShell)) as IVsUIShell;
+        private void CheckAndDismissDialog(string[] text, int dlgField, string buttonId, bool assertIfNoDialog) {
+            var handle = new IntPtr(Dte.MainWindow.HWnd);
+            IVsUIShell uiShell = ServiceProvider.GetService(typeof(IVsUIShell)) as IVsUIShell;
             IntPtr hwnd;
             uiShell.GetDialogOwnerHwnd(out hwnd);
 
@@ -583,19 +627,35 @@ namespace TestUtilities.UI {
                 uiShell.GetDialogOwnerHwnd(out hwnd);
             }
 
+            if (!assertIfNoDialog && (hwnd == IntPtr.Zero || hwnd == handle)) {
+                return;
+            }
+
             Assert.AreNotEqual(IntPtr.Zero, hwnd, "hwnd is null, We failed to get the dialog");
             Assert.AreNotEqual(handle, hwnd, "hwnd is Dte.MainWindow, We failed to get the dialog");
             Console.WriteLine("Ending dialog: ");
-            AutomationWrapper.DumpElement(AutomationElement.FromHandle(hwnd));
+            var dlg = new AutomationDialog(this, AutomationElement.FromHandle(hwnd));
+            AutomationWrapper.DumpElement(dlg.Element);
             Console.WriteLine("--------");
-            try {
-                StringBuilder title = new StringBuilder(4096);
-                Assert.AreNotEqual(NativeMethods.GetDlgItemText(hwnd, dlgField, title, title.Capacity), (uint)0);
 
-                string t = title.ToString();
-                AssertUtil.Contains(t, text);
+            bool closed = false;
+            try {
+                string title = dlg.Text;
+                if (assertIfNoDialog) {
+                    AssertUtil.Contains(title, text);
+                } else if (!text.All(title.Contains)) {
+                    // We do not want to close the dialog now, as it may be expected
+                    // by a later part of the test.
+                    closed = true;
+                }
             } finally {
-                NativeMethods.EndDialog(hwnd, buttonId);
+                if (!closed) {
+                    if (buttonId == MessageBoxButton.Close.ToString()) {
+                        dlg.WaitForClosed(TimeSpan.FromSeconds(10.0), dlg.CloseWindow);
+                    } else if (!dlg.ClickButtonAndClose(buttonId)) {
+                        dlg.CloseWindow();
+                    }
+                }
             }
         }
 
@@ -613,9 +673,15 @@ namespace TestUtilities.UI {
                                     AutomationElement.ControlTypeProperty,
                                     ControlType.Pane
                                 ),
-                                new PropertyCondition(
-                                    AutomationElement.NameProperty,
-                                    "Solution Explorer"
+                                new OrCondition(
+                                    new PropertyCondition(
+                                        AutomationElement.NameProperty,
+                                        "Solution Explorer"
+                                    ),
+                                    new PropertyCondition(
+                                        AutomationElement.NameProperty,
+                                        "Solution Explorer - Folder View"
+                                    )
                                 )
                             )
                         );
@@ -704,42 +770,6 @@ namespace TestUtilities.UI {
         }
 
         /// <summary>
-        /// Provides access to Azure's VS Activity Log window.
-        /// </summary>
-        public AzureCloudServiceActivityLog AzureActivityLog {
-            get {
-                if (_azureActivityLog == null) {
-                    AutomationElement element = null;
-                    for (int i = 0; i < 10 && element == null; i++) {
-                        element = Element.FindFirst(TreeScope.Descendants,
-                            new AndCondition(
-                                new PropertyCondition(
-                                    AutomationElement.ClassNameProperty,
-                                    "GenericPane"
-                                ),
-                                new OrCondition(
-                                    new PropertyCondition(
-                                        AutomationElement.NameProperty,
-                                        "Microsoft Azure Activity Log"
-                                    ),
-                                    new PropertyCondition(
-                                        AutomationElement.NameProperty,
-                                        "Windows Azure Activity Log"
-                                    )
-                                )
-                            )
-                        );
-                        if (element == null) {
-                            System.Threading.Thread.Sleep(500);
-                        }
-                    }
-                    _azureActivityLog = new AzureCloudServiceActivityLog(element);
-                }
-                return _azureActivityLog;
-            }
-        }
-
-        /// <summary>
         /// Produces a name which is compatible with x:Name requirements (starts with a letter/underscore, contains
         /// only letter, numbers, or underscores).
         /// </summary>
@@ -762,18 +792,14 @@ namespace TestUtilities.UI {
             return res.ToString();
         }
 
-        public DTE Dte {
-            get {
-                return _dte;
-            }
-        }
+        public DTE Dte => _dte;
 
         public void WaitForMode(dbgDebugMode mode) {
             for (int i = 0; i < 60 && Dte.Debugger.CurrentMode != mode; i++) {
                 System.Threading.Thread.Sleep(500);
             }
 
-            Assert.AreEqual(mode, VSTestContext.DTE.Debugger.CurrentMode);
+            Assert.AreEqual(mode, Dte.Debugger.CurrentMode);
         }
 
         public virtual Project CreateProject(
@@ -824,6 +850,37 @@ namespace TestUtilities.UI {
             }
         }
 
+        public string CopyProjectForTest(string projName) {
+            string fullPath = TestData.GetPath(projName);
+            if (!File.Exists(fullPath)) {
+                Assert.Fail("Cannot find " + fullPath);
+            }
+            var basePath = TestData.GetTempPath();
+            var finalPath = Path.Combine(basePath, Path.GetFileName(fullPath));
+
+            // If it's not a solution, copy the containing directory
+            if (!Path.GetExtension(fullPath).Equals(".sln", StringComparison.OrdinalIgnoreCase)) {
+                FileUtils.CopyDirectory(Path.GetDirectoryName(fullPath), basePath);
+                return finalPath;
+            }
+
+            // If it's a solution, copy it and all referenced directories
+            File.Copy(fullPath, finalPath, true);
+            Console.WriteLine($"Copying {fullPath} to {finalPath}");
+            foreach (var line in File.ReadAllLines(fullPath)) {
+                var m = Regex.Match(line, @"Project\(.+?\) = "".+?"", ""(.+?)""");
+                if (!m.Success) {
+                    continue;
+                }
+                var subdir = Path.GetDirectoryName(m.Groups[1].Value);
+                var from = Path.Combine(Path.GetDirectoryName(fullPath), subdir);
+                var to = Path.Combine(basePath, subdir);
+                Console.WriteLine($"Copying {from} to {to}");
+                FileUtils.CopyDirectory(from, to);
+            }
+            return finalPath;
+        }
+
         public Project OpenProject(
             string projName,
             string startItem = null,
@@ -838,14 +895,16 @@ namespace TestUtilities.UI {
             Assert.IsNotNull(solution4, "Failed to obtain IVsSolution4 interface");
 
             // Close any open solution
-            string slnDir, slnFile, slnOpts;
-            if (ErrorHandler.Succeeded(solution.GetSolutionInfo(out slnDir, out slnFile, out slnOpts))) {
+            if (ErrorHandler.Succeeded(solution.GetSolutionInfo(out _, out string slnFile, out _))) {
                 Console.WriteLine("Closing {0}", slnFile);
                 solution.CloseSolutionElement(0, null, 0);
             }
 
             string fullPath = TestData.GetPath(projName);
-            Assert.IsTrue(File.Exists(fullPath), "Cannot find " + fullPath);
+            if (!File.Exists(fullPath)) {
+                Assert.Fail("Cannot find " + fullPath);
+            }
+
             Console.WriteLine("Opening {0}", fullPath);
 
             // If there is a .suo file, delete that so that there is no state carried over from another test.
@@ -861,12 +920,34 @@ namespace TestUtilities.UI {
                     File.Delete(suoPath);
                 }
             }
-            
-            var t = Task.Run(() => {
-                ErrorHandler.ThrowOnFailure(solution.OpenSolutionFile((uint)0, fullPath));
-                // Force all projects to load before running any tests.
-                solution4.EnsureSolutionIsLoaded((uint)__VSBSLFLAGS.VSBSLFLAGS_None);
-            });
+
+            Task t;
+            if (fullPath.EndsWith(".sln", StringComparison.OrdinalIgnoreCase)) {
+                t = Task.Run(() => {
+                    ErrorHandler.ThrowOnFailure(solution.OpenSolutionFile((uint)0, fullPath));
+                    // Force all projects to load before running any tests.
+                    solution4.EnsureSolutionIsLoaded((uint)__VSBSLFLAGS.VSBSLFLAGS_None);
+                });
+            } else {
+                t = Task.Run(() => {
+                    Guid guidNull = Guid.Empty;
+                    Guid iidUnknown = Guid.Empty;
+                    IntPtr projPtr;
+                    ErrorHandler.ThrowOnFailure(solution.CreateProject(
+                        ref guidNull,
+                        fullPath,
+                        "",
+                        "",
+                        (uint)__VSCREATEPROJFLAGS.CPF_OPENFILE |
+                            (uint)__VSCREATEPROJFLAGS2.CPF_OPEN_STANDALONE |
+                            (uint)__VSCREATEPROJFLAGS.CPF_SILENT,
+                        ref iidUnknown,
+                        out projPtr
+                    ));
+                    // Force all projects to load before running any tests.
+                    solution4.EnsureSolutionIsLoaded((uint)__VSBSLFLAGS.VSBSLFLAGS_None);
+                });
+            }
             using (var cts = System.Diagnostics.Debugger.IsAttached ? new CancellationTokenSource() : new CancellationTokenSource(30000)) {
                 try {
                     if (!t.Wait(1000, cts.Token)) {
@@ -988,67 +1069,6 @@ namespace TestUtilities.UI {
             }
         }
 
-        public Uri PublishToAzureCloudService(string serviceName, string subscriptionPublishSettingsFilePath) {
-            using (var publishDialog = AzureCloudServicePublishDialog.FromDte(this)) {
-                using (var manageSubscriptionsDialog = publishDialog.SelectManageSubscriptions()) {
-                    LoadPublishSettings(manageSubscriptionsDialog, subscriptionPublishSettingsFilePath);
-                    manageSubscriptionsDialog.Close();
-                }
-
-                publishDialog.ClickNext();
-
-                using (var createServiceDialog = publishDialog.SelectCreateNewService()) {
-                    createServiceDialog.ServiceName = serviceName;
-                    createServiceDialog.Location = "West US";
-                    createServiceDialog.ClickCreate();
-                }
-
-                publishDialog.ClickPublish();
-            }
-
-            return new Uri(string.Format("http://{0}.cloudapp.net", serviceName));
-        }
-
-        public Uri PublishToAzureWebSite(string siteName, string subscriptionPublishSettingsFilePath) {
-            using (var publishDialog = AzureWebSitePublishDialog.FromDte(this)) {
-                using (var importSettingsDialog = publishDialog.ClickImportSettings()) {
-                    importSettingsDialog.ClickImportFromWindowsAzureWebSite();
-
-                    using (var manageSubscriptionsDialog = importSettingsDialog.ClickImportOrManageSubscriptions()) {
-                        LoadPublishSettings(manageSubscriptionsDialog, subscriptionPublishSettingsFilePath);
-                        manageSubscriptionsDialog.Close();
-                    }
-
-                    using (var createSiteDialog = importSettingsDialog.ClickNew()) {
-                        createSiteDialog.SiteName = siteName;
-                        createSiteDialog.ClickCreate();
-                    }
-
-                    importSettingsDialog.ClickOK();
-                }
-
-                publishDialog.ClickPublish();
-            }
-
-            return new Uri(string.Format("http://{0}.azurewebsites.net", siteName));
-        }
-
-        private void LoadPublishSettings(AzureManageSubscriptionsDialog manageSubscriptionsDialog, string publishSettingsFilePath) {
-            manageSubscriptionsDialog.ClickCertificates();
-
-            while (manageSubscriptionsDialog.SubscriptionsListBox.Count > 0) {
-                manageSubscriptionsDialog.SubscriptionsListBox[0].Select();
-                manageSubscriptionsDialog.ClickRemove();
-                WaitForDialogToReplace(manageSubscriptionsDialog.Element);
-                VisualStudioApp.CheckMessageBox(TestUtilities.MessageBoxButton.Yes);
-            }
-
-            using (var importSubscriptionDialog = manageSubscriptionsDialog.ClickImport()) {
-                importSubscriptionDialog.FileName = publishSettingsFilePath;
-                importSubscriptionDialog.ClickImport();
-            }
-        }
-
         public List<IVsTaskItem> WaitForErrorListItems(int expectedCount) {
             return WaitForTaskListItems(typeof(SVsErrorList), expectedCount, exactMatch: false);
         }
@@ -1077,11 +1097,21 @@ namespace TestUtilities.UI {
                 while (ErrorHandler.Succeeded(items.Next(1, taskItems, itemCnt)) && itemCnt[0] == 1) {
                     allItems.Add(taskItems[0]);
                 }
-                if (allItems.Count >= expectedCount) {
+                if (expectedCount > 0 && allItems.Count >= expectedCount || allItems.Count == expectedCount) {
                     break;
                 }
                 // give time for errors to process...
                 System.Threading.Thread.Sleep(1000);
+            }
+
+            foreach (var item in allItems) {
+                string text, document;
+                if (ErrorHandler.Succeeded(item.Document(out document)) &&
+                    ErrorHandler.Succeeded(item.get_Text(out text))) {
+                    Console.WriteLine("Task Item: {0} :: {1}", text, document);
+                } else {
+                    Console.WriteLine("Task Item: <unknown>");
+                }
             }
 
             if (exactMatch) {

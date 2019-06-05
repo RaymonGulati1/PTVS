@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -55,7 +55,9 @@ namespace Microsoft.PythonTools.Commands {
                         !string.IsNullOrEmpty(description)
                     ) {
                         var service = _serviceProvider.GetComponentModel().GetService<IInterpreterRegistryService>();
-                        config = service.Configurations.FirstOrDefault(
+                        config = service.Configurations
+                            .Where(PythonInterpreterFactoryExtensions.IsRunnable)
+                            .FirstOrDefault(
                             // Descriptions are localized strings, hence CCIC
                             f => description.Equals(f.Description, StringComparison.CurrentCultureIgnoreCase)
                         );
@@ -66,7 +68,10 @@ namespace Microsoft.PythonTools.Commands {
             if (config == null) {
                 var service = _serviceProvider.GetComponentModel().GetService<IInterpreterOptionsService>();
                 var registry = _serviceProvider.GetComponentModel().GetService<IInterpreterRegistryService>();
-                config = service.DefaultInterpreter?.Configuration ?? registry.Configurations.FirstOrDefault();
+                config = service.DefaultInterpreter?.Configuration ?? 
+                    registry.Configurations
+                    .Where(PythonInterpreterFactoryExtensions.IsRunnable)
+                    .FirstOrDefault();
             }
 
             // This command is project-insensitive

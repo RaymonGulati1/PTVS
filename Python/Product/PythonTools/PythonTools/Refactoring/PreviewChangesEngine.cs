@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -49,26 +49,30 @@ namespace Microsoft.PythonTools.Refactoring {
 
         private List<FilePreviewItem> CreatePreviewItems() {
             Dictionary<string, FilePreviewItem> files = new Dictionary<string, FilePreviewItem>();
-            Dictionary<FilePreviewItem, HashSet<AnalysisLocation>> allItems = new Dictionary<FilePreviewItem, HashSet<AnalysisLocation>>();
+            Dictionary<FilePreviewItem, HashSet<LocationInfo>> allItems = new Dictionary<FilePreviewItem, HashSet<LocationInfo>>();
 
             foreach (var variable in _variables) {
+                if (string.IsNullOrEmpty(variable.Location?.FilePath)) {
+                    continue;
+                }
+
                 switch (variable.Type) {
                     case VariableType.Definition:
                     case VariableType.Reference:
                         string file = variable.Location.FilePath;
                         FilePreviewItem fileItem;
-                        HashSet<AnalysisLocation> curLocations;
+                        HashSet<LocationInfo> curLocations;
                         if (!files.TryGetValue(file, out fileItem)) {
                             files[file] = fileItem = new FilePreviewItem(this, file);
-                            allItems[fileItem] = curLocations = new HashSet<AnalysisLocation>(AnalysisLocation.FullComparer);
+                            allItems[fileItem] = curLocations = new HashSet<LocationInfo>(LocationInfo.FullComparer);
                         } else {
                             curLocations = allItems[fileItem];
                         }
 
                         if (!curLocations.Contains(variable.Location)) {
                             try {
-                                var item = new LocationPreviewItem(_analyzer, fileItem, variable.Location, variable.Type);
-                                if (item.Length > 0) {
+                                var item = LocationPreviewItem.Create(_analyzer, fileItem, variable.Location, variable.Type);
+                                if (item != null && item.Length > 0) {
                                     fileItem.Items.Add(item);
                                     curLocations.Add(variable.Location);
                                 }

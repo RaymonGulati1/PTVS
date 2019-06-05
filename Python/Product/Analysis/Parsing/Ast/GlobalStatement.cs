@@ -9,13 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System.Collections.Generic;
 using System.Text;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 
 namespace Microsoft.PythonTools.Parsing.Ast {
     public class GlobalStatement : Statement {
@@ -31,15 +32,18 @@ namespace Microsoft.PythonTools.Parsing.Ast {
 
         public override void Walk(PythonWalker walker) {
             if (walker.Walk(this)) {
+                foreach (var n in _names.MaybeEnumerate()) {
+                    n?.Walk(walker);
+                }
             }
             walker.PostWalk(this);
         }
 
         internal override void AppendCodeStringStmt(StringBuilder res, PythonAst ast, CodeFormattingOptions format) {
-            var namesWhiteSpace = this.GetNamesWhiteSpace(ast);            
+            var namesWhiteSpace = this.GetNamesWhiteSpace(ast);
 
             if (namesWhiteSpace != null) {
-                ListExpression.AppendItems(res, ast, format, "global", "", this, Names.Count, (i, sb) => { 
+                ListExpression.AppendItems(res, ast, format, "global", "", this, Names.Count, (i, sb) => {
                     sb.Append(namesWhiteSpace[i]);
                     Names[i].AppendCodeString(res, ast, format);
                 });

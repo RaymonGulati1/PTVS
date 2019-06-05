@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -22,11 +22,12 @@ using System.Runtime.CompilerServices;
 using System.Security;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Microsoft.PythonTools.Logging;
 using Microsoft.VisualStudio.Shell;
 using Task = System.Threading.Tasks.Task;
 
 namespace Microsoft.PythonTools.Infrastructure {
-    public static class VSTaskExtensions {
+    static class VSTaskExtensions {
         private static readonly HashSet<string> _displayedMessages = new HashSet<string>();
 
         /// <summary>
@@ -72,27 +73,26 @@ namespace Microsoft.PythonTools.Infrastructure {
                 // Unknown error prevented writing to the log
             }
 
-            try {
-                ActivityLog.LogError(Strings.ProductTitle, message);
-            } catch (InvalidOperationException) {
-                // Activity Log is unavailable.
-                logFile = null;
+            bool alreadySeen = true;
+            var key = "{0}:{1}:{2}".FormatInvariant(callerFile, callerLineNumber, ex.GetType().Name);
+            lock (_displayedMessages) {
+                if (_displayedMessages.Add(key)) {
+                    alreadySeen = false;
+                }
             }
 
-            if (allowUI) {
-                lock (_displayedMessages) {
-                    var key = "{0}:{1}:{2}".FormatInvariant(callerFile, callerLineNumber, ex.GetType().Name);
-                    if (_displayedMessages.Add(key)) {
-                        // First time we've seen this error, so let the user know
-                        // Prefer the dialog with our issue tracker and exception
-                        // details, but if we don't have a site available then
-                        // refer the user to ActivityLog.xml.
-                        if (site != null) {
-                            TaskDialog.ForException(site, ex, issueTrackerUrl: Strings.IssueTrackerUrl).ShowModal();
-                        } else if (!string.IsNullOrEmpty(logFile)) {
-                            MessageBox.Show(Strings.SeeActivityLog.FormatUI(logFile), Strings.ProductTitle);
-                        }
-                    }
+            var logger = (IPythonToolsLogger)site?.GetService(typeof(IPythonToolsLogger));
+            logger?.LogFault(ex, null, !alreadySeen);
+
+            if (allowUI && !alreadySeen) {
+                // First time we've seen this error, so let the user know
+                // Prefer the dialog with our issue tracker and exception
+                // details, but if we don't have a site available then
+                // refer the user to ActivityLog.xml.
+                if (site != null) {
+                    TaskDialog.ForException(site, ex, issueTrackerUrl: Strings.IssueTrackerUrl).ShowModal();
+                } else if (!string.IsNullOrEmpty(logFile)) {
+                    MessageBox.Show(Strings.SeeActivityLog.FormatUI(logFile), Strings.ProductTitle);
                 }
             }
         }
@@ -100,7 +100,7 @@ namespace Microsoft.PythonTools.Infrastructure {
         /// <summary>
         /// Waits for a task to complete and logs all exceptions except those
         /// that return true from <see cref="IsCriticalException"/>, which are
-        /// rethrown.
+        /// rethrown, and <see cref="OperationCanceledException"/>, which is always ignored.
         /// </summary>
         public static T WaitAndHandleAllExceptions<T>(
             this Task<T> task,
@@ -118,7 +118,8 @@ namespace Microsoft.PythonTools.Infrastructure {
 
         /// <summary>
         /// Logs all exceptions from a task except those that return true from
-        /// <see cref="IsCriticalException"/>, which are rethrown.
+        /// <see cref="IsCriticalException"/>, which are rethrown, and
+        /// <see cref="OperationCanceledException"/>, which is always ignored.
         /// If an exception is thrown, <c>default(T)</c> is returned.
         /// </summary>
         public static async Task<T> HandleAllExceptions<T>(
@@ -134,11 +135,13 @@ namespace Microsoft.PythonTools.Infrastructure {
             try {
                 result = await task;
             } catch (Exception ex) {
-                if (ex.IsCriticalException()) {
-                    throw;
-                }
+                if (task.IsFaulted) {
+                    if (ex.IsCriticalException()) {
+                        throw;
+                    }
 
-                ex.ReportUnhandledException(site, callerType, callerFile, callerLineNumber, callerName, allowUI);
+                    ex.ReportUnhandledException(site, callerType, callerFile, callerLineNumber, callerName, allowUI);
+                }
             }
             return result;
         }
@@ -146,7 +149,7 @@ namespace Microsoft.PythonTools.Infrastructure {
         /// <summary>
         /// Waits for a task to complete and logs all exceptions except those
         /// that return true from <see cref="IsCriticalException"/>, which are
-        /// rethrown.
+        /// rethrown, and <see cref="OperationCanceledException"/>, which is always ignored.
         /// </summary>
         public static void WaitAndHandleAllExceptions(
             this Task task,
@@ -164,7 +167,8 @@ namespace Microsoft.PythonTools.Infrastructure {
 
         /// <summary>
         /// Logs all exceptions from a task except those that return true from
-        /// <see cref="IsCriticalException"/>, which are rethrown.
+        /// <see cref="IsCriticalException"/>, which are rethrown, and
+        /// <see cref="OperationCanceledException"/>, which is always ignored.
         /// </summary>
         public static async Task HandleAllExceptions(
             this Task task,
@@ -178,11 +182,13 @@ namespace Microsoft.PythonTools.Infrastructure {
             try {
                 await task;
             } catch (Exception ex) {
-                if (ex.IsCriticalException()) {
-                    throw;
-                }
+                if (task.IsFaulted) {
+                    if (ex.IsCriticalException()) {
+                        throw;
+                    }
 
-                ex.ReportUnhandledException(site, callerType, callerFile, callerLineNumber, callerName, allowUI);
+                    ex.ReportUnhandledException(site, callerType, callerFile, callerLineNumber, callerName, allowUI);
+                }
             }
         }
     }

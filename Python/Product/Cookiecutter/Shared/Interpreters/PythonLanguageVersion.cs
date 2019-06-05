@@ -9,12 +9,13 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
+using Microsoft.CookiecutterTools.Infrastructure;
 
 namespace Microsoft.CookiecutterTools.Interpreters {
     /// <summary>
@@ -34,7 +35,8 @@ namespace Microsoft.CookiecutterTools.Interpreters {
         V33 = 0x0303,
         V34 = 0x0304,
         V35 = 0x0305,
-        V36 = 0x0306
+        V36 = 0x0306,
+        V37 = 0x0307
     }
 
     public static class PythonLanguageVersionExtensions {
@@ -78,10 +80,11 @@ namespace Microsoft.CookiecutterTools.Interpreters {
                         case 4: return PythonLanguageVersion.V34;
                         case 5: return PythonLanguageVersion.V35;
                         case 6: return PythonLanguageVersion.V36;
+                        case 7: return PythonLanguageVersion.V37;
                     }
                     break;
             }
-            throw new InvalidOperationException(String.Format("Unsupported Python version: {0}", version.ToString()));
+            throw new InvalidOperationException("Unsupported Python version: {0}".FormatInvariant(version));
         }
 
     }

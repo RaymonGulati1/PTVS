@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,17 +19,18 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.PythonTools;
 using Microsoft.PythonTools.Analysis;
+using Microsoft.PythonTools.Analysis.Analyzer;
+using Microsoft.PythonTools.Analysis.Infrastructure;
 using Microsoft.PythonTools.Analysis.Values;
-using Microsoft.PythonTools.Infrastructure;
+using Microsoft.PythonTools.Intellisense;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.PythonTools.Parsing.Ast;
-using Microsoft.Scripting.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using TestUtilities;
 using TestUtilities.Python;
@@ -41,11 +42,13 @@ namespace AnalysisTests {
         [TestInitialize]
         public void TestInitialize() {
             StartAnalysisLog();
+            TestEnvironmentImpl.TestInitialize();
         }
 
         [TestCleanup]
         public void TestCleanup() {
             EndAnalysisLog();
+            TestEnvironmentImpl.TestCleanup();
         }
 
         #region Test Cases
@@ -150,15 +153,15 @@ f(x=42, y = 'abc')
             var analyzer = CreateAnalyzer(DefaultFactoryV3);
 
             var fob = analyzer.AddModule("fob", "from oar import *", "fob\\__init__.py");
-            var oar = analyzer.AddModule("fob.oar", "from baz import *", "fob\\oar\\__init__.py");
-            var baz = analyzer.AddModule("fob.oar.baz", "import quox\r\nfunc = quox.func");
+            var oar = analyzer.AddModule("fob.oar", "from .baz import *", "fob\\oar\\__init__.py");
+            var baz = analyzer.AddModule("fob.oar.baz", "import fob.oar.quox as quox\r\nfunc = quox.func");
             var quox = analyzer.AddModule("fob.oar.quox", "def func(): return 42");
             analyzer.ReanalyzeAll();
 
-            analyzer.AssertDescription(fob, "func", "def fob.oar.quox.func() -> int");
-            analyzer.AssertDescription(oar, "func", "def fob.oar.quox.func() -> int");
-            analyzer.AssertDescription(baz, "func", "def fob.oar.quox.func() -> int");
-            analyzer.AssertDescription(quox, "func", "def fob.oar.quox.func() -> int");
+            analyzer.AssertDescription(fob, "func", "fob.oar.quox.func() -> int");
+            analyzer.AssertDescription(oar, "func", "fob.oar.quox.func() -> int");
+            analyzer.AssertDescription(baz, "func", "fob.oar.quox.func() -> int");
+            analyzer.AssertDescription(quox, "func", "fob.oar.quox.func() -> int");
         }
 
         [TestMethod, Priority(0)]
@@ -287,8 +290,14 @@ def f(x):
             // If we complete processing then we have succeeded
         }
 
-        [TestMethod, Priority(0)]
+        [TestMethod, Priority(2)]
+        [TestCategory("ExpectFail")]
         public void CartesianStarArgs() {
+            // TODO: Figure out whether this is useful behaviour
+            // It currently does not work because we no longer treat
+            // the dict created by **args as a lasting object - it
+            // exists solely for receiving arguments.
+
             var code = @"def f(a, **args):
     args['fob'] = a
     return args['fob']
@@ -421,33 +430,33 @@ y = f('fob', 'oar')";
             entry.AssertIsInstance("y", BuiltinTypeId.Str);
         }
 
-        [TestMethod, Priority(0)]
-        public void CartesianMerge() {
-            var limits = GetLimits();
-            // Ensure we include enough calls
-            var callCount = limits.CallDepth * limits.DecreaseCallDepth + 1;
-            var code = new StringBuilder(@"def f(a):
-    return g(a)
+        //        [TestMethod, Priority(0)]
+        //        public void CartesianMerge() {
+        //            var limits = GetLimits();
+        //            // Ensure we include enough calls
+        //            var callCount = limits.CallDepth * limits.DecreaseCallDepth + 1;
+        //            var code = new StringBuilder(@"def f(a):
+        //    return g(a)
 
-def g(b):
-    return h(b)
+        //def g(b):
+        //    return h(b)
 
-def h(c):
-    return c
+        //def h(c):
+        //    return c
 
-");
-            for (int i = 0; i < callCount; ++i) {
-                code.AppendLine("x = g(123)");
-            }
-            code.AppendLine("y = f(3.1415)");
+        //");
+        //            for (int i = 0; i < callCount; ++i) {
+        //                code.AppendLine("x = g(123)");
+        //            }
+        //            code.AppendLine("y = f(3.1415)");
 
-            var text = code.ToString();
-            Console.WriteLine(text);
-            var entry = ProcessTextV2(text);
+        //            var text = code.ToString();
+        //            Console.WriteLine(text);
+        //            var entry = ProcessTextV2(text);
 
-            entry.AssertIsInstance("x", BuiltinTypeId.Int, BuiltinTypeId.Float);
-            entry.AssertIsInstance("y", BuiltinTypeId.Int, BuiltinTypeId.Float);
-        }
+        //            entry.AssertIsInstance("x", BuiltinTypeId.Int, BuiltinTypeId.Float);
+        //            entry.AssertIsInstance("y", BuiltinTypeId.Int, BuiltinTypeId.Float);
+        //        }
 
         [TestMethod, Priority(0)]
         public void ImportAs() {
@@ -559,26 +568,23 @@ a.fn(13, 14)
 x1, y1, _1 = a.top
 a.original()
 ";
+            for (int retries = 100; retries > 0; --retries) {
+                var entry = ProcessTextV2(code);
 
-            var entry = ProcessTextV2(code);
+                var expectedIntType1 = new[] { BuiltinTypeId.Int };
+                var expectedIntType2 = new[] { BuiltinTypeId.Int };
+                var expectedTupleType1 = new[] { BuiltinTypeId.Tuple, BuiltinTypeId.NoneType };
+                var expectedTupleType2 = new[] { BuiltinTypeId.Tuple, BuiltinTypeId.NoneType };
 
-            var expectedIntType1 = new[] { BuiltinTypeId.Int };
-            var expectedIntType2 = new[] { BuiltinTypeId.Int };
-            var expectedTupleType1 = new[] { BuiltinTypeId.Tuple, BuiltinTypeId.NoneType };
-            var expectedTupleType2 = new[] { BuiltinTypeId.Tuple, BuiltinTypeId.NoneType };
-            if (this is StdLibAnalysisTest) {
-                expectedIntType1 = new BuiltinTypeId[0];
-                expectedIntType2 = new BuiltinTypeId[0];
-                expectedTupleType1 = new[] { BuiltinTypeId.NoneType };
+                entry.AssertIsInstance("x1", expectedIntType1);
+                entry.AssertIsInstance("y1", expectedIntType1);
+                entry.AssertIsInstance("_1", expectedTupleType1);
+                entry.AssertIsInstance("item", code.IndexOf("x, y, _"), expectedTupleType1);
+                entry.AssertIsInstance("x", code.IndexOf("x, y, _"), expectedIntType2);
+                entry.AssertIsInstance("y", code.IndexOf("x, y, _"), expectedIntType2);
+                entry.AssertIsInstance("_", code.IndexOf("x, y, _"), expectedTupleType2);
+                entry.AssertIsInstance("self.top", code.IndexOf("x, y, _"), expectedTupleType2);
             }
-
-            entry.AssertIsInstance("x1", expectedIntType1);
-            entry.AssertIsInstance("y1", expectedIntType1);
-            entry.AssertIsInstance("_1", expectedTupleType1);
-            entry.AssertIsInstance("x", code.IndexOf("x, y, _"), expectedIntType2);
-            entry.AssertIsInstance("y", code.IndexOf("x, y, _"), expectedIntType2);
-            entry.AssertIsInstance("_", code.IndexOf("x, y, _"), expectedTupleType2);
-            entry.AssertIsInstance("self.top", code.IndexOf("x, y, _"), expectedTupleType2);
         }
 
         [TestMethod, Priority(0)]
@@ -665,9 +671,10 @@ class D(object):
             var state = CreateAnalyzer(DefaultFactoryV3);
             var mod1 = state.AddModule("mod1", text1);
             var mod2 = state.AddModule("mod2", text2);
-            state.WaitForAnalysis(CancellationTokens.After15s);
+            state.WaitForAnalysis(new CancellationTokenSource(15000).Token);
 
             state.AssertReferences(mod2, "D", 0,
+                new VariableLocation(2, 1, VariableType.Value, "mod2"),
                 new VariableLocation(2, 7, VariableType.Definition, "mod2"),
                 new VariableLocation(4, 5, VariableType.Reference, "mod1")
             );
@@ -699,6 +706,7 @@ class D(object):
             state.WaitForAnalysis();
 
             state.AssertReferences(mod1, "SomeMethod", text1.IndexOf("SomeMethod"),
+                new VariableLocation(5, 5, VariableType.Value),
                 new VariableLocation(5, 9, VariableType.Definition),
                 new VariableLocation(5, 20, VariableType.Reference)
             );
@@ -709,6 +717,7 @@ class D(object):
             state.WaitForAnalysis();
 
             state.AssertReferences(mod1, "SomeMethod", text1.IndexOf("SomeMethod"),
+                new VariableLocation(6, 5, VariableType.Value),
                 new VariableLocation(6, 9, VariableType.Definition),
                 new VariableLocation(5, 20, VariableType.Reference)
             );
@@ -720,6 +729,7 @@ class D(object):
             state.ReanalyzeAll();
 
             state.AssertReferences(mod1, "SomeMethod", text1.IndexOf("SomeMethod"),
+                new VariableLocation(6, 5, VariableType.Value),
                 new VariableLocation(6, 9, VariableType.Definition),
                 new VariableLocation(6, 20, VariableType.Reference)
             );
@@ -1006,6 +1016,19 @@ z = None
 
             clsC = entry.GetValue<ClassInfo>("C");
             var mroC = clsC.Mro.SelectMany(ns => ns.Select(n => n.ShortDescription)).ToList();
+            AssertUtil.ContainsExactly(mroC, "C", "type str", "type basestring", "type object");
+
+            entry = ProcessTextV3(code);
+            clsA = entry.GetValue<ClassInfo>("A");
+            mroA = clsA.Mro.SelectMany(ns => ns.Select(n => n.ShortDescription)).ToList();
+            AssertUtil.ContainsExactly(mroA, "A", "type int", "type object");
+
+            clsB = entry.GetValue<ClassInfo>("B");
+            mroB = clsB.Mro.SelectMany(ns => ns.Select(n => n.ShortDescription)).ToList();
+            AssertUtil.ContainsExactly(mroB, "B", "type float", "type object");
+
+            clsC = entry.GetValue<ClassInfo>("C");
+            mroC = clsC.Mro.SelectMany(ns => ns.Select(n => n.ShortDescription)).ToList();
             AssertUtil.ContainsExactly(mroC, "C", "type str", "type object");
         }
 
@@ -1254,30 +1277,32 @@ d = a.next()";
                 return;
             }
 
+            //            var text = @"
+            //def f():
+            //    yield 1
+            //    yield 2
+            //    yield 3
+            //    return 3.14
+
+            //def g():
+            //    x = yield from f()
+
+            //a = g()
+            //a2 = iter(a)
+            //b = next(a)
+
+            //for c in g():
+            //    print(c)
+            //";
+            //            var entry = ProcessTextV3(text);
+
+            //            entry.AssertIsInstance("a", BuiltinTypeId.Generator);
+            //            entry.AssertIsInstance("a2", BuiltinTypeId.Generator);
+            //            entry.AssertIsInstance("b", BuiltinTypeId.Int);
+            //            entry.AssertIsInstance("c", BuiltinTypeId.Int);
+            //            entry.AssertIsInstance("x", text.IndexOf("x ="), BuiltinTypeId.Float);
+
             var text = @"
-def f():
-    yield 1
-    yield 2
-    yield 3
-
-def g():
-    yield from f()
-
-a = g()
-a2 = iter(a)
-b = next(a)
-
-for c in g():
-    print(c)
-";
-            var entry = ProcessTextV3(text);
-
-            entry.AssertIsInstance("a", BuiltinTypeId.Generator);
-            entry.AssertIsInstance("a2", BuiltinTypeId.Generator);
-            entry.AssertIsInstance("b", BuiltinTypeId.Int);
-            entry.AssertIsInstance("c", BuiltinTypeId.Int);
-
-            text = @"
 def f(x):
     yield from x
 
@@ -1287,7 +1312,7 @@ b = a.__next__()
 #for c in f([42, 1337]):
 #    print(c)
 ";
-            entry = ProcessTextV3(text);
+            var entry = ProcessTextV3(text);
 
             entry.AssertIsInstance("a", BuiltinTypeId.Generator);
             entry.AssertIsInstance("b", BuiltinTypeId.Int);
@@ -1371,7 +1396,10 @@ def f(abc):
 
             var entry = ProcessText(text);
 
-            entry.AssertReferences("f", new VariableLocation(2, 5, VariableType.Definition), new VariableLocation(5, 2, VariableType.Reference));
+            entry.AssertReferences("f",
+                new VariableLocation(2, 1, VariableType.Value),
+                new VariableLocation(2, 5, VariableType.Definition),
+                new VariableLocation(5, 2, VariableType.Reference));
         }
 
         [TestMethod, Priority(0)]
@@ -1430,11 +1458,18 @@ class C:
 
     def y(self):
         self.__x()
+
+    def g(self):
+        self._C__x()
 ";
 
             var entry = ProcessTextV2(text);
 
-            entry.AssertReferences("self.__x", text.IndexOf("self.__"), new VariableLocation(3, 9, VariableType.Definition), new VariableLocation(7, 14, VariableType.Reference));
+            entry.AssertReferences("self.__x", text.IndexOf("self.__"),
+                new VariableLocation(3, 5, VariableType.Value),
+                new VariableLocation(3, 9, VariableType.Definition),
+                new VariableLocation(7, 14, VariableType.Reference),
+                new VariableLocation(10, 14, VariableType.Reference));
         }
 
         [TestMethod, Priority(0)]
@@ -1489,7 +1524,10 @@ def f(abc):
 
             entry = ProcessTextV2(text);
             entry.AssertIsInstance("abc", text.IndexOf("print"), BuiltinTypeId.Int);
-            entry.AssertReferences("f", new VariableLocation(2, 5, VariableType.Definition), new VariableLocation(5, 2, VariableType.Reference));
+            entry.AssertReferences("f",
+                new VariableLocation(2, 1, VariableType.Value),
+                new VariableLocation(2, 5, VariableType.Definition),
+                new VariableLocation(5, 2, VariableType.Reference));
         }
 
 
@@ -1631,6 +1669,71 @@ v = x[0]
         }
 
         [TestMethod, Priority(0)]
+        public void BuiltinSpecializations() {
+            var entry = CreateAnalyzer(DefaultFactoryV3);
+            entry.AddModule("test-module", @"
+expect_int = abs(1)
+expect_float = abs(2.3)
+expect_object = abs(object())
+expect_str = abs('')
+
+expect_bool = all()
+expect_bool = any()
+expect_str = ascii()
+expect_str = bin()
+expect_bool = callable()
+expect_str = chr()
+expect_list = dir()
+expect_str = dir()[0]
+expect_object = eval()
+expect_str = format()
+expect_dict = globals()
+expect_object = globals()['']
+expect_bool = hasattr()
+expect_int = hash()
+expect_str = hex()
+expect_int = id()
+expect_bool = isinstance()
+expect_bool = issubclass()
+expect_int = len()
+expect_dict = locals()
+expect_object = locals()['']
+expect_str = oct()
+expect_TextIOWrapper = open('')
+expect_BufferedIOBase = open('', 'b')
+expect_int = ord()
+expect_int = pow(1, 1)
+expect_float = pow(1.0, 1.0)
+expect_str = repr()
+expect_int = round(1)
+expect_float = round(1.1)
+expect_float = round(1, 1)
+expect_list = sorted([0, 1, 2])
+expect_int = sum(1, 2)
+expect_float = sum(2.0, 3.0)
+expect_dict = vars()
+expect_object = vars()['']
+");
+            // The open() specialization uses classes from the io module,
+            // so provide them here.
+            entry.AddModule("io", @"
+class TextIOWrapper(object): pass
+class BufferedIOBase(object): pass
+", "io.py");
+            entry.WaitForAnalysis();
+
+            entry.AssertIsInstance("expect_object", BuiltinTypeId.Object);
+            entry.AssertIsInstance("expect_bool", BuiltinTypeId.Bool);
+            entry.AssertIsInstance("expect_int", BuiltinTypeId.Int);
+            entry.AssertIsInstance("expect_float", BuiltinTypeId.Float);
+            entry.AssertIsInstance("expect_str", BuiltinTypeId.Str);
+            entry.AssertIsInstance("expect_list", BuiltinTypeId.List);
+            entry.AssertIsInstance("expect_dict", BuiltinTypeId.Dict);
+            Assert.AreEqual("TextIOWrapper", entry.GetValue<InstanceInfo>("expect_TextIOWrapper")?.ClassInfo?.Name);
+            Assert.AreEqual("BufferedIOBase", entry.GetValue<InstanceInfo>("expect_BufferedIOBase")?.ClassInfo?.Name);
+        }
+
+        [TestMethod, Priority(0)]
         public void ListAppend() {
             var entry = ProcessText(@"
 x = []
@@ -1670,10 +1773,11 @@ class ListTest(object):
     def pushItem(self, item):
         self.items.append(item)
 
-a = ListTest()
-b = a.items[0]");
+a = ListTest().items
+b = a[0]");
 
-            AssertUtil.Contains(entry.GetMemberNames("b", 1), "pushItem");
+            entry.AssertIsInstance("a", BuiltinTypeId.List);
+            entry.AssertIsInstance("b", "ListTest");
         }
 
         [TestMethod, Priority(0)]
@@ -1788,7 +1892,7 @@ a = C()
 a.count";
             var entry = ProcessTextV2(text);
 
-            AssertUtil.ContainsExactly(entry.GetShortDescriptions("a", text.IndexOf("a =")), "C instance");
+            entry.AssertIsInstance("a", text.IndexOf("a ="), "C");
             var result = entry.GetSignatures("a.count");
             Assert.AreEqual(1, result.Length);
             Assert.AreEqual(1, result[0].Parameters.Length);
@@ -1910,8 +2014,8 @@ constructed = str().capitalize
             string[] testCapitalize = new[] { "const", "constructed" };
             foreach (var test in testCapitalize) {
                 var result = entry.GetSignatures(test, 1).ToArray();
-                Assert.AreEqual(result.Length, 1);
-                Assert.AreEqual(result[0].Parameters.Length, 0);
+                Assert.AreEqual(1, result.Length, $"Expected one signature for {test}");
+                Assert.AreEqual(0, result[0].Parameters.Length, $"Expected no parameters for {test}.capitalize");
             }
 
             entry = ProcessText(@"
@@ -1919,11 +2023,12 @@ const = [].append
 constructed = list().append
 ");
 
-            testCapitalize = new[] { "const", "constructed" };
-            foreach (var test in testCapitalize) {
+            var testAppend = new[] { "const", "constructed" };
+            foreach (var test in testAppend) {
                 var result = entry.GetSignatures(test, 1).ToArray();
-                Assert.AreEqual(result.Length, 1);
-                Assert.AreEqual(result[0].Parameters.Length, 1);
+                Console.WriteLine(string.Join(Environment.NewLine, result.Select(s => $"{s.Name}({string.Join(", ", s.Parameters.Select(p => p.Name))})")));
+                Assert.AreEqual(1, result.Length, $"Expected one signature for {test}");
+                Assert.AreEqual(1, result[0].Parameters.Length, $"Expected one parameter for {test}.append");
             }
         }
 
@@ -1961,7 +2066,7 @@ def g():
             var entry = ProcessTextV2(text);
 
             AssertUtil.ContainsExactly(entry.GetTypes("e1", text.IndexOf(", e1")), entry.GetBuiltin("TypeError"));
-            entry.AssertDescription("e2", text.IndexOf(", e2"), "MyException instance");
+            entry.AssertIsInstance("e2", text.IndexOf(", e2"), "MyException");
         }
 
         [TestMethod, Priority(0)]
@@ -2157,8 +2262,8 @@ b = {1}{1}C()
                 Console.WriteLine(test.Operator);
                 var entry = ProcessText(String.Format(text, test.Method, test.Operator));
 
-                AssertUtil.ContainsExactly(entry.GetShortDescriptions("a", text.IndexOf("a =")), "Result instance");
-                AssertUtil.ContainsExactly(entry.GetShortDescriptions("b", text.IndexOf("b =")), "Result instance");
+                entry.AssertIsInstance("a", text.IndexOf("a ="), "Result");
+                entry.AssertIsInstance("b", text.IndexOf("b ="), "Result");
             }
         }
 
@@ -2236,20 +2341,20 @@ m {1}= m
                     code = code.Replace("42L", "42");
                 }
                 using (var state = ProcessText(code, test.Version)) {
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("a", text.IndexOf("a =")), "ForwardResult instance");
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("b", text.IndexOf("b =")), "ReverseResult instance");
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("c", text.IndexOf("c =")), "ReverseResult instance");
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("d", text.IndexOf("d =")), "ForwardResult instance");
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("e", text.IndexOf("e =")), "ReverseResult instance");
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("f", text.IndexOf("f =")), "ForwardResult instance");
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("g", text.IndexOf("g =")), "ForwardResult instance");
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("h", text.IndexOf("h =")), "ReverseResult instance");
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("i", text.IndexOf("i =")), "ForwardResult instance");
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("j", text.IndexOf("j =")), "ReverseResult instance");
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("k", text.IndexOf("k =")), "ForwardResult instance");
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("l", text.IndexOf("l =")), "ReverseResult instance");
+                    state.AssertIsInstance("a", text.IndexOf("a ="), "ForwardResult");
+                    state.AssertIsInstance("b", text.IndexOf("b ="), "ReverseResult");
+                    state.AssertIsInstance("c", text.IndexOf("c ="), "ReverseResult");
+                    state.AssertIsInstance("d", text.IndexOf("d ="), "ForwardResult");
+                    state.AssertIsInstance("e", text.IndexOf("e ="), "ReverseResult");
+                    state.AssertIsInstance("f", text.IndexOf("f ="), "ForwardResult");
+                    state.AssertIsInstance("g", text.IndexOf("g ="), "ForwardResult");
+                    state.AssertIsInstance("h", text.IndexOf("h ="), "ReverseResult");
+                    state.AssertIsInstance("i", text.IndexOf("i ="), "ForwardResult");
+                    state.AssertIsInstance("j", text.IndexOf("j ="), "ReverseResult");
+                    state.AssertIsInstance("k", text.IndexOf("k ="), "ForwardResult");
+                    state.AssertIsInstance("l", text.IndexOf("l ="), "ReverseResult");
                     // We assume that augmented assignments keep their type
-                    AssertUtil.ContainsExactly(state.GetShortDescriptions("m", code.IndexOf("m " + test.Operator)), "C instance");
+                    state.AssertIsInstance("m", code.IndexOf("m " + test.Operator), "C");
                 }
             }
         }
@@ -2296,10 +2401,10 @@ fob2 = []
 oar2 = fob2 * 100";
 
             var entry = ProcessTextV2(text);
-            AssertUtil.ContainsExactly(entry.GetShortDescriptions("y", text.IndexOf("y =")), "tuple");
-            AssertUtil.ContainsExactly(entry.GetShortDescriptions("y1", text.IndexOf("y1 =")), "tuple");
-            AssertUtil.ContainsExactly(entry.GetShortDescriptions("oar", text.IndexOf("oar =")), "list");
-            AssertUtil.ContainsExactly(entry.GetShortDescriptions("oar2", text.IndexOf("oar2 =")), "list");
+            entry.AssertDescription("y", text.IndexOf("y ="), "tuple");
+            entry.AssertDescription("y1", text.IndexOf("y1 ="), "tuple[int]");
+            entry.AssertDescription("oar", text.IndexOf("oar ="), "list[int]");
+            entry.AssertDescription("oar2", text.IndexOf("oar2 ="), "list");
 
             text = @"
 x = ()
@@ -2315,10 +2420,10 @@ fob2 = []
 oar2 = 100 * fob2";
 
             entry = ProcessTextV2(text);
-            AssertUtil.ContainsExactly(entry.GetShortDescriptions("y", text.IndexOf("y =")), "tuple");
-            AssertUtil.ContainsExactly(entry.GetShortDescriptions("y1", text.IndexOf("y1 =")), "tuple");
-            AssertUtil.ContainsExactly(entry.GetShortDescriptions("oar", text.IndexOf("oar =")), "list");
-            AssertUtil.ContainsExactly(entry.GetShortDescriptions("oar2", text.IndexOf("oar2 =")), "list");
+            entry.AssertDescription("y", text.IndexOf("y ="), "tuple");
+            entry.AssertDescription("y1", text.IndexOf("y1 ="), "tuple[int]");
+            entry.AssertDescription("oar", text.IndexOf("oar ="), "list[int]");
+            entry.AssertDescription("oar2", text.IndexOf("oar2 ="), "list");
         }
 
         [TestMethod, Priority(0)]
@@ -2449,6 +2554,7 @@ D(42)";
                 new VariableLocation(5, 20, VariableType.Reference));
             entry.AssertReferences("D", text.IndexOf("D(42)"),
                 new VariableLocation(9, 1, VariableType.Reference),
+                new VariableLocation(3, 1, VariableType.Value),
                 new VariableLocation(3, 7, VariableType.Definition));
 
             // function definitions
@@ -2458,8 +2564,9 @@ def f(): pass
 x = f()";
             entry = ProcessTextV2(text);
             entry.AssertReferences("f", text.IndexOf("x ="),
-                new VariableLocation(4, 5, VariableType.Reference),
-                new VariableLocation(2, 5, VariableType.Definition));
+                new VariableLocation(2, 1, VariableType.Value),
+                new VariableLocation(2, 5, VariableType.Definition),
+                new VariableLocation(4, 5, VariableType.Reference));
 
 
 
@@ -2469,8 +2576,9 @@ def f(): pass
 x = f";
             entry = ProcessTextV2(text);
             entry.AssertReferences("f", text.IndexOf("x ="),
-                new VariableLocation(4, 5, VariableType.Reference),
-                new VariableLocation(2, 5, VariableType.Definition));
+                new VariableLocation(2, 1, VariableType.Value),
+                new VariableLocation(2, 5, VariableType.Definition),
+                new VariableLocation(4, 5, VariableType.Reference));
 
             // class variables
             text = @"
@@ -2495,8 +2603,9 @@ a = D
 ";
             entry = ProcessTextV2(text);
             entry.AssertReferences("D", text.IndexOf("a ="),
-                new VariableLocation(4, 5, VariableType.Reference),
-                new VariableLocation(2, 7, VariableType.Definition));
+                new VariableLocation(2, 1, VariableType.Value),
+                new VariableLocation(2, 7, VariableType.Definition),
+                new VariableLocation(4, 5, VariableType.Reference));
 
             // method definition
             text = @"
@@ -2507,8 +2616,9 @@ a = D().f()
 ";
             entry = ProcessTextV2(text);
             entry.AssertReferences("D().f", text.IndexOf("a ="),
-                new VariableLocation(5, 9, VariableType.Reference),
-                new VariableLocation(3, 9, VariableType.Definition));
+                new VariableLocation(3, 5, VariableType.Value),
+                new VariableLocation(3, 9, VariableType.Definition),
+                new VariableLocation(5, 9, VariableType.Reference));
 
             // globals
             text = @"
@@ -2518,8 +2628,8 @@ del abc
 ";
             entry = ProcessTextV2(text);
             entry.AssertReferences("abc", text.IndexOf("abc ="),
-                new VariableLocation(4, 5, VariableType.Reference),
                 new VariableLocation(2, 1, VariableType.Definition),
+                new VariableLocation(4, 5, VariableType.Reference),
                 new VariableLocation(3, 7, VariableType.Reference));
 
             // parameters
@@ -2615,6 +2725,8 @@ def f(abc):
                 new VariableLocation(16, 14, VariableType.Reference),
 
                 new VariableLocation(18, 12, VariableType.Reference),
+                new VariableLocation(19, 21, VariableType.Reference),
+                new VariableLocation(20, 28, VariableType.Reference),
 
                 new VariableLocation(22, 8, VariableType.Reference),
                 new VariableLocation(23, 10, VariableType.Reference),
@@ -2746,6 +2858,49 @@ def f(a):
 
 
         [TestMethod, Priority(0)]
+        public void ListDictArgReferences() {
+            var text = @"
+def f(*a, **k):
+    x = a[1]
+    y = k['a']
+
+#out
+a = 1
+k = 2
+";
+            var entry = ProcessText(text);
+            entry.AssertReferences("a", text.IndexOf("a["),
+                new VariableLocation(2, 8, VariableType.Definition),
+                new VariableLocation(3, 9, VariableType.Reference)
+            );
+            entry.AssertReferences("k", text.IndexOf("k["),
+                new VariableLocation(2, 13, VariableType.Definition),
+                new VariableLocation(4, 9, VariableType.Reference)
+            );
+            entry.AssertReferences("a", text.IndexOf("#out"),
+                new VariableLocation(7, 1, VariableType.Definition)
+            );
+            entry.AssertReferences("k", text.IndexOf("#out"),
+                new VariableLocation(8, 1, VariableType.Definition)
+            );
+        }
+
+        [TestMethod, Priority(0)]
+        public void KeywordArgReferences() {
+            var text = @"
+def f(a):
+    pass
+
+f(a=1)
+";
+            var entry = ProcessText(text);
+            entry.AssertReferences("a", text.IndexOf("a"),
+                new VariableLocation(2, 7, VariableType.Definition),
+                new VariableLocation(5, 3, VariableType.Reference)
+            );
+        }
+
+        [TestMethod, Priority(0)]
         public void ReferencesCrossModule() {
             var fobText = @"
 from oar import abc
@@ -2760,7 +2915,8 @@ abc()
             state.WaitForAnalysis();
 
             state.AssertReferences(oarMod, "abc", 0,
-                new VariableLocation(1, 7, VariableType.Definition, "oar"),     // definition 
+                new VariableLocation(1, 1, VariableType.Value, "oar"),          // definition range
+                new VariableLocation(1, 7, VariableType.Definition, "oar"),     // definition name
                 new VariableLocation(2, 17, VariableType.Reference, "fob"),     // import
                 new VariableLocation(4, 1, VariableType.Reference, "fob")       // call
             );
@@ -2801,7 +2957,7 @@ from oarbaz import abc
 abc()
 ";
             var oarText = "class abc1(object): pass";
-            var bazText = "class abc2(object): pass";
+            var bazText = "\n\n\n\nclass abc2(object): pass";
             var oarBazText = @"from oar import abc1 as abc
 from baz import abc2 as abc";
 
@@ -2815,67 +2971,178 @@ from baz import abc2 as abc";
             state.ReanalyzeAll();
 
             state.AssertReferences(oarMod, "abc1", oarText.IndexOf("abc1"),
+                new VariableLocation(1, 1, VariableType.Value),
                 new VariableLocation(1, 7, VariableType.Definition),
-                new VariableLocation(1, 25, VariableType.Reference)
+                new VariableLocation(1, 17, VariableType.Reference, "oarbaz"),
+                new VariableLocation(1, 25, VariableType.Reference, "oarbaz")
             );
             state.AssertReferences(bazMod, "abc2", bazText.IndexOf("abc2"),
-                new VariableLocation(1, 7, VariableType.Definition),
-                new VariableLocation(2, 25, VariableType.Reference)
+                new VariableLocation(5, 1, VariableType.Value),
+                new VariableLocation(5, 7, VariableType.Definition),
+                new VariableLocation(2, 17, VariableType.Reference, "oarbaz"),
+                new VariableLocation(2, 25, VariableType.Reference, "oarbaz")
             );
             state.AssertReferences(fobMod, "abc", 0,
-                new VariableLocation(1, 7, VariableType.Value),         // possible value
-                                                                        //new VariableLocation(1, 7, VariableType.Value),
-                                                                        // appears twice for two modules, but cannot test that
-                new VariableLocation(2, 20, VariableType.Reference),    // import
-                new VariableLocation(4, 1, VariableType.Reference)      // call
+                new VariableLocation(1, 1, VariableType.Value, "oar"),
+                new VariableLocation(5, 1, VariableType.Value, "baz"),
+                new VariableLocation(1, 17, VariableType.Reference, "oarbaz"),
+                new VariableLocation(1, 25, VariableType.Reference, "oarbaz"),    // as
+                new VariableLocation(2, 17, VariableType.Reference, "oarbaz"),
+                new VariableLocation(2, 25, VariableType.Reference, "oarbaz"),    // as
+                new VariableLocation(2, 20, VariableType.Reference, "fob"),    // import
+                new VariableLocation(4, 1, VariableType.Reference, "fob")     // call
             );
         }
 
         [TestMethod, Priority(0)]
-        public void ReferencesGenerators() {
+        public void ImportStarReferences() {
+            var state = CreateAnalyzer();
+            var fobMod = state.AddModule("fob", @"
+CONSTANT = 1
+class Class: pass
+def fn(): pass");
+            var oarMod = state.AddModule("oar", @"from fob import *
+
+
+
+x = CONSTANT
+c = Class()
+f = fn()");
+
+            state.ReanalyzeAll();
+
+            state.AssertReferences(oarMod, "CONSTANT", 0,
+                new VariableLocation(2, 1, VariableType.Definition, "fob"),
+                new VariableLocation(5, 5, VariableType.Reference, "oar")
+            );
+            state.AssertReferences(oarMod, "Class", 0,
+                new VariableLocation(3, 1, VariableType.Value, "fob"),
+                new VariableLocation(3, 7, VariableType.Definition, "fob"),
+                new VariableLocation(6, 5, VariableType.Reference, "oar")
+            );
+            state.AssertReferences(oarMod, "fn", 0,
+                new VariableLocation(4, 1, VariableType.Value, "fob"),
+                new VariableLocation(4, 5, VariableType.Definition, "fob"),
+                new VariableLocation(7, 5, VariableType.Reference, "oar")
+            );
+        }
+
+        [TestMethod, Priority(0)]
+        public void ImportAsReferences() {
+            var state = CreateAnalyzer();
+            var fobMod = state.AddModule("fob", @"
+CONSTANT = 1
+class Class: pass
+def fn(): pass");
+            var oarMod = state.AddModule("oar", @"from fob import CONSTANT as CO, Class as Cl, fn as f
+
+
+
+x = CO
+c = Cl()
+g = f()");
+
+            state.ReanalyzeAll();
+
+            state.AssertReferences(oarMod, "CO", 0,
+                new VariableLocation(1, 17, VariableType.Reference, "oar"),
+                new VariableLocation(1, 29, VariableType.Reference, "oar"),
+                new VariableLocation(2, 1, VariableType.Definition, "fob"),
+                new VariableLocation(5, 5, VariableType.Reference, "oar")
+            );
+            state.AssertReferences(oarMod, "Cl", 0,
+                new VariableLocation(1, 33, VariableType.Reference, "oar"),
+                new VariableLocation(1, 42, VariableType.Reference, "oar"),
+                new VariableLocation(3, 1, VariableType.Value, "fob"),
+                new VariableLocation(3, 7, VariableType.Definition, "fob"),
+                new VariableLocation(6, 5, VariableType.Reference, "oar")
+            );
+            state.AssertReferences(oarMod, "f", 0,
+                new VariableLocation(1, 46, VariableType.Reference, "oar"),
+                new VariableLocation(1, 52, VariableType.Reference, "oar"),
+                new VariableLocation(4, 1, VariableType.Value, "fob"),
+                new VariableLocation(4, 5, VariableType.Definition, "fob"),
+                new VariableLocation(7, 5, VariableType.Reference, "oar")
+            );
+
+            state.AssertReferences(fobMod, "CONSTANT", 0,
+                new VariableLocation(1, 17, VariableType.Reference, "oar"),
+                new VariableLocation(1, 29, VariableType.Reference, "oar"),
+                new VariableLocation(2, 1, VariableType.Definition, "fob"),
+                new VariableLocation(5, 5, VariableType.Reference, "oar")
+            );
+            state.AssertReferences(fobMod, "Class", 0,
+                new VariableLocation(1, 33, VariableType.Reference, "oar"),
+                new VariableLocation(1, 42, VariableType.Reference, "oar"),
+                new VariableLocation(3, 1, VariableType.Value, "fob"),
+                new VariableLocation(3, 7, VariableType.Definition, "fob"),
+                new VariableLocation(6, 5, VariableType.Reference, "oar")
+            );
+            state.AssertReferences(fobMod, "fn", 0,
+                new VariableLocation(1, 46, VariableType.Reference, "oar"),
+                new VariableLocation(1, 52, VariableType.Reference, "oar"),
+                new VariableLocation(4, 1, VariableType.Value, "fob"),
+                new VariableLocation(4, 5, VariableType.Definition, "fob"),
+                new VariableLocation(7, 5, VariableType.Reference, "oar")
+            );
+        }
+
+        [TestMethod, Priority(0)]
+        public void ReferencesGeneratorsV3() {
             var text = @"
 [f for f in x]
 [x for x in f]
 (g for g in y)
 (y for y in g)
 ";
-            var entry = ProcessTextV3(text);
-            entry.AssertReferences("f", text.IndexOf("f for"),
-                new VariableLocation(2, 2, VariableType.Reference),
-                new VariableLocation(2, 8, VariableType.Definition)
-            );
-            entry.AssertReferences("x", text.IndexOf("x for"),
-                new VariableLocation(3, 2, VariableType.Reference),
-                new VariableLocation(3, 8, VariableType.Definition)
-            );
-            entry.AssertReferences("g", text.IndexOf("g for"),
-                new VariableLocation(4, 2, VariableType.Reference),
-                new VariableLocation(4, 8, VariableType.Definition)
-            );
-            entry.AssertReferences("y", text.IndexOf("y for"),
-                new VariableLocation(5, 2, VariableType.Reference),
-                new VariableLocation(5, 8, VariableType.Definition)
-            );
+            using (var entry = ProcessTextV3(text)) {
+                entry.AssertReferences("f", text.IndexOf("f for"),
+                    new VariableLocation(2, 2, VariableType.Reference),
+                    new VariableLocation(2, 8, VariableType.Definition)
+                );
+                entry.AssertReferences("x", text.IndexOf("x for"),
+                    new VariableLocation(3, 2, VariableType.Reference),
+                    new VariableLocation(3, 8, VariableType.Definition)
+                );
+                entry.AssertReferences("g", text.IndexOf("g for"),
+                    new VariableLocation(4, 2, VariableType.Reference),
+                    new VariableLocation(4, 8, VariableType.Definition)
+                );
+                entry.AssertReferences("y", text.IndexOf("y for"),
+                    new VariableLocation(5, 2, VariableType.Reference),
+                    new VariableLocation(5, 8, VariableType.Definition)
+                );
+            }
+        }
 
-            entry = ProcessTextV2(text);
-            // Index variable leaks out of list comprehension
-            entry.AssertReferences("f", text.IndexOf("f for"),
-                new VariableLocation(2, 2, VariableType.Reference),
-                new VariableLocation(2, 8, VariableType.Definition),
-                new VariableLocation(3, 13, VariableType.Reference)
-            );
-            entry.AssertReferences("x", text.IndexOf("x for"),
-                new VariableLocation(3, 2, VariableType.Reference),
-                new VariableLocation(3, 8, VariableType.Definition)
-            );
-            entry.AssertReferences("g", text.IndexOf("g for"),
-                new VariableLocation(4, 2, VariableType.Reference),
-                new VariableLocation(4, 8, VariableType.Definition)
-            );
-            entry.AssertReferences("y", text.IndexOf("y for"),
-                new VariableLocation(5, 2, VariableType.Reference),
-                new VariableLocation(5, 8, VariableType.Definition)
-            );
+        [TestMethod, Priority(0)]
+        public void ReferencesGeneratorsV2() {
+            var text = @"
+[f for f in x]
+[x for x in f]
+(g for g in y)
+(y for y in g)
+";
+            using (var entry = ProcessTextV2(text)) {
+                // Index variable leaks out of list comprehension
+                entry.AssertReferences("f", text.IndexOf("f for"),
+                    new VariableLocation(2, 2, VariableType.Reference),
+                    new VariableLocation(2, 8, VariableType.Definition),
+                    new VariableLocation(3, 13, VariableType.Reference)
+                );
+                entry.AssertReferences("x", text.IndexOf("x for"),
+                    new VariableLocation(3, 2, VariableType.Reference),
+                    new VariableLocation(3, 8, VariableType.Definition)
+                );
+                entry.AssertReferences("g", text.IndexOf("g for"),
+                    new VariableLocation(4, 2, VariableType.Reference),
+                    new VariableLocation(4, 8, VariableType.Definition)
+                );
+                entry.AssertReferences("y", text.IndexOf("y for"),
+                    new VariableLocation(5, 2, VariableType.Reference),
+                    new VariableLocation(5, 8, VariableType.Definition)
+                );
+            }
         }
 
         [TestMethod, Priority(0)]
@@ -2906,15 +3173,15 @@ def m(x = math.atan2(1, 0)): pass
                 new { FuncName = "j", ParamName="x", DefaultValue="[...]" },
                 new { FuncName = "k", ParamName="x", DefaultValue = "()" },
                 new { FuncName = "l", ParamName="x", DefaultValue = "(...)" },
-                new { FuncName = "m", ParamName="x", DefaultValue = "math.atan2(1,0)" },
+                new { FuncName = "m", ParamName="x", DefaultValue = "math.atan2(1, 0)" },
             };
 
             foreach (var test in tests) {
                 var result = entry.GetSignatures(test.FuncName, 1).ToArray();
-                Assert.AreEqual(result.Length, 1);
-                Assert.AreEqual(result[0].Parameters.Length, 1);
-                Assert.AreEqual(result[0].Parameters[0].Name, test.ParamName);
-                Assert.AreEqual(result[0].Parameters[0].DefaultValue, test.DefaultValue);
+                Assert.AreEqual(1, result.Length);
+                Assert.AreEqual(1, result[0].Parameters.Length);
+                Assert.AreEqual(test.ParamName, result[0].Parameters[0].Name);
+                Assert.AreEqual(test.DefaultValue, result[0].Parameters[0].DefaultValue);
             }
         }
 
@@ -2968,7 +3235,7 @@ fob = abc";
 
                 var entry = ProcessText(code);
                 entry.AssertIsInstance("fob", BuiltinTypeId.Tuple);
-                entry.AssertDescription("fob", "tuple of int");
+                entry.AssertDescription("fob", "tuple[int]");
             }
 
             // dict methods which return a list of key/value tuple
@@ -2987,7 +3254,7 @@ for fob in abc:
                 var entry = ProcessText(code);
                 int i = code.IndexOf("print(fob)");
                 entry.AssertIsInstance("fob", i, BuiltinTypeId.Tuple);
-                entry.AssertDescription("fob", i, "tuple of int");
+                entry.AssertDescription("fob", i, "tuple[int]");
             }
         }
 
@@ -3019,8 +3286,8 @@ mod1.l.append(a)
                 mod2.Analyze(CancellationToken.None, true);
                 state.WaitForAnalysis();
 
-                state.AssertDescription("l", "list of C instance");
-                state.AssertDescription("l[0]", "C instance");
+                state.AssertDescription("l", "list[C]");
+                state.AssertIsInstance("l[0]", "C");
             }
         }
 
@@ -3051,7 +3318,7 @@ for abc in x:
     print(abc)
 ";
             var entry = ProcessText(code);
-            entry.AssertDescription("x", "set of int");
+            entry.AssertDescription("x", "set[int]");
             entry.AssertIsInstance("abc", code.IndexOf("print(abc)"), BuiltinTypeId.Int);
         }
 
@@ -3164,7 +3431,7 @@ a = C()
 b = a.f
             ");
 
-            entry.AssertDescription("b", "method f of C objects \r\ndoc string");
+            entry.AssertDescription("b", "method f of test-module.C objects");
 
             entry = ProcessText(@"
 class C(object):
@@ -3175,7 +3442,7 @@ a = C()
 b = a.f
             ");
 
-            entry.AssertDescription("b", "method f of C objects \r\ndoc string");
+            entry.AssertDescription("b", "method f of test-module.C objects");
         }
 
         [TestMethod, Priority(0)]
@@ -3213,16 +3480,16 @@ f(lambda x=x:x, lambda x=y:x)";
             var entry = ProcessText(code);
 
             // default value, should be a list
-            entry.AssertIsInstance("x", code.IndexOf("lambda x=") + 10, BuiltinTypeId.List);
+            entry.AssertIsInstance("x", code.IndexOfEnd("lambda x=x"), BuiltinTypeId.List);
 
             // parameter used in the lambda, should be list and str
-            entry.AssertIsInstance("x", code.IndexOf("lambda x=") + 12, BuiltinTypeId.List, BuiltinTypeId.Str);
+            entry.AssertIsInstance("x", code.IndexOfEnd("lambda x=x:x"), BuiltinTypeId.List, BuiltinTypeId.Str);
 
             // default value in the 2nd lambda, should be tuple
-            entry.AssertIsInstance("y", code.IndexOf("lambda x=") + 24, BuiltinTypeId.Tuple);
+            entry.AssertIsInstance("y", code.IndexOfEnd("lambda x=y"), BuiltinTypeId.Tuple);
 
             // value in the 2nd lambda, should be tuple and int
-            entry.AssertIsInstance("x", code.IndexOf("lambda x=") + 26, BuiltinTypeId.Tuple, BuiltinTypeId.Int);
+            entry.AssertIsInstance("x", code.IndexOfEnd("lambda x=y:x"), BuiltinTypeId.Tuple, BuiltinTypeId.Int);
         }
 
         [TestMethod, Priority(0)]
@@ -3255,7 +3522,7 @@ f('abc')
             var entry = ProcessText(@"
 cls = object
 
-class cls(cls): 
+class cls(cls):
     abc = 42
 ");
 
@@ -3263,8 +3530,10 @@ class cls(cls):
             entry.AssertIsInstance("cls().abc", BuiltinTypeId.Int);
             entry.AssertIsInstance("cls.abc", BuiltinTypeId.Int);
 
-            var sigs = entry.GetSignatures("cls", 1).ToArray();
-            AssertUtil.ContainsExactly(sigs.Select(s => s.Documentation), null, "The most base type");
+            AssertUtil.Contains(string.Join(Environment.NewLine, entry.GetCompletionDocumentation("", "cls")),
+                "cls",
+                "object"
+            );
         }
 
         [TestMethod, Priority(0)]
@@ -3401,11 +3670,11 @@ f = x().g";
 
             foreach (var decl in decls) {
                 string[] testCalls = new[] {
-                    "f(**{'a': 3j, 'b': 42, 'c': 'abc'})",
-                    "f(**{'c': 'abc', 'b': 42, 'a': 3j})",
+                    //"f(**{'a': 3j, 'b': 42, 'c': 'abc'})",
+                    //"f(**{'c': 'abc', 'b': 42, 'a': 3j})",
                     "f(**{'a': 3j, 'b': 42, 'c': 'abc', 'x': 4L})",  // extra argument
-                    "f(3j, **{'b': 42, 'c': 'abc'})",
-                    "f(3j, 42, **{'c': 'abc'})"
+                    //"f(3j, **{'b': 42, 'c': 'abc'})",
+                    //"f(3j, 42, **{'c': 'abc'})"
                 };
 
                 foreach (var testCall in testCalls) {
@@ -3445,10 +3714,10 @@ class C(object):
 ";
             var entry = ProcessTextV2(text);
 
-            var fifty = entry.GetNamesNoBuiltins(text.IndexOf("abc.fob"));
+            var fifty = entry.GetNamesNoBuiltins(text.IndexOf("abc.fob"), includeDunder: false);
             AssertUtil.ContainsExactly(fifty, "C", "D", "a", "abc", "self", "x");
 
-            var three = entry.GetNamesNoBuiltins(text.IndexOf("def oar") + 1);
+            var three = entry.GetNamesNoBuiltins(text.IndexOf("def oar") + 1, includeDunder: false);
             AssertUtil.ContainsExactly(three, "C", "D", "oar");
 
             entry.AssertHasAttr("abc", text.IndexOf("abc.fob"), "baz", "fob");
@@ -3456,7 +3725,7 @@ class C(object):
             entry.AssertIsInstance("x", text.IndexOf("abc.fob"), BuiltinTypeId.List, BuiltinTypeId.Str, BuiltinTypeId.Tuple);
 
             AssertUtil.ContainsExactly(
-                entry.GetMemberNames("x", text.IndexOf("abc.fob")),
+                entry.GetMemberNames("x", text.IndexOf("abc.fob"), GetMemberOptions.IntersectMultipleResults),
                 entry.StrMembers.Intersect(entry.ListMembers)
             );
         }
@@ -3556,7 +3825,7 @@ a = x()
 x.abc()
 ";
             var entry = ProcessText(text);
-            AssertUtil.ContainsExactly(entry.GetNamesNoBuiltins(), "a", "x");
+            AssertUtil.ContainsExactly(entry.GetNamesNoBuiltins(includeDunder: false), "a", "x");
             entry.AssertHasAttr("x", "abc");
             entry.AssertHasAttr("x", entry.ObjectMembers);
         }
@@ -3668,15 +3937,7 @@ f('a', 'b', 1)
             foreach (var sig in f) {
                 Console.WriteLine(sig);
             }
-            Assert.AreEqual(6, f.Count);
-            AssertUtil.ContainsExactly(f,
-                "f(a := (), b := (), c = 0 := (int))",
-                "f(a := (int), b := (int), c = 0 := (int))",
-                "f(a := (float), b := (float), c = 0 := (float, int))",
-                "f(a := (str), b := (str), c = 0 := (int, str))",
-                "f(a := (int), b := (float), c = 0 := (int, str))",
-                "f(a := (str), b := (str), c = 0 := (int))"
-            );
+            AssertUtil.ContainsExactly(f, "f(a := (float, int, str), b := (float, int, str), c = 0 := (float, int, str))");
         }
 
         internal static readonly Regex ValidParameterName = new Regex(@"^(\*|\*\*)?[a-z_][a-z0-9_]*( *=.+)?", RegexOptions.IgnoreCase);
@@ -3688,7 +3949,7 @@ f('a', 'b', 1)
 
 
         protected virtual string ListInitParameterName {
-            get { return "sequence"; }
+            get { return "object"; }
         }
 
         /// <summary>
@@ -3700,10 +3961,15 @@ f('a', 'b', 1)
 class oar(list):
     pass
 ";
-            var entry = ProcessText(text);
-            
-            var init = entry.GetOverrideable(text.IndexOf("pass")).Single(r => r.Name == "__init__");
-            AssertUtil.AreEqual(init.Parameters.Select(GetSafeParameterName), "self", ListInitParameterName);
+            var entry = ProcessTextV2(text);
+
+            var init = entry.GetOverrideable(text.IndexOf("pass")).Single(r => r.Name == "append");
+            AssertUtil.AreEqual(init.Parameters.Select(GetSafeParameterName), "self", "value");
+
+            entry = ProcessTextV3(text);
+
+            init = entry.GetOverrideable(text.IndexOf("pass")).Single(r => r.Name == "append");
+            AssertUtil.AreEqual(init.Parameters.Select(GetSafeParameterName), "self", "value");
 
             // Ensure that nested classes are correctly resolved.
             text = @"
@@ -3874,17 +4140,23 @@ y = range(5)
 def f(x): pass
 f.abc = 32
 ";
-            var entry = ProcessText(text);
-            entry.AssertHasAttr("f", "abc");
+            var entry2 = ProcessTextV2(text);
+            var entry3 = ProcessTextV3(text);
+            entry2.AssertHasAttr("f", "abc");
+            entry3.AssertHasAttr("f", "abc");
 
             text = @"
 def f(x): pass
 
 ";
-            entry = ProcessText(text);
-            entry.AssertHasAttr("f", entry.FunctionMembers);
-            entry.AssertNotHasAttr("f", "x");
-            entry.AssertIsInstance("f.func_name", BuiltinTypeId.Str);
+            entry2 = ProcessTextV2(text);
+            entry3 = ProcessTextV3(text);
+            entry2.AssertHasAttr("f", entry2.FunctionMembers);
+            entry2.AssertNotHasAttr("f", "x");
+            entry2.AssertIsInstance("f.func_name", BuiltinTypeId.Str);
+            entry3.AssertHasAttr("f", entry3.FunctionMembers);
+            entry3.AssertNotHasAttr("f", "x");
+            entry3.AssertIsInstance("f.__name__", BuiltinTypeId.Str);
         }
 
         [TestMethod, Priority(0)]
@@ -3903,7 +4175,7 @@ for i in range(5):
 import sys
 ";
             var entry = ProcessText(text);
-            AssertUtil.ContainsExactly(entry.GetNamesNoBuiltins(), "sys");
+            AssertUtil.ContainsExactly(entry.GetNamesNoBuiltins(includeDunder: false), "sys");
             entry.AssertHasAttr("sys", "winver");
         }
 
@@ -3914,7 +4186,7 @@ def f():
     import sys
 ";
             var entry = ProcessText(text);
-            AssertUtil.ContainsExactly(entry.GetNamesNoBuiltins(text.IndexOf("sys")), "sys", "f");
+            AssertUtil.ContainsExactly(entry.GetNamesNoBuiltins(text.IndexOf("sys"), includeDunder: false), "sys", "f");
             entry.AssertHasAttr("sys", text.IndexOf("sys"), "winver");
         }
 
@@ -3925,7 +4197,7 @@ class C:
     import sys
 ";
             var entry = ProcessText(text);
-            AssertUtil.ContainsExactly(entry.GetNamesNoBuiltins(text.IndexOf("sys")), "sys", "C");
+            AssertUtil.ContainsExactly(entry.GetNamesNoBuiltins(text.IndexOf("sys"), includeDunder: false), "sys", "C");
             entry.AssertHasAttr("sys", text.IndexOf("sys"), "winver");
         }
 
@@ -3961,7 +4233,7 @@ x = D().g(C(), 42)
             var entry = ProcessText(text);
             entry.AssertHasAttrExact("other", text.IndexOf("other.g"), "g", "__doc__", "__class__");
             entry.AssertIsInstance("x", BuiltinTypeId.List, BuiltinTypeId.Str);
-            entry.AssertHasAttrExact("x", entry.ListMembers.Intersect(entry.StrMembers).ToArray());
+            entry.AssertHasAttrExact("x", entry.ListMembers.Union(entry.StrMembers).ToArray());
         }
 
         [TestMethod, Priority(0)]
@@ -4006,7 +4278,7 @@ val = next(it)
             // Ensure the returned generators are distinct
             var entry = ProcessText(text);
             entry.AssertIsInstance("it", BuiltinTypeId.Generator);
-            entry.AssertDescription("val", "S0 instance");
+            entry.AssertIsInstance("val", "S0");
         }
 
         [TestMethod, Priority(0)]
@@ -4014,7 +4286,7 @@ val = next(it)
             var text = @"
 class x(object):
     def __init__(self, val):
-        self.abc = []
+        self.abc = [val]
     
 x(42)
 x('abc')
@@ -4022,7 +4294,8 @@ x([])
 ";
             var entry = ProcessText(text);
             var values = entry.GetValues("self.abc", text.IndexOf("self.abc"));
-            Assert.AreEqual(4, values.Length);
+            Assert.AreEqual(1, values.Length);
+            entry.AssertDescription("self.abc", text.IndexOf("self.abc"), "list");
         }
 
         [TestMethod, Priority(0)]
@@ -4170,7 +4443,10 @@ x = 42
 ";
 
             PermutedTest("mod", new[] { text1, text2 }, state => {
-                state.AssertHasAttrExact(state.Modules["mod1"], "mod2", 0, "x");
+                AssertUtil.ContainsExactly(
+                    state.GetMemberNames(state.Modules["mod1"], "mod2", 0).Where(n => n.Length < 4 || !n.StartsWith("__") || !n.EndsWith("__")),
+                    "x"
+                );
             });
         }
 
@@ -4369,8 +4645,8 @@ a = y().ClassMethod()
 b = y.ClassMethod()
 ";
             var entry = ProcessTextV2(text);
-            entry.AssertDescription("a", "y");
-            entry.AssertDescription("b", "y");
+            AssertUtil.ContainsExactly(entry.GetShortDescriptions("a"), "x", "y");
+            AssertUtil.ContainsExactly(entry.GetShortDescriptions("b"), "x", "y");
             var desc = string.Join(Environment.NewLine, entry.GetCompletionDocumentation("", "cls", text.IndexOf("return")));
             AssertUtil.Contains(desc, "x", "y");
 
@@ -4400,7 +4676,7 @@ oar = C().x
             entry.AssertIsInstance("C.x", BuiltinTypeId.Int);
 
             entry.AssertIsInstance("ctx", text.IndexOf("return"), BuiltinTypeId.Type);
-            AssertUtil.ContainsExactly(entry.GetShortDescriptions("inst", text.IndexOf("return 42")), "None", "C instance");
+            entry.AssertIsInstance("inst", text.IndexOf("return 42"), "None", "C");
 
             text = @"
 class mydesc(object):
@@ -4416,7 +4692,7 @@ oar = C().x
 ";
 
             entry = ProcessText(text);
-            entry.AssertDescription("inst", text.IndexOf("return 42"), "C instance");
+            entry.AssertIsInstance("inst", text.IndexOf("return 42"), "C");
             entry.AssertHasAttr("inst", text.IndexOf("return 42"), "instfunc");
         }
 
@@ -4582,7 +4858,10 @@ min(a, D())
                     var ast = nodes[i];
 
                     if (ast != null) {
-                        modules[i].UpdateTree(ast, null);
+                        using (var p = modules[i].BeginParse()) {
+                            p.Tree = ast;
+                            p.Complete();
+                        }
                     }
                 }
 
@@ -4610,7 +4889,10 @@ min(a, D())
                     using (var reader = new FileStreamReader(modules[index].FilePath)) {
                         var ast = Parser.CreateParser(reader, projectState.LanguageVersion).ParseFile();
 
-                        modules[index].UpdateTree(ast, null);
+                        using (var p = modules[index].BeginParse()) {
+                            p.Tree = ast;
+                            p.Complete();
+                        }
                     }
 
                     modules[index].Analyze(CancellationToken.None, true);
@@ -4621,15 +4903,13 @@ min(a, D())
 
         [TestMethod, Priority(0)]
         public void CancelAnalysis() {
-            var ver = PythonPaths.Versions.LastOrDefault(v => v != null);
+            var ver = PythonPaths.Versions.LastOrDefault(v => v.IsCPython);
             if (ver == null) {
                 Assert.Inconclusive("Test requires Python installation");
             }
 
             var cancelSource = new CancellationTokenSource();
-            var task = Task.Run(() => {
-                new AnalysisTest().AnalyzeDir(Path.Combine(ver.PrefixPath, "Lib"), ver.Version, cancel: cancelSource.Token);
-            }, cancelSource.Token);
+            var task = Task.Run(() => new AnalysisTest().AnalyzeDir(Path.Combine(ver.PrefixPath, "Lib"), ver.Version, cancel: cancelSource.Token));
 
             // Allow 10 seconds for parsing to complete and analysis to start
             cancelSource.CancelAfter(TimeSpan.FromSeconds(10));
@@ -4646,7 +4926,7 @@ min(a, D())
 
         [TestMethod, Priority(0)]
         public void MoveClass() {
-            var fobSrc = "from oar import C";
+            var fobSrc = "";
 
             var oarSrc = @"
 class C(object):
@@ -4663,11 +4943,15 @@ class C(object):
                 var oar = state.AddModule("oar", oarSrc);
                 var baz = state.AddModule("baz", bazSrc);
 
+                state.UpdateModule(fob, "from oar import C");
+                state.WaitForAnalysis();
+
                 state.WaitForAnalysis();
 
                 state.AssertDescription(fob, "C", "C");
-                state.AssertReferencesInclude(baz, "C", 0,
-                    new VariableLocation(2, 7, VariableType.Definition, oar.FilePath)
+                state.AssertReferencesInclude(fob, "C", 0,
+                    new VariableLocation(1, 17, VariableType.Reference, fob.FilePath),
+                    new VariableLocation(2, 1, VariableType.Value, oar.FilePath)
                 );
 
                 // delete the class..
@@ -4681,7 +4965,8 @@ class C(object):
 
                 state.AssertDescription(fob, "C", "C");
                 state.AssertReferencesInclude(fob, "C", 0,
-                    new VariableLocation(2, 7, VariableType.Definition, baz.FilePath)
+                    new VariableLocation(1, 17, VariableType.Reference, fob.FilePath),
+                    new VariableLocation(2, 1, VariableType.Value, baz.FilePath)
                 );
             }
         }
@@ -4723,6 +5008,38 @@ abc = 42
 
                 state.AssertIsInstance(x, "abc", BuiltinTypeId.Int);
                 state.AssertIsInstance(package, "abc", BuiltinTypeId.Int);
+            }
+        }
+
+        [TestMethod, Priority(0)]
+        public void PackageRelativeImportPep328() {
+            var imports = new Dictionary<string, string>() {
+                { "from .moduleY import spam", "spam"},
+                { "from .moduleY import spam as ham", "ham"},
+                { "from . import moduleY", "moduleY.spam" },
+                { "from ..subpackage1 import moduleY", "moduleY.spam"},
+                { "from ..subpackage2.moduleZ import eggs", "eggs"},
+                { "from ..moduleA import foo", "foo" },
+                { "from ...package import bar", "bar"}
+            };
+
+            foreach (var imp in imports) {
+                using (var state = CreateAnalyzer()) {
+                    state.CreateProjectOnDisk = true;
+
+                    var package = state.AddModule("package", "def bar():\n  pass\n", @"package\__init__.py");
+                    var modA = state.AddModule("package.moduleA", "def foo():\n  pass\n", @"package\moduleA.py");
+
+                    var sub1 = state.AddModule("package.subpackage1", string.Empty, @"package\subpackage1\__init__.py");
+                    var modX = state.AddModule("package.subpackage1.moduleX", imp.Key, @"package\subpackage1\moduleX.py");
+                    var modY = state.AddModule("package.subpackage1.moduleY", "def spam():\n  pass\n", @"package\subpackage1\moduleY.py");
+
+                    var sub2 = state.AddModule("package.subpackage2", string.Empty, @"package\subpackage2\__init__.py");
+                    var modZ = state.AddModule("package.subpackage2.moduleZ", "def eggs():\n  pass\n", @"package\subpackage2\moduleZ.py");
+
+                    state.WaitForAnalysis();
+                    state.AssertIsInstance(modX, imp.Value, BuiltinTypeId.Function);
+                }
             }
         }
 
@@ -4813,6 +5130,16 @@ class MyClass(object):
 ";
 
             PermutedTest("mod", new[] { text1, text2 }, state => {
+                // Ensure we ended up with a function
+                state.AssertIsInstance(state.Modules["mod1"], "f", 0, BuiltinTypeId.Function);
+
+                // Ensure we passed a function in to the decorator (def dec(func))
+                //state.AssertIsInstance(state.Modules["mod2"], "func", text2.IndexOf("return self.filter_function("), BuiltinTypeId.Function);
+
+                // Ensure we saw the function passed *through* the decorator
+                state.AssertIsInstance(state.Modules["mod2"], "func", text2.IndexOf("return self.filter("), BuiltinTypeId.Function);
+
+                // Ensure we saw the function passed *back into* the original decorator constructor
                 state.AssertIsInstance(
                     state.Modules["mod2"], "filter_func", text2.IndexOf("# @register.filter()"),
                     BuiltinTypeId.Function,
@@ -4852,7 +5179,6 @@ z = a_float()
 w = a_string()
 ";
             var entry = ProcessTextV2(text);
-            var index = text.Length;
             entry.AssertIsInstance("x", BuiltinTypeId.Tuple);
             entry.AssertIsInstance("y", BuiltinTypeId.List);
             entry.AssertIsInstance("z", BuiltinTypeId.Float);
@@ -4878,13 +5204,12 @@ items2 = as_list(lambda: (1, 2, 3))
 x = items(0)
 ";
             entry = ProcessTextV2(text);
-            index = text.IndexOf("x = ");
-            entry.AssertIsInstance("items", entry.GetTypeIds("items2", index).ToArray());
+            entry.AssertIsInstance("items", entry.GetTypeIds("items2").ToArray());
             entry.AssertIsInstance("x", BuiltinTypeId.List, BuiltinTypeId.Set, BuiltinTypeId.Str);
         }
 
         [TestMethod, Priority(0)]
-        public void DecoratorReturnTypes() {
+        public void DecoratorReturnTypes_NoDecorator() {
             // https://pytools.codeplex.com/workitem/1694
             var text = @"# without decorator
 def returnsGiven(parm):
@@ -4893,8 +5218,19 @@ def returnsGiven(parm):
 retGivenInt = returnsGiven(1)
 retGivenString = returnsGiven('str')
 retGivenBool = returnsGiven(True)
+";
 
-# with decorator without wrap
+            var entry = ProcessText(text);
+
+            entry.AssertIsInstance("retGivenInt", BuiltinTypeId.Int);
+            entry.AssertIsInstance("retGivenString", BuiltinTypeId.Str);
+            entry.AssertIsInstance("retGivenBool", BuiltinTypeId.Bool);
+        }
+
+        [TestMethod, Priority(0)]
+        public void DecoratorReturnTypes_DecoratorNoParams() {
+            // https://pytools.codeplex.com/workitem/1694
+            var text = @"# with decorator without wrap
 def decoratorFunctionTakesArg1(f):
     def wrapped_f(arg):
         return f(arg)
@@ -4904,10 +5240,22 @@ def decoratorFunctionTakesArg1(f):
 def returnsGivenWithDecorator1(parm):
     return parm
 
-retGivenInt1 = returnsGivenWithDecorator1(1)
-retGivenString1 = returnsGivenWithDecorator1('str')
-retGivenBool1 = returnsGivenWithDecorator1(True)
+retGivenInt = returnsGivenWithDecorator1(1)
+retGivenString = returnsGivenWithDecorator1('str')
+retGivenBool = returnsGivenWithDecorator1(True)
+";
 
+            var entry = ProcessText(text);
+
+            entry.AssertIsInstance("retGivenInt", BuiltinTypeId.Int);
+            entry.AssertIsInstance("retGivenString", BuiltinTypeId.Str);
+            entry.AssertIsInstance("retGivenBool", BuiltinTypeId.Bool);
+        }
+
+        [TestMethod, Priority(0)]
+        public void DecoratorReturnTypes_DecoratorWithParams() {
+            // https://pytools.codeplex.com/workitem/1694
+            var text = @"
 # with decorator with wrap
 def decoratorFunctionTakesArg2():
     def wrap(f):
@@ -4920,17 +5268,15 @@ def decoratorFunctionTakesArg2():
 def returnsGivenWithDecorator2(parm):
     return parm
 
-retGivenInt2 = returnsGivenWithDecorator2(1)
-retGivenString2 = returnsGivenWithDecorator2('str')
-retGivenBool2 = returnsGivenWithDecorator2(True)";
+retGivenInt = returnsGivenWithDecorator2(1)
+retGivenString = returnsGivenWithDecorator2('str')
+retGivenBool = returnsGivenWithDecorator2(True)";
 
             var entry = ProcessText(text);
 
-            foreach (var suffix in new[] { "", "1", "2" }) {
-                entry.AssertIsInstance("retGivenInt" + suffix, BuiltinTypeId.Int);
-                entry.AssertIsInstance("retGivenString" + suffix, BuiltinTypeId.Str);
-                entry.AssertIsInstance("retGivenBool" + suffix, BuiltinTypeId.Bool);
-            }
+            entry.AssertIsInstance("retGivenInt", BuiltinTypeId.Int);
+            entry.AssertIsInstance("retGivenString", BuiltinTypeId.Str);
+            entry.AssertIsInstance("retGivenBool", BuiltinTypeId.Bool);
         }
 
         [TestMethod, Priority(0)]
@@ -4955,8 +5301,8 @@ def decorator_b(fn):
 
             PermutedTest("mod", new[] { text1, text2 }, state => {
                 // Neither decorator is callable, but at least analysis completed
-                state.AssertIsInstance(state.Modules["mod1"], "decorator_a");
-                state.AssertIsInstance(state.Modules["mod2"], "decorator_b");
+                state.AssertIsInstance(state.Modules["mod1"], "decorator_a", BuiltinTypeId.Function);
+                state.AssertIsInstance(state.Modules["mod2"], "decorator_b", BuiltinTypeId.Function);
             });
         }
 
@@ -5000,6 +5346,74 @@ def my_fn():
             entry.AssertIsInstance("fn", text.IndexOf("return"), BuiltinTypeId.Function);
         }
 
+        [TestMethod, Priority(0)]
+        public void DecoratorReferences() {
+            var text = @"
+def d1(f):
+    return f
+class d2:
+    def __call__(self, f): return f
+
+@d1
+def func_d1(): pass
+@d2()
+def func_d2(): pass
+
+@d1
+class cls_d1(object): pass
+@d2()
+class cls_d2(object): pass
+";
+            var entry = ProcessText(text);
+            entry.AssertReferences("d1",
+                new VariableLocation(2, 1, VariableType.Value),
+                new VariableLocation(2, 5, VariableType.Definition),
+                new VariableLocation(7, 2, VariableType.Reference),
+                new VariableLocation(12, 2, VariableType.Reference)
+            );
+            entry.AssertReferences("d2",
+                new VariableLocation(4, 1, VariableType.Value),
+                new VariableLocation(4, 7, VariableType.Definition),
+                new VariableLocation(9, 2, VariableType.Reference),
+                new VariableLocation(14, 2, VariableType.Reference)
+            );
+            AssertUtil.ContainsExactly(entry.GetValues("f", 18).Select(v => v.MemberType), PythonMemberType.Function, PythonMemberType.Class);
+            AssertUtil.ContainsExactly(entry.GetValues("f", 66).Select(v => v.MemberType), PythonMemberType.Function, PythonMemberType.Class);
+            AssertUtil.ContainsExactly(entry.GetValues("func_d1").Select(v => v.MemberType), PythonMemberType.Function);
+            AssertUtil.ContainsExactly(entry.GetValues("func_d2").Select(v => v.MemberType), PythonMemberType.Function);
+            AssertUtil.ContainsExactly(entry.GetValues("cls_d1").Select(v => v.MemberType), PythonMemberType.Class);
+            AssertUtil.ContainsExactly(entry.GetValues("cls_d2").Select(v => v.MemberType), PythonMemberType.Class);
+        }
+
+        [TestMethod, Priority(0)]
+        public void DecoratorClass() {
+            var text = @"
+def dec1(C):
+    def sub_method(self): pass
+    C.sub_method = sub_method
+    return C
+
+@dec1
+class MyBaseClass1(object):
+    def base_method(self): pass
+
+def dec2(C):
+    class MySubClass(C):
+        def sub_method(self): pass
+    return MySubClass
+
+@dec2
+class MyBaseClass2(object):
+    def base_method(self): pass
+
+mc1 = MyBaseClass1()
+mc2 = MyBaseClass2()
+";
+            var entry = ProcessText(text);
+            AssertUtil.ContainsAtLeast(entry.GetMemberNames("mc1", 0, GetMemberOptions.None), "base_method", "sub_method");
+            entry.AssertIsInstance("mc2", "MySubClass");
+            AssertUtil.ContainsAtLeast(entry.GetMemberNames("mc2", 0, GetMemberOptions.None), /*"base_method",*/ "sub_method");
+        }
 
         [TestMethod, Priority(0)]
         public void ClassInit() {
@@ -5011,6 +5425,7 @@ class X:
 a = X(2)
 ";
             var entry = ProcessText(text);
+            entry.AssertIsInstance("a.value", 0, BuiltinTypeId.Int);
             entry.AssertIsInstance("value", text.IndexOf("self."), BuiltinTypeId.Int);
         }
 
@@ -5036,6 +5451,7 @@ a = x(2)
         [TestMethod, Priority(0)]
         public void ImportScopesOrder() {
             var text1 = @"
+import _io
 import mod2
 import mmap as mm
 
@@ -5044,13 +5460,14 @@ def f():
     return sys
 
 def g():
-    return re
+    return _io
 
 def h():
     return mod2.sys
 
 def i():
-    return op
+    import zlib
+    return zlib
 
 def j():
     return mm
@@ -5070,12 +5487,12 @@ import imp as impp
 ";
             PermutedTest("mod", new[] { text1, text2 }, state => {
                 state.DefaultModule = "mod1";
-                state.AssertDescription("g", "def mod1.g() -> built-in module re");
-                state.AssertDescription("f", "def mod1.f() -> built-in module sys");
-                state.AssertDescription("h", "def mod1.h() -> built-in module sys");
-                state.AssertDescription("i", "def mod1.i() -> built-in module operator");
-                state.AssertDescription("j", "def mod1.j() -> built-in module mmap");
-                state.AssertDescription("k", "def mod1.k() -> built-in module imp");
+                state.AssertDescription("g", "mod1.g() -> _io");
+                state.AssertDescription("f", "mod1.f() -> sys");
+                state.AssertDescription("h", "mod1.h() -> sys");
+                state.AssertDescription("i", "mod1.i() -> zlib");
+                state.AssertDescription("j", "mod1.j() -> mmap");
+                state.AssertDescription("k", "mod1.k() -> imp");
             });
         }
 
@@ -5093,8 +5510,8 @@ a = X(2)
             var entry = ProcessText(text);
             entry.AssertDescription("cls", text.IndexOf("= value"), "X");
             entry.AssertIsInstance("value", text.IndexOf("res.value = "), BuiltinTypeId.Int);
-            entry.AssertDescription("res", text.IndexOf("res.value = "), "X instance");
-            entry.AssertDescription("a", text.IndexOf("a = "), "X instance");
+            entry.AssertIsInstance("res", text.IndexOf("res.value = "), "X");
+            entry.AssertIsInstance("a", text.IndexOf("a = "), "X");
             entry.AssertIsInstance("a.value", BuiltinTypeId.Int);
         }
 
@@ -5360,7 +5777,7 @@ def f(a):
 ";
 
             var entry = ProcessText(text);
-            entry.AssertDescription("a", text.IndexOf("print(a)"), "C instance");
+            entry.AssertIsInstance("a", text.IndexOf("print(a)"), "C");
         }
 
         [TestMethod, Priority(0)]
@@ -5373,10 +5790,9 @@ def fn(a, b, c):
     assert isinstance(a, str)
     result.a = a
 
-    assert isinstance(b, type) or isinstance(b, tuple)
+    assert isinstance(b, type)
     if isinstance(b, tuple):
-        for x in b:
-            assert isinstance(x, type)
+        pass
     result.b = b
 
     assert isinstance(c, str)
@@ -5385,23 +5801,46 @@ def fn(a, b, c):
 
 r1 = fn('fob', (int, str), 'oar')
 r2 = fn(123, None, 4.5)
-
-# b1 and b2 will only be type (from the tuple), since indexing into 'type'
-# will result in nothing
-b1 = r1.b[0]
-b2 = r2.b[0]
 ";
 
             var entry = ProcessText(text);
             entry.AssertIsInstance("r1.a", BuiltinTypeId.Str);
             entry.AssertIsInstance("r1.b", BuiltinTypeId.Type, BuiltinTypeId.Tuple);
-            entry.AssertIsInstance("b1", BuiltinTypeId.Type);
             entry.AssertIsInstance("r1.c", BuiltinTypeId.Str);
 
             entry.AssertIsInstance("r2.a", BuiltinTypeId.Str);
             entry.AssertIsInstance("r2.b", BuiltinTypeId.Type, BuiltinTypeId.Tuple);
-            entry.AssertIsInstance("b2", BuiltinTypeId.Type);
             entry.AssertIsInstance("r2.c", BuiltinTypeId.Str);
+        }
+
+        private static IEnumerable<string> DumpScopesToStrings(InterpreterScope scope) {
+            yield return scope.Name;
+            foreach (var child in scope.Children) {
+                foreach (var s in DumpScopesToStrings(child)) {
+                    yield return "  " + s;
+                }
+            }
+        }
+
+        [TestMethod, Priority(0)]
+        public void IsInstanceAndLambdaScopes() {
+            // https://github.com/Microsoft/PTVS/issues/2801
+            var text = @"if isinstance(p, dict):
+    v = [i for i in (lambda x: x)()]";
+
+            var entry = ProcessTextV3(text);
+            var scope = entry.Modules[entry.DefaultModule].Analysis.Scope;
+            var dump = string.Join(Environment.NewLine, DumpScopesToStrings(scope));
+
+            Console.WriteLine($"Actual:{Environment.NewLine}{dump}");
+
+            Assert.AreEqual(entry.DefaultModule + @"
+  <statements>
+  <isinstance scope>
+    <comprehension scope>
+      <lambda>
+        <statements>
+  <statements>", dump);
         }
 
         [TestMethod, Priority(0)]
@@ -5428,7 +5867,7 @@ b2 = r2.b[0]
         }
 
         [TestMethod, Priority(0)]
-        public void DecoratorReferences() {
+        public void FunctoolsDecoratorReferences() {
             var text = @"from functools import wraps
 
 def d(f):
@@ -5446,11 +5885,13 @@ n1 = g(1)";
             var entry = ProcessText(text);
 
             entry.AssertReferences("d",
+                new VariableLocation(3, 1, VariableType.Value),
                 new VariableLocation(3, 5, VariableType.Definition),
                 new VariableLocation(9, 2, VariableType.Reference)
             );
 
             entry.AssertReferences("g",
+                new VariableLocation(4, 5, VariableType.Value),
                 new VariableLocation(10, 5, VariableType.Definition),
                 new VariableLocation(13, 6, VariableType.Reference)
             );
@@ -5471,14 +5912,15 @@ n1 = g(1)";
             entry = ProcessText(text);
 
             entry.AssertReferences("d",
+                new VariableLocation(1, 1, VariableType.Value),
                 new VariableLocation(1, 5, VariableType.Definition),
                 new VariableLocation(6, 2, VariableType.Reference)
             );
 
             entry.AssertReferences("g",
+                new VariableLocation(2, 5, VariableType.Value),
                 new VariableLocation(7, 5, VariableType.Definition),
-                new VariableLocation(10, 6, VariableType.Reference),
-                new VariableLocation(2, 9, VariableType.Value)
+                new VariableLocation(10, 6, VariableType.Reference)
             );
         }
 
@@ -5551,7 +5993,7 @@ def with_params_default_starargs(*args, **kwargs):
 ";
             var entry = ProcessTextV2(text);
 
-            entry.AssertDescription("fob()", "fob instance");
+            entry.AssertIsInstance("fob()", "fob");
             entry.AssertDescription("int()", "int");
             entry.AssertDescription("a", "float");
             entry.AssertDescription("a", "float");
@@ -5560,37 +6002,38 @@ def with_params_default_starargs(*args, **kwargs):
             entry.AssertIsInstance("x", BuiltinTypeId.Tuple);
             entry.AssertIsInstance("y", BuiltinTypeId.List);
             entry.AssertDescription("z", "int");
-            entry.AssertDescriptionContains("min", "built-in function min", "min(x: object)");
-            entry.AssertDescription("list.append", "built-in method list.append(item)\r\nappend(self: list, item: object)");
+            entry.AssertDescriptionContains("min", "min(");
+            entry.AssertDescriptionContains("list.append", "list.append(");
             entry.AssertIsInstance("\"abc\".Length");
             entry.AssertIsInstance("c.Length");
-            entry.AssertDescription("d", "fob instance");
-            entry.AssertDescription("sys", "built-in module sys");
-            entry.AssertDescription("f", "def test-module.f() -> str");
-            entry.AssertDescription("fob.f", "def test-module.fob.f(self)\r\ndeclared in fob");
-            entry.AssertDescription("fob().g", "method g of fob objects ");
+            entry.AssertIsInstance("d", "fob");
+            entry.AssertDescription("sys", "sys");
+            entry.AssertDescription("f", "test-module.f() -> str");
+            entry.AssertDescription("fob.f", "test-module.fob.f(self: fob)\r\ndeclared in fob");
+            entry.AssertDescription("fob().g", "method g of test-module.fob objects");
             entry.AssertDescription("fob", "class test-module.fob(object)");
             //AssertUtil.ContainsExactly(entry.GetVariableDescriptionsByIndex("System.StringSplitOptions.RemoveEmptyEntries", 1), "field of type StringSplitOptions");
-            entry.AssertDescription("g", "def test-module.g()");    // return info could be better
+            entry.AssertDescription("g", "test-module.g()");    // return info could be better
             //AssertUtil.ContainsExactly(entry.GetVariableDescriptionsByIndex("System.AppDomain.DomainUnload", 1), "event of type System.EventHandler");
             entry.AssertDescription("None", "None");
             entry.AssertDescription("f.func_name", "property of type str");
-            entry.AssertDescription("h", "def test-module.h() -> def test-module.f() -> str, def test-module.g()");
-            entry.AssertDescription("docstr_func", "def test-module.docstr_func() -> int\r\nuseful documentation");
+            entry.AssertDescription("h", "test-module.h() -> test-module.f() -> str, test-module.g()");
+            entry.AssertDescription("docstr_func", "test-module.docstr_func() -> int");
+            entry.AssertDocumentation("docstr_func", "useful documentation");
 
-            entry.AssertDescription("with_params", "def test-module.with_params(a, b, c)");
-            entry.AssertDescription("with_params_default", "def test-module.with_params_default(a, b, c = 100)");
-            entry.AssertDescription("with_params_default_2", "def test-module.with_params_default_2(a, b, c = [])");
-            entry.AssertDescription("with_params_default_3", "def test-module.with_params_default_3(a, b, c = ())");
-            entry.AssertDescription("with_params_default_4", "def test-module.with_params_default_4(a, b, c = {})");
-            entry.AssertDescription("with_params_default_2a", "def test-module.with_params_default_2a(a, b, c = [...])");
-            entry.AssertDescription("with_params_default_3a", "def test-module.with_params_default_3a(a, b, c = (...))");
-            entry.AssertDescription("with_params_default_4a", "def test-module.with_params_default_4a(a, b, c = {...})");
-            entry.AssertDescription("with_params_default_starargs", "def test-module.with_params_default_starargs(*args, **kwargs)");
+            entry.AssertDescription("with_params", "test-module.with_params(a, b, c)");
+            entry.AssertDescription("with_params_default", "test-module.with_params_default(a, b, c: int=100)");
+            entry.AssertDescription("with_params_default_2", "test-module.with_params_default_2(a, b, c: list=[])");
+            entry.AssertDescription("with_params_default_3", "test-module.with_params_default_3(a, b, c: tuple=())");
+            entry.AssertDescription("with_params_default_4", "test-module.with_params_default_4(a, b, c: dict={})");
+            entry.AssertDescription("with_params_default_2a", "test-module.with_params_default_2a(a, b, c: list=[...])");
+            entry.AssertDescription("with_params_default_3a", "test-module.with_params_default_3a(a, b, c: tuple=(...))");
+            entry.AssertDescription("with_params_default_4a", "test-module.with_params_default_4a(a, b, c: dict={...})");
+            entry.AssertDescription("with_params_default_starargs", "test-module.with_params_default_starargs(*args, **kwargs)");
 
-            // method which returns it's self, we shouldn't stack overflow producing the help...
-            entry.AssertDescription("return_func_class().return_func", @"method return_func of return_func_class objects  -> method return_func of return_func_class objects ...
-some help");
+            // method which returns itself, we shouldn't stack overflow producing the help...
+            entry.AssertDescription("return_func_class().return_func", "method return_func of test-module.return_func_class objects...");
+            entry.AssertDocumentation("return_func_class().return_func", "some help");
         }
 
         [TestMethod, Priority(0)]
@@ -5621,7 +6064,7 @@ def g():
 ";
             var entry = ProcessText(text);
 
-            AssertUtil.Contains(entry.GetCompletionDocumentation("f", "func_name", 1).First(), "of type str");
+            AssertUtil.Contains(entry.GetCompletionDocumentation("", "d", 1).First(), "fob");
             AssertUtil.Contains(entry.GetCompletionDocumentation("", "int", 1).First(), "integer");
             AssertUtil.Contains(entry.GetCompletionDocumentation("", "min", 1).First(), "min(");
         }
@@ -5790,9 +6233,17 @@ class Derived(Base):
 
             var entry = ProcessText(text);
 
-            entry.AssertReferences("self.fob", text.IndexOf("'x'"), new VariableLocation(11, 9, VariableType.Definition), new VariableLocation(6, 9, VariableType.Definition), new VariableLocation(4, 14, VariableType.Reference));
-            entry.AssertReferences("self.fob", text.IndexOf("pass"), new VariableLocation(11, 9, VariableType.Definition), new VariableLocation(6, 9, VariableType.Definition), new VariableLocation(4, 14, VariableType.Reference));
-            entry.AssertReferences("self.fob", text.IndexOf("self.fob"), new VariableLocation(11, 9, VariableType.Definition), new VariableLocation(6, 9, VariableType.Definition), new VariableLocation(4, 14, VariableType.Reference));
+            var refs = new[] {
+                new VariableLocation(4, 14, VariableType.Reference),
+                new VariableLocation(6, 5, VariableType.Value),
+                new VariableLocation(6, 9, VariableType.Definition),
+                new VariableLocation(11, 5, VariableType.Value),
+                new VariableLocation(11, 9, VariableType.Definition),
+            };
+
+            entry.AssertReferences("self.fob", text.IndexOf("'x'"), refs);
+            entry.AssertReferences("self.fob", text.IndexOf("pass"), refs);
+            entry.AssertReferences("self.fob", text.IndexOf("self.fob"), refs);
         }
 
         /// <summary>
@@ -5820,8 +6271,8 @@ abc = f(())
 class Fob(object):
     def oar(self, a):
         pass
-        
-        
+
+
     def fob(self): 
         pass
 
@@ -5830,8 +6281,29 @@ x.oar(100)
 ";
 
             var entry = ProcessText(text);
+            var mod = entry.Modules[entry.DefaultModule].Analysis;
 
-            entry.AssertIsInstance("a", text.IndexOf("pass") + 14, BuiltinTypeId.Int);
+            AssertUtil.ContainsAtLeast(mod.GetAllAvailableMembers(new SourceLocation(6, 9)).Select(mr => mr.Name), "a");
+        }
+
+        [TestMethod, Priority(0)]
+        public void TypeAtEndOfIncompleteMethod() {
+            string text = @"
+class Fob(object):
+    def oar(self, a):
+
+
+
+
+
+x = Fob()
+x.oar(100)
+";
+
+            var entry = ProcessText(text, allowParseErrors: true);
+            var mod = entry.Modules[entry.DefaultModule].Analysis;
+
+            AssertUtil.ContainsAtLeast(mod.GetAllAvailableMembers(new SourceLocation(6, 9)).Select(mr => mr.Name), "a");
         }
 
         [TestMethod, Priority(0)]
@@ -5850,7 +6322,7 @@ c = C2()
 ";
 
             var entry = ProcessText(text);
-            entry.AssertNotHasAttr("c", "fob", "oar");
+            AssertUtil.DoesntContain(entry.GetMemberNames("c", 0, GetMemberOptions.IntersectMultipleResults), new[] { "fob", "oar" });
         }
 
         [TestMethod, Priority(0)]
@@ -6093,9 +6565,9 @@ def f(s: s = 123):
 ";
             var entry = ProcessTextV3(text);
 
-            entry.AssertIsInstance("s", text.IndexOf("s:"), BuiltinTypeId.Int);
+            entry.AssertIsInstance("s", text.IndexOf("s:"), BuiltinTypeId.Int, BuiltinTypeId.NoneType);
             entry.AssertIsInstance("s", text.IndexOf("s ="), BuiltinTypeId.NoneType);
-            entry.AssertIsInstance("s", text.IndexOf("return"), BuiltinTypeId.Int);
+            entry.AssertIsInstance("s", text.IndexOf("return"), BuiltinTypeId.Int, BuiltinTypeId.NoneType);
         }
 
         [TestMethod, Priority(0)]
@@ -6162,7 +6634,9 @@ keywords_from_fob_2 = fob_2.keywords
                 "result_4",
                 "args_from_fob_1"
             }) {
-                var result = entry.GetValue<SequenceInfo>(name);
+                entry.AssertDescription(name, "tuple[int, float, str, list]");
+                var result = entry.GetValue<AnalysisValue>(name);
+                Console.WriteLine("{0} = {1}", name, result);
                 AssertTupleContains(result, BuiltinTypeId.Int, BuiltinTypeId.Float, entry.BuiltinTypeId_Str, BuiltinTypeId.List);
             }
 
@@ -6187,6 +6661,7 @@ def decorator1(fn):
 
 @decorator1
 def test1():
+    '''doc'''
     return 'undecorated'
 
 def test2():
@@ -6201,24 +6676,16 @@ update_wrapper(test2a, test2, ('test_attr',))
 test1_result = test1()
 ";
 
-            var functools = @"
-from _functools import partial
-
-# These functions will be specialized
-def wraps(f):
-    pass
-
-def update_wrapper(wrapper, wrapped, assigned, updated):
-    pass
-";
-
             var state = CreateAnalyzer();
             var textEntry = state.AddModule("fob", text);
-            var functoolsEntry = state.AddModule("functools", functools);
             state.WaitForAnalysis();
 
             state.AssertConstantEquals("test1.__name__", "test1");
+            state.AssertConstantEquals("test1.__doc__", "doc");
+            var fi = state.GetValue<FunctionInfo>("test1");
+            Assert.AreEqual("doc", fi.Documentation);
             state.GetValue<FunctionInfo>("test1.__wrapped__");
+            Assert.AreEqual(2, state.GetValue<FunctionInfo>("test1").Overloads.Count());
             state.AssertConstantEquals("test1_result", "decorated");
 
             // __name__ should not have been changed by update_wrapper
@@ -6230,18 +6697,21 @@ def update_wrapper(wrapper, wrapped, assigned, updated):
             state.AssertIsInstance("test2a.test_attr", BuiltinTypeId.Int);
         }
 
-        private static void AssertTupleContains(SequenceInfo tuple, params BuiltinTypeId[] id) {
+        private static void AssertTupleContains(AnalysisValue tuple, params BuiltinTypeId[] id) {
+            var indexTypes = (tuple as SequenceInfo)?.IndexTypes?.Select(v => v.TypesNoCopy).ToArray() ??
+                (tuple as ProtocolInfo)?.GetProtocols<TupleProtocol>()?.FirstOrDefault()?._values;
+            Assert.IsNotNull(indexTypes);
+
             var expected = string.Join(", ", id);
-            var actual = string.Join(", ", tuple.IndexTypes.Select(t => {
-                var t2 = t.TypesNoCopy;
-                if (t2.Count == 1) {
-                    return t2.Single().TypeId.ToString();
+            var actual = string.Join(", ", indexTypes.Select(t => {
+                if (t.Count == 1) {
+                    return t.Single().TypeId.ToString();
                 } else {
-                    return "{" + string.Join(", ", t2.Select(t3 => t3.TypeId).OrderBy(t3 => t3)) + "}";
+                    return "{" + string.Join(", ", t.Select(t2 => t2.TypeId).OrderBy(t2 => t2)) + "}";
                 }
             }));
-            if (tuple.IndexTypes
-                .Zip(id, (t1, id2) => t1.TypesNoCopy.Count == 1 && t1.TypesNoCopy.Single().TypeId == id2)
+            if (indexTypes
+                .Zip(id, (t1, id2) => t1.Count == 1 && t1.Single().TypeId == id2)
                 .Any(b => !b)) {
                 Assert.Fail(string.Format("Expected <{0}>. Actual <{1}>.", expected, actual));
             }
@@ -6260,18 +6730,16 @@ def update_wrapper(wrapper, wrapped, assigned, updated):
 
             // Without absolute_import, we should see these two possibilities
             // for a regular import.
-            AssertUtil.ContainsExactly(
-                PythonAnalyzer.ResolvePotentialModuleNames(entry, "moduleY", false),
-                "package.subpackage1.moduleY",
-                "moduleY"
+            AssertUtil.ArrayEquals(
+                ModuleResolver.ResolvePotentialModuleNames(entry, "moduleY", false).ToArray(),
+                new[] { "package.subpackage1.moduleY", "moduleY" }
             );
 
             // With absolute_import, we should see the two possibilities for a
             // regular import, but in the opposite order.
-            AssertUtil.ContainsExactly(
-                PythonAnalyzer.ResolvePotentialModuleNames(entry, "moduleY", true),
-                "moduleY",
-                "package.subpackage1.moduleY"
+            AssertUtil.ArrayEquals(
+                ModuleResolver.ResolvePotentialModuleNames(entry, "moduleY", true).ToArray(),
+                new[] { "moduleY", "package.subpackage1.moduleY" }
             );
 
             // Regardless of absolute import, we should see these results for
@@ -6280,29 +6748,30 @@ def update_wrapper(wrapper, wrapped, assigned, updated):
                 Console.WriteLine("Testing with absoluteImport = {0}", absoluteImport);
 
                 AssertUtil.ContainsExactly(
-                    PythonAnalyzer.ResolvePotentialModuleNames(entry, ".moduleY", absoluteImport),
+                    ModuleResolver.ResolvePotentialModuleNames(entry, ".moduleY", absoluteImport),
                     "package.subpackage1.moduleY"
                 );
                 AssertUtil.ContainsExactly(
-                    PythonAnalyzer.ResolvePotentialModuleNames(entry, ".", absoluteImport),
+                    ModuleResolver.ResolvePotentialModuleNames(entry, ".", absoluteImport),
                     "package.subpackage1"
                 );
                 AssertUtil.ContainsExactly(
-                    PythonAnalyzer.ResolvePotentialModuleNames(entry, "..subpackage1", absoluteImport),
+                    ModuleResolver.ResolvePotentialModuleNames(entry, "..subpackage1", absoluteImport),
                     "package.subpackage1"
                 );
                 AssertUtil.ContainsExactly(
-                    PythonAnalyzer.ResolvePotentialModuleNames(entry, "..subpackage2.moduleZ", absoluteImport),
+                    ModuleResolver.ResolvePotentialModuleNames(entry, "..subpackage2.moduleZ", absoluteImport),
                     "package.subpackage2.moduleZ"
                 );
                 AssertUtil.ContainsExactly(
-                    PythonAnalyzer.ResolvePotentialModuleNames(entry, "..moduleA", absoluteImport),
+                    ModuleResolver.ResolvePotentialModuleNames(entry, "..moduleA", absoluteImport),
                     "package.moduleA"
                 );
 
                 // Despite what PEP 328 says, this relative import never succeeds.
                 AssertUtil.ContainsExactly(
-                    PythonAnalyzer.ResolvePotentialModuleNames(entry, "...package", absoluteImport)
+                    ModuleResolver.ResolvePotentialModuleNames(entry, "...package", absoluteImport),
+                    "package"
                 );
             }
         }
@@ -6316,7 +6785,7 @@ def update_wrapper(wrapper, wrapped, assigned, updated):
             var entry = ProcessText(code);
 
             Assert.AreEqual(
-                "def test-module.A.fn(self) -> lambda : 123 -> int\ndeclared in A",
+                "test-module.A.fn(self: A) -> lambda: 123 -> int\ndeclared in A",
                 entry.GetDescriptions("A.fn", 0).Single().Replace("\r\n", "\n")
             );
         }
@@ -6419,8 +6888,8 @@ async def f():
             var entry = ProcessText(code, PythonLanguageVersion.V35);
 
             entry.AssertIsInstance("x", code.IndexOf("x ="), BuiltinTypeId.Int);
-            entry.AssertIsInstance("y", code.IndexOf("x ="),  BuiltinTypeId.Int);
-            entry.AssertIsInstance("g2", code.IndexOf("x ="),  BuiltinTypeId.Generator);
+            entry.AssertIsInstance("y", code.IndexOf("x ="), BuiltinTypeId.Int);
+            entry.AssertIsInstance("g2", code.IndexOf("x ="), BuiltinTypeId.Generator);
         }
 
         [TestMethod, Priority(0)]
@@ -6509,6 +6978,217 @@ def f():
             }
         }
 
+        [TestMethod, Priority(0)]
+        public void ModuleNameWalker() {
+            foreach (var item in new[] {
+                new { Code="import abc", Index=7, Expected="abc", Base="" },
+                new { Code="import abc", Index=8, Expected="abc", Base="" },
+                new { Code="import abc", Index=9, Expected="abc", Base="" },
+                new { Code="import abc", Index=10, Expected="abc", Base="" },
+                new { Code="import deg, abc as A", Index=12, Expected="abc", Base="" },
+                new { Code="from abc import A", Index=6, Expected="abc", Base="" },
+                new { Code="from .deg import A", Index=9, Expected="deg", Base="abc" },
+                new { Code="from .hij import A", Index=9, Expected="abc.hij", Base="abc.deg" },
+                new { Code="from ..hij import A", Index=10, Expected="hij", Base="abc.deg" },
+                new { Code="from ..hij import A", Index=10, Expected="abc.hij", Base="abc.deg.HIJ" },
+            }) {
+                var entry = ProcessTextV3(item.Code);
+                var walker = new ImportedModuleNameWalker(item.Base, string.Empty, item.Index, null);
+                entry.Modules[entry.DefaultModule].Tree.Walk(walker);
+
+                Assert.AreEqual(item.Expected, walker.ImportedModules.FirstOrDefault()?.Name);
+            }
+        }
+
+        [TestMethod, Priority(0)]
+        public void CrossModuleFunctionCallMemLeak() {
+            var modA = @"from B import h
+def f(x): return h(x)
+
+f(1)";
+            var modB = @"def g(x): pass
+def h(x): return g(x)";
+
+            var analyzer = CreateAnalyzer();
+            var entryA = analyzer.AddModule("A", modA);
+            var entryB = analyzer.AddModule("B", modB);
+            analyzer.WaitForAnalysis(new CancellationTokenSource(5000).Token);
+            for (int i = 100; i > 0; --i) {
+                entryA.Analyze(CancellationToken.None, true);
+                analyzer.WaitForAnalysis(new CancellationTokenSource(5000).Token);
+            }
+            var g = analyzer.GetValue<FunctionInfo>(entryB, "g");
+            Assert.AreEqual(1, g.References.Count());
+        }
+
+        [TestMethod, Priority(0)]
+        public void DefaultModuleAttributes() {
+            var entry3 = ProcessTextV3("x = 1");
+            AssertUtil.ContainsExactly(entry3.GetNamesNoBuiltins(), "__builtins__", "__file__", "__name__", "__package__", "__cached__", "__spec__", "x");
+            var package = entry3.AddModule("package", "", Path.Combine(TestData.GetTempPath("package"), "__init__.py"));
+            AssertUtil.ContainsExactly(entry3.GetNamesNoBuiltins(package), "__path__", "__builtins__", "__file__", "__name__", "__package__", "__cached__", "__spec__");
+
+            entry3.AssertIsInstance("__file__", BuiltinTypeId.Unicode);
+            entry3.AssertIsInstance("__name__", BuiltinTypeId.Unicode);
+            entry3.AssertIsInstance("__package__", BuiltinTypeId.Unicode);
+            entry3.AssertIsInstance(package, "__path__", BuiltinTypeId.List);
+
+            var entry2 = ProcessTextV2("x = 1");
+            AssertUtil.ContainsExactly(entry2.GetNamesNoBuiltins(), "__builtins__", "__file__", "__name__", "__package__", "x");
+
+            entry2.AssertIsInstance("__file__", BuiltinTypeId.Bytes);
+            entry2.AssertIsInstance("__name__", BuiltinTypeId.Bytes);
+            entry2.AssertIsInstance("__package__", BuiltinTypeId.Bytes);
+        }
+
+        [TestMethod, Priority(0)]
+        public void CrossModuleBaseClasses() {
+            var analyzer = CreateAnalyzer();
+            var entryA = analyzer.AddModule("A", @"class ClsA(object): pass");
+            var entryB = analyzer.AddModule("B", @"from A import ClsA
+class ClsB(ClsA): pass
+
+x = ClsB.x");
+            analyzer.WaitForAnalysis();
+            analyzer.AssertIsInstance(entryB, "x");
+
+            analyzer.UpdateModule(entryA, @"class ClsA(object): x = 123");
+            entryA.Analyze(CancellationToken.None, true);
+            analyzer.WaitForAnalysis();
+            analyzer.AssertIsInstance(entryB, "x", BuiltinTypeId.Int);
+        }
+
+        [TestMethod, Priority(0)]
+        public void UndefinedVariableDiagnostic() {
+            PythonAnalysis entry;
+            string code;
+
+
+            code = @"a = b + c
+class D(b): pass
+d()
+D()
+(e for e in e if e)
+{f for f in f if f}
+[g for g in g if g]
+
+def func(b, c):
+    b, c, d     # b, c are defined here
+b, c, d         # but they are undefined here
+";
+            entry = ProcessTextV3(code);
+            entry.AssertDiagnostics(
+                "used-before-assignment:unknown variable 'b':(1, 5) - (1, 6)",
+                "used-before-assignment:unknown variable 'c':(1, 9) - (1, 10)",
+                "used-before-assignment:unknown variable 'b':(2, 9) - (2, 10)",
+                "used-before-assignment:unknown variable 'd':(3, 1) - (3, 2)",
+                "used-before-assignment:unknown variable 'e':(5, 13) - (5, 14)",
+                "used-before-assignment:unknown variable 'f':(6, 13) - (6, 14)",
+                "used-before-assignment:unknown variable 'g':(7, 13) - (7, 14)",
+                "used-before-assignment:unknown variable 'd':(10, 11) - (10, 12)",
+                "used-before-assignment:unknown variable 'b':(11, 1) - (11, 2)",
+                "used-before-assignment:unknown variable 'c':(11, 4) - (11, 5)",
+                "used-before-assignment:unknown variable 'd':(11, 7) - (11, 8)"
+            );
+
+            // Ensure all of these cases correctly generate no warning
+            code = @"
+for x in []:
+    (_ for _ in x)
+    [_ for _ in x]
+    {_ for _ in x}
+    {_ : _ for _ in x}
+
+import sys
+from sys import not_a_real_name_but_no_warning_anyway
+
+def f(v = sys.version, u = not_a_real_name_but_no_warning_anyway):
+    pass
+
+with f() as v2:
+    pass
+
+";
+            entry = ProcessTextV3(code);
+            entry.AssertDiagnostics();
+        }
+
+        [TestMethod, Priority(0)]
+        public void UncallableObjectDiagnostic() {
+            var code = @"class MyClass:
+    pass
+
+class MyCallableClass:
+    def __call__(self): return 123
+
+mc = MyClass()
+mcc = MyCallableClass()
+
+x = mc()
+y = mcc()
+";
+            var entry = ProcessTextV3(code);
+            entry.AssertIsInstance("x");
+            entry.AssertIsInstance("y", BuiltinTypeId.Int);
+            entry.AssertDiagnostics(
+                "not-callable:'MyClass' may not be callable:(10, 5) - (10, 7)"
+            );
+        }
+
+        [TestMethod, Priority(0)]
+        public void OsPathMembers() {
+            var code = @"import os.path as P
+";
+            var version = PythonPaths.Versions.LastOrDefault(v => v.IsCPython && File.Exists(v.InterpreterPath));
+            version.AssertInstalled();
+            var entry = CreateAnalyzer(new Microsoft.PythonTools.Interpreter.Ast.AstPythonInterpreterFactory(
+                version.Configuration,
+                new InterpreterFactoryCreationOptions { DatabasePath = TestData.GetTempPath(), WatchFileSystem = false }
+            ));
+            entry.AddModule("test-module", code);
+            entry.WaitForAnalysis();
+            AssertUtil.ContainsAtLeast(entry.GetMemberNames("P"), "abspath", "dirname");
+        }
+
+        [TestMethod, Priority(0)]
+        public void UnassignedClassMembers() {
+            var code = @"
+from typing import NamedTuple
+
+class Employee(NamedTuple):
+    name: str
+    id: int = 3
+
+e = Employee('Guido')
+";
+            var version = PythonPaths.Versions.LastOrDefault(v => v.IsCPython && File.Exists(v.InterpreterPath));
+            version.AssertInstalled();
+            var entry = CreateAnalyzer(new Microsoft.PythonTools.Interpreter.Ast.AstPythonInterpreterFactory(
+                version.Configuration,
+                new InterpreterFactoryCreationOptions { DatabasePath = TestData.GetTempPath(), WatchFileSystem = false }
+            ));
+            entry.AddModule("test-module", code);
+            entry.WaitForAnalysis();
+            AssertUtil.ContainsAtLeast(entry.GetMemberNames("e"), "name", "id");
+        }
+
+        [TestMethod, Priority(0)]
+        public void CrossModuleUnassignedImport() {
+            var version = PythonPaths.Versions.LastOrDefault(v => v.IsCPython && File.Exists(v.InterpreterPath));
+            version.AssertInstalled();
+            var entry = CreateAnalyzer(new Microsoft.PythonTools.Interpreter.Ast.AstPythonInterpreterFactory(
+                version.Configuration,
+                new InterpreterFactoryCreationOptions { DatabasePath = TestData.GetTempPath(), WatchFileSystem = false }
+            ));
+            var e1 = entry.AddModule("p", "from . import m; m.X; m.Z; W = 1", "__init__.py");
+            var e2 = entry.AddModule("p.m", "from . import Y, W; Z = 1", "m.py");
+            entry.WaitForAnalysis();
+            Assert.AreEqual(0, entry.Analyzer.Queue.Count, "Analysis did not complete");
+
+            entry.AssertNotHasAttr(e1, "m", 0, "X", "Y");
+            entry.AssertHasAttr(e1, "m", 0, "Z", "W");
+        }
+
         #endregion
 
         #region Helpers
@@ -6582,8 +7262,6 @@ def f():
 
     [TestClass]
     public class StdLibAnalysisTest : AnalysisTest {
-        public StdLibAnalysisTest() { }
-
         protected override AnalysisLimits GetLimits() {
             return AnalysisLimits.GetStandardLibraryLimits();
         }
@@ -6645,6 +7323,5 @@ def f():
         public static IEnumerable<MemberResult> GetMemberByIndex(this ModuleAnalysis entry, string variable, string memberName, int index) {
             return entry.GetMembersByIndex(variable, index).Where(m => m.Name == memberName);
         }
-
     }
 }

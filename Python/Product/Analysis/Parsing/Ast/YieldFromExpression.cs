@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -46,8 +46,12 @@ namespace Microsoft.PythonTools.Parsing.Ast {
             return CheckAssign();
         }
 
+        public int GetIndexOfFrom(PythonAst ast) {
+            return StartIndex + 5 + this.GetSecondWhiteSpace(ast).Length;
+        }
+
         internal override void AppendCodeString(StringBuilder res, PythonAst ast, CodeFormattingOptions format) {
-            res.Append(this.GetProceedingWhiteSpace(ast));
+            res.Append(this.GetPreceedingWhiteSpace(ast));
             res.Append("yield");
             res.Append(this.GetSecondWhiteSpace(ast));
             res.Append("from");

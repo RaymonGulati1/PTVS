@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -19,6 +19,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Microsoft.PythonTools.Analysis;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Intellisense;
 using Microsoft.PythonTools.Interpreter;
@@ -39,7 +40,7 @@ namespace Microsoft.PythonTools.Navigation {
             _value = value;
             bool hasLocation = false;
             foreach (var completion in value.Values) {
-                if (completion.locations.Any()) {
+                if (completion.locations.MaybeEnumerate().Any()) {
                     hasLocation = true;
                 }
             }
@@ -157,14 +158,14 @@ namespace Microsoft.PythonTools.Navigation {
             }
 
             foreach (var completion in _value.Values) {
-                foreach (var location in completion.locations) {
+                foreach (var location in completion.locations.MaybeEnumerate()) {
                     if (File.Exists(location.file)) {
                         PythonToolsPackage.NavigateTo(
                             Site,
                             location.file,
                             Guid.Empty,
-                            location.line - 1,
-                            location.column - 1
+                            location.startLine - 1,
+                            location.startColumn - 1
                         );
                         break;
                     }
@@ -173,18 +174,18 @@ namespace Microsoft.PythonTools.Navigation {
         }
 
         public override IVsSimpleObjectList2 FindReferences() {
-            var analyzer = this.Hierarchy.GetPythonProject().GetAnalyzer();
+            var analyzer = this.Hierarchy.GetPythonProject()?.TryGetAnalyzer();
 
 
             List<AnalysisVariable> vars = new List<AnalysisVariable>();
             if (analyzer != null) {
                 foreach (var value in _value.Values) {
-                    foreach (var reference in value.locations) {
+                    foreach (var reference in value.locations.MaybeEnumerate()) {
                         var entry = analyzer.GetAnalysisEntryFromPath(reference.file);
                         var analysis = analyzer.WaitForRequest(analyzer.AnalyzeExpressionAsync(
                             entry, 
                             Name, 
-                            new SourceLocation(0, reference.line, reference.column)
+                            new SourceLocation(reference.startLine, reference.startColumn)
                         ), "PythonLibraryNode.AnalyzeExpression");
                         vars.AddRange(analysis.Variables);
                     }

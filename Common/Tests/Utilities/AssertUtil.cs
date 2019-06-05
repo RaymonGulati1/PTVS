@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -180,7 +180,6 @@ namespace TestUtilities
                 string.Join("\n", value),
                 string.Join("\n", items)
             );
-            Console.WriteLine(message);
 
             Assert.AreEqual(value.Length, items.Length, message);
             for (int i = 0; i < value.Length; i++) {
@@ -200,14 +199,17 @@ namespace TestUtilities
 
         [System.Diagnostics.DebuggerStepThrough]
         public static void DoesntContain<T>(IEnumerable<T> source, IEnumerable<T> value) {
+            var contains = new List<T>();
             foreach (var v in source) {
                 foreach (var v2 in value) {
                     if (v.Equals(v2)) {
-                        Assert.Fail(String.Format("{0} contains {1}", MakeText(source), value));
+                        contains.Add(v2);
                     }
                 }
             }
-
+            if (contains.Any()) {
+                Assert.Fail(String.Format("{0} contains {1}", MakeText(source), MakeText(contains)));
+            }
         }
 
         [System.Diagnostics.DebuggerStepThrough]
@@ -264,7 +266,7 @@ namespace TestUtilities
             IEnumerable<T> unexpectedSubset,
             IEqualityComparer<T> comparer = null
         ) {
-            var set = new HashSet<T>(source, comparer);
+            var set = new HashSet<T>(source ?? Enumerable.Empty<T>(), comparer);
             var expected = new HashSet<T>(expectedSubset ?? Enumerable.Empty<T>(), comparer);
 
             var missing = new HashSet<T>(expected, comparer);

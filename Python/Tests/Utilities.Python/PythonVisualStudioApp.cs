@@ -9,28 +9,21 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
-using System.Collections.Generic;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Threading;
 using System.Windows.Automation;
-using System.Windows.Input;
-using System.Windows.Interop;
 using EnvDTE;
 using Microsoft.PythonTools;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Options;
-using Microsoft.PythonTools.Parsing;
-using Microsoft.PythonTools.Project;
 using Microsoft.PythonTools.Repl;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.ComponentModelHost;
@@ -39,19 +32,19 @@ using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.VisualStudioTools;
-using Microsoft.Win32;
 using TestUtilities.Python;
-using Process = System.Diagnostics.Process;
+using Thread = System.Threading.Thread;
 
 namespace TestUtilities.UI.Python {
-    class PythonVisualStudioApp : VisualStudioApp {
+    public class PythonVisualStudioApp : VisualStudioApp {
         private bool _deletePerformanceSessions;
         private PythonPerfExplorer _perfTreeView;
         private PythonPerfToolBar _perfToolBar;
+        private PythonTestExplorer _testExplorer;
         public readonly PythonToolsService PythonToolsService;
-        
-        public PythonVisualStudioApp(DTE dte = null)
-            : base(dte) {
+
+        public PythonVisualStudioApp(IServiceProvider site)
+            : base(site) {
 
             var shell = (IVsShell)ServiceProvider.GetService(typeof(SVsShell));
             var pkg = new Guid("6dbd7c1e-1f1b-496d-ac7c-c55dae66c783");
@@ -78,6 +71,8 @@ namespace TestUtilities.UI.Python {
                 orwoodProp.Value = oldOrwood;
             });
         }
+
+        public void InvokeOnMainThread(Action action) => ServiceProvider.GetUIThread().Invoke(action);
 
         protected override void Dispose(bool disposing) {
             if (!IsDisposed) {
@@ -127,7 +122,7 @@ namespace TestUtilities.UI.Python {
         public const string FlaskWebProjectTemplate = "WebProjectFlask";
         public const string DjangoWebProjectTemplate = "DjangoProject";
         public const string WorkerRoleProjectTemplate = "WorkerRoleProject";
-        
+
         public const string EmptyFileTemplate = "EmptyPyFile";
         public const string WebRoleSupportTemplate = "AzureCSWebRole";
         public const string WorkerRoleSupportTemplate = "AzureCSWorkerRole";
@@ -142,7 +137,7 @@ namespace TestUtilities.UI.Python {
             } catch {
                 // If the package is not loaded yet then the command may not
                 // work. Force load the package by opening the Launch dialog.
-                using (var dialog = new PythonPerfTarget(OpenDialogWithDteExecuteCommand("Python.LaunchProfiling"))) {
+                using (var dialog = new PythonPerfTarget(OpenDialogWithDteExecuteCommand("Analyze.LaunchProfiling"))) {
                 }
                 Dte.ExecuteCommand("Python.PerformanceExplorer");
             }
@@ -153,7 +148,7 @@ namespace TestUtilities.UI.Python {
         /// </summary>
         public PythonPerfTarget LaunchPythonProfiling() {
             _deletePerformanceSessions = true;
-            return new PythonPerfTarget(OpenDialogWithDteExecuteCommand("Python.LaunchProfiling"));
+            return new PythonPerfTarget(OpenDialogWithDteExecuteCommand("Analyze.LaunchProfiling"));
         }
 
         /// <summary>
@@ -204,18 +199,58 @@ namespace TestUtilities.UI.Python {
             }
         }
 
-        public ReplWindowProxy ExecuteInInteractive(Project project, PythonReplWindowProxySettings settings = null) {
+        /// <summary>
+        /// Opens and activates the test explorer window.
+        /// </summary>
+        public PythonTestExplorer OpenTestExplorer() {
+            Dte.ExecuteCommand("TestExplorer.ShowTestExplorer");
+            return TestExplorer;
+        }
+
+        public PythonTestExplorer TestExplorer {
+            get {
+                if (_testExplorer == null) {
+                    AutomationElement element = null;
+                    for (int i = 0; i < 10 && element == null; i++) {
+                        element = Element.FindFirst(TreeScope.Descendants,
+                            new AndCondition(
+                                new PropertyCondition(
+                                    AutomationElement.ClassNameProperty,
+                                    "ViewPresenter"
+                                ),
+                                new PropertyCondition(
+                                    AutomationElement.NameProperty,
+                                    "Test Explorer"
+                                )
+                            )
+                        );
+                        if (element == null) {
+                            System.Threading.Thread.Sleep(500);
+                        }
+                    }
+                    _testExplorer = new PythonTestExplorer(this, element);
+                }
+                return _testExplorer;
+            }
+        }
+
+        public ReplWindowProxy ExecuteInInteractive(Project project, ReplWindowProxySettings settings = null) {
+            // Prepare makes sure that IPython mode is disabled, and that the REPL is reset and cleared
+            var window = ReplWindowProxy.Prepare(this, settings, project.Name);
             OpenSolutionExplorer().SelectProject(project);
             ExecuteCommand("Python.ExecuteInInteractive");
-            return GetInteractiveWindow(project);
+            return window;
         }
 
         public void SendToInteractive() {
             ExecuteCommand("Python.SendSelectionToInteractive");
         }
 
+        public void OpenFolder(string folderPath) {
+            ExecuteCommand("File.OpenFolder", "\"{0}\"".FormatInvariant(folderPath));
+        }
 
-        public ReplWindowProxy WaitForInteractiveWindow(string title, PythonReplWindowProxySettings settings = null) {
+        public ReplWindowProxy WaitForInteractiveWindow(string title, ReplWindowProxySettings settings = null) {
             var iwp = GetService<IComponentModel>(typeof(SComponentModel))?.GetService<InteractiveWindowProvider>();
             IVsInteractiveWindow window = null;
             for (int retries = 20; retries > 0 && window == null; --retries) {
@@ -230,14 +265,14 @@ namespace TestUtilities.UI.Python {
                 );
                 return null;
             }
-            return new ReplWindowProxy(this, window.InteractiveWindow, (ToolWindowPane)window, settings ?? new PythonReplWindowProxySettings());
+            return new ReplWindowProxy(this, window.InteractiveWindow, (ToolWindowPane)window, settings ?? new ReplWindowProxySettings());
         }
 
-        public ReplWindowProxy GetInteractiveWindow(Project project, PythonReplWindowProxySettings settings = null) {
+        public ReplWindowProxy GetInteractiveWindow(Project project, ReplWindowProxySettings settings = null) {
             return GetInteractiveWindow(project.Name + " Interactive", settings);
         }
 
-        public ReplWindowProxy GetInteractiveWindow(string title, PythonReplWindowProxySettings settings = null) {
+        public ReplWindowProxy GetInteractiveWindow(string title, ReplWindowProxySettings settings = null) {
             var iwp = GetService<IComponentModel>(typeof(SComponentModel))?.GetService<InteractiveWindowProvider>();
             var window = iwp?.AllOpenWindows.FirstOrDefault(w => ((ToolWindowPane)w).Caption == title);
             if (window == null) {
@@ -248,7 +283,7 @@ namespace TestUtilities.UI.Python {
                 );
                 return null;
             }
-            return new ReplWindowProxy(this, window.InteractiveWindow, (ToolWindowPane)window, settings ?? new PythonReplWindowProxySettings());
+            return new ReplWindowProxy(this, window.InteractiveWindow, (ToolWindowPane)window, settings ?? new ReplWindowProxySettings());
         }
 
         internal Document WaitForDocument(string docName) {
@@ -275,6 +310,19 @@ namespace TestUtilities.UI.Python {
             );
         }
 
+        /// <summary>
+        /// Selects the given interpreter as the default.
+        /// </summary>
+        /// <remarks>
+        /// This method should always be called as a using block.
+        /// </remarks>
+        public DefaultInterpreterSetter SelectDefaultInterpreter(InterpreterConfiguration python) {
+            return new DefaultInterpreterSetter(
+                InterpreterService.FindInterpreter(python.Id),
+                ServiceProvider
+            );
+        }
+
         public DefaultInterpreterSetter SelectDefaultInterpreter(PythonVersion interp, string installPackages) {
             interp.AssertInstalled();
             if (interp.IsIronPython && !string.IsNullOrEmpty(installPackages)) {
@@ -283,13 +331,15 @@ namespace TestUtilities.UI.Python {
 
             var interpreterService = InterpreterService;
             var factory = interpreterService.FindInterpreter(interp.Id);
-            var defaultInterpreterSetter = new DefaultInterpreterSetter(factory);
+            var defaultInterpreterSetter = new DefaultInterpreterSetter(factory, ServiceProvider);
 
             try {
                 if (!string.IsNullOrEmpty(installPackages)) {
-                    factory.InstallPip();
+                    var pm = OptionsService.GetPackageManagers(factory).FirstOrDefault();
+                    var ui = new TestPackageManagerUI();
+                    pm.PrepareAsync(ui, CancellationTokens.After60s).WaitAndUnwrapExceptions();
                     foreach (var package in installPackages.Split(' ', ',', ';').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s))) {
-                        factory.PipInstall("-U " + package);
+                        pm.InstallAsync(new PackageSpec(package), ui, CancellationTokens.After60s).WaitAndUnwrapExceptions();
                     }
                 }
 
@@ -324,54 +374,23 @@ namespace TestUtilities.UI.Python {
             }
         }
 
-        public TreeNode CreateVirtualEnvironment(EnvDTE.Project project, out string envName) {
-            string dummy;
-            return CreateVirtualEnvironment(project, out envName, out dummy);
-        }
-
-        public TreeNode CreateVirtualEnvironment(EnvDTE.Project project, out string envName, out string envPath) {
+        public TreeNode CreateProjectCondaEnvironment(EnvDTE.Project project, string packageNames, string envFile, string expectedEnvFile, out string envName, out string envPath) {
             var environmentsNode = OpenSolutionExplorer().FindChildOfProject(project, Strings.Environments);
             environmentsNode.Select();
 
-            using (var pss = new ProcessScope("python")) {
-                using (var createVenv = AutomationDialog.FromDte(this, "Python.AddVirtualEnvironment")) {
-                    envPath = new TextBox(createVenv.FindByAutomationId("VirtualEnvPath")).GetValue();
-                    var baseInterp = new ComboBox(createVenv.FindByAutomationId("BaseInterpreter")).GetSelectedItemName();
-                    envName = "{0} ({1})".FormatUI(envPath, baseInterp);
+            envName = ApplyCreateCondaEnvironmentDialog(packageNames, envFile, expectedEnvFile);
 
-                    Console.WriteLine("Expecting environment named: {0}", envName);
+            var id = CondaEnvironmentFactoryConstants.GetInterpreterId(CondaEnvironmentFactoryProvider.EnvironmentCompanyName, envName);
+            var config = WaitForEnvironment(id, TimeSpan.FromMinutes(3));
+            Assert.IsNotNull(config, "Could not find intepreter configuration");
 
-                    // Force a wait for the view to be updated.
-                    var wnd = (DialogWindowVersioningWorkaround)HwndSource.FromHwnd(
-                        new IntPtr(createVenv.Element.Current.NativeWindowHandle)
-                    ).RootVisual;
-                    wnd.Dispatcher.Invoke(() => {
-                        var view = (AddVirtualEnvironmentView)wnd.DataContext;
-                        return view.UpdateInterpreter(view.BaseInterpreter);
-                    }).Wait();
+            string envLabel = string.Format("{0} ({1}, {2})", envName, config.Version, config.Architecture);
+            envPath = config.PrefixPath;
 
-                    createVenv.ClickButtonByAutomationId("Create");
-                    createVenv.ClickButtonAndClose("Close", nameIsAutomationId: true);
-                }
-
-                var nowRunning = pss.WaitForNewProcess(TimeSpan.FromMinutes(1));
-                if (nowRunning == null || !nowRunning.Any()) {
-                    Assert.Fail("Failed to see python process start to create virtualenv");
-                }
-                foreach (var p in nowRunning) {
-                    if (p.HasExited) {
-                        continue;
-                    }
-                    try {
-                        p.WaitForExit(30000);
-                    } catch (Win32Exception ex) {
-                        Console.WriteLine("Error waiting for process ID {0}\n{1}", p.Id, ex);
-                    }
-                }
-            }
+            Console.WriteLine("Expecting environment: {0}", envLabel);
 
             try {
-                return OpenSolutionExplorer().WaitForChildOfProject(project, Strings.Environments, envName);
+                return OpenSolutionExplorer().WaitForChildOfProject(project, Strings.Environments, envLabel);
             } finally {
                 var text = GetOutputWindowText("General");
                 if (!string.IsNullOrEmpty(text)) {
@@ -383,22 +402,229 @@ namespace TestUtilities.UI.Python {
             }
         }
 
-        public TreeNode AddExistingVirtualEnvironment(EnvDTE.Project project, string envPath, out string envName) {
+        public void CreateWorkspaceCondaEnvironment(string packageNames, string envFile, string expectedEnvFile, out string envName, out string envPath, out string envDescription) {
+            envName = ApplyCreateCondaEnvironmentDialog(packageNames, envFile, expectedEnvFile);
+
+            var id = CondaEnvironmentFactoryConstants.GetInterpreterId(CondaEnvironmentFactoryProvider.EnvironmentCompanyName, envName);
+            var config = WaitForEnvironment(id, TimeSpan.FromMinutes(5));
+            Assert.IsNotNull(config, "Could not find intepreter configuration");
+
+            envDescription = string.Format("{0} ({1}, {2})", envName, config.Version, config.Architecture);
+            envPath = config.PrefixPath;
+
+            Console.WriteLine("Expecting environment: {0}", envDescription);
+        }
+
+        private string ApplyCreateCondaEnvironmentDialog(string packageNames, string envFile, string expectedEnvFile) {
+            if (packageNames == null && envFile == null) {
+                throw new ArgumentException("Must set either package names or environment file");
+            }
+
+            string envName;
+            var dlg = AddCondaEnvironmentDialogWrapper.FromDte(this);
+            try {
+                Assert.AreNotEqual(string.Empty, dlg.EnvName);
+
+                envName = "test" + Guid.NewGuid().ToString().Replace("-", "");
+                dlg.EnvName = envName;
+
+                if (packageNames != null) {
+                    dlg.SetPackagesMode();
+                    dlg.Packages = packageNames;
+                    dlg.WaitForPreviewPackage("python", TimeSpan.FromMinutes(2));
+                } else if (envFile != null) {
+                    if (expectedEnvFile == string.Empty) {
+                        Assert.AreEqual(string.Empty, dlg.EnvFile);
+                    } else if (expectedEnvFile != null) {
+                        Assert.IsTrue(
+                            PathUtils.IsSamePath(dlg.EnvFile, expectedEnvFile),
+                            string.Format("Env file doesn't match.\nExpected: {0}\nActual: {1}", dlg.EnvFile, expectedEnvFile)
+                        );
+                    }
+                    dlg.SetEnvFileMode();
+                    dlg.EnvFile = envFile;
+                }
+
+                Console.WriteLine("Creating conda env");
+                Console.WriteLine("  Name: {0}", envName);
+
+                dlg.ClickAdd();
+            } catch (Exception) {
+                dlg.CloseWindow();
+                throw;
+            }
+
+            return envName;
+        }
+
+        private InterpreterConfiguration WaitForEnvironment(string id, TimeSpan timeout) {
+            for (int i = 0; i < timeout.TotalMilliseconds; i += 1000) {
+                var config = InterpreterService.FindConfiguration(id);
+                if (config != null) {
+                    return config;
+                }
+
+                Thread.Sleep(1000);
+            }
+
+            return null;
+        }
+
+        public TreeNode CreateProjectVirtualEnvironment(EnvDTE.Project project, out string envName) {
+            return CreateProjectVirtualEnvironment(project, out envName, out _);
+        }
+
+        public TreeNode CreateProjectVirtualEnvironment(EnvDTE.Project project, out string envLabel, out string envPath) {
             var environmentsNode = OpenSolutionExplorer().FindChildOfProject(project, Strings.Environments);
             environmentsNode.Select();
 
-            using (var createVenv = AutomationDialog.FromDte(this, "Python.AddVirtualEnvironment")) {
-                new TextBox(createVenv.FindByAutomationId("VirtualEnvPath")).SetValue(envPath);
-                var baseInterp = new ComboBox(createVenv.FindByAutomationId("BaseInterpreter")).GetSelectedItemName();
+            ApplyVirtualEnvironmentDialog(out string baseInterp, out string location, out string envName);
+            envLabel = "{0} ({1})".FormatUI(envName, baseInterp);
+            envPath = Path.Combine(location, envName);
 
-                envName = string.Format("{0} ({1})", Path.GetFileName(envPath), baseInterp);
-
-                Console.WriteLine("Expecting environment named: {0}", envName);
-
-                createVenv.ClickButtonAndClose("Add", nameIsAutomationId: true);
+            try {
+                return OpenSolutionExplorer().WaitForChildOfProject(project, TimeSpan.FromMinutes(5), Strings.Environments, envLabel);
+            } finally {
+                var text = GetOutputWindowText("General");
+                if (!string.IsNullOrEmpty(text)) {
+                    Console.WriteLine("** Output Window text");
+                    Console.WriteLine(text);
+                    Console.WriteLine("***");
+                    Console.WriteLine();
+                }
             }
+        }
+
+        public void CreateWorkspaceVirtualEnvironment(out string baseEnvDescription, out string envPath) {
+            ApplyVirtualEnvironmentDialog(out baseEnvDescription, out string location, out string envName);
+            envPath = Path.Combine(location, envName);
+
+            try {
+                var id = WorkspaceInterpreterFactoryConstants.GetInterpreterId(WorkspaceInterpreterFactoryConstants.EnvironmentCompanyName, envName);
+                var config = WaitForEnvironment(id, TimeSpan.FromMinutes(3));
+                Assert.IsNotNull(config, "Config was not found.");
+            } finally {
+                var text = GetOutputWindowText("General");
+                if (!string.IsNullOrEmpty(text)) {
+                    Console.WriteLine("** Output Window text");
+                    Console.WriteLine(text);
+                    Console.WriteLine("***");
+                    Console.WriteLine();
+                }
+            }
+        }
+
+        private void ApplyVirtualEnvironmentDialog(out string baseInterp, out string location, out string envName) {
+            var dlg = AddVirtualEnvironmentDialogWrapper.FromDte(this);
+            try {
+                baseInterp = dlg.BaseInterpreter;
+                location = dlg.Location;
+                envName = dlg.EnvName;
+
+                Console.WriteLine("Creating virtual env");
+                Console.WriteLine("  Name: {0}", envName);
+                Console.WriteLine("  Location: {0}", location);
+                Console.WriteLine("  Base Interpreter: {0}", baseInterp);
+
+                dlg.WaitForReady();
+                dlg.ClickAdd();
+            } catch (Exception) {
+                dlg.CloseWindow();
+                throw;
+            }
+        }
+
+        public TreeNode AddExistingEnvironment(EnvDTE.Project project, string envPath, out string envName) {
+            var environmentsNode = OpenSolutionExplorer().FindChildOfProject(project, Strings.Environments);
+            environmentsNode.Select();
+
+            var factory = InterpreterService.Interpreters.FirstOrDefault(interp => PathUtils.IsSameDirectory(interp.Configuration.PrefixPath, envPath));
+            envName = string.Format("Python {1} ({2})", PathUtils.GetFileOrDirectoryName(envPath), factory.Configuration.Version, factory.Configuration.Architecture);
+
+            ApplyAddExistingEnvironmentDialog(envPath, out envName);
 
             return OpenSolutionExplorer().WaitForChildOfProject(project, Strings.Environments, envName);
+        }
+
+        public void AddWorkspaceExistingEnvironment(string envPath, out string envName) {
+            ApplyAddExistingEnvironmentDialog(envPath, out envName);
+        }
+
+        private void ApplyAddExistingEnvironmentDialog(string envPath, out string envName) {
+            var factory = InterpreterService.Interpreters.FirstOrDefault(interp => PathUtils.IsSameDirectory(interp.Configuration.PrefixPath, envPath));
+            envName = string.Format("Python {1} ({2})", PathUtils.GetFileOrDirectoryName(envPath), factory.Configuration.Version, factory.Configuration.Architecture);
+
+            var dlg = AddExistingEnvironmentDialogWrapper.FromDte(this);
+            try {
+                dlg.Interpreter = envName;
+
+                Console.WriteLine("Adding existing env");
+                Console.WriteLine("  Name: {0}", envName);
+                Console.WriteLine("  Prefix: {0}", envPath);
+
+                dlg.ClickAdd();
+            } catch (Exception) {
+                dlg.CloseWindow();
+                throw;
+            }
+        }
+
+        public TreeNode AddProjectLocalCustomEnvironment(EnvDTE.Project project, string envPath, string descriptionOverride, string expectedLangVer, string expectedArch, out string envDescription) {
+            var environmentsNode = OpenSolutionExplorer().FindChildOfProject(project, Strings.Environments);
+            environmentsNode.Select();
+
+            ApplyAddLocalCustomEnvironmentDialog(envPath, descriptionOverride, expectedLangVer, expectedArch, out envDescription, out _, out _, out _);
+
+            return OpenSolutionExplorer().WaitForChildOfProject(project, Strings.Environments, envDescription);
+        }
+
+        public void AddWorkspaceLocalCustomEnvironment(string envPath, string descriptionOverride, string expectedLangVer, string expectedArch) {
+            ApplyAddLocalCustomEnvironmentDialog(envPath, descriptionOverride, expectedLangVer, expectedArch, out _, out _, out _, out _);
+        }
+
+        private void ApplyAddLocalCustomEnvironmentDialog(string envPath, string descriptionOverride, string expectedLangVer, string expectedArch, out string envDescription, out string envPrefixPath, out string languageVer, out string architecture) {
+            envDescription = string.Empty;
+            envPrefixPath = string.Empty;
+            languageVer = string.Empty;
+
+            var dlg = AddExistingEnvironmentDialogWrapper.FromDte(this);
+            try {
+                dlg.SelectCustomInterpreter();
+                dlg.PrefixPath = envPath;
+
+                // Need to wait for async auto detect to be finished
+                dlg.WaitForReady();
+
+                if (expectedLangVer != null) {
+                    Assert.AreEqual(expectedLangVer, dlg.LanguageVersion);
+                }
+
+                if (expectedArch != null) {
+                    Assert.AreEqual(expectedArch, dlg.Architecture);
+                }
+
+                dlg.RegisterGlobally = false;
+
+                if (descriptionOverride != null) {
+                    dlg.Description = descriptionOverride;
+                }
+
+                envDescription = dlg.Description;
+                envPrefixPath = dlg.PrefixPath;
+                languageVer = dlg.LanguageVersion;
+                architecture = dlg.Architecture;
+
+                Console.WriteLine("Adding custom env");
+                Console.WriteLine("  Description: {0}", envDescription);
+                Console.WriteLine("  Prefix: {0}", envPrefixPath);
+                Console.WriteLine("  Version: {0}", languageVer);
+                Console.WriteLine("  Architecture: {0}", architecture);
+
+                dlg.ClickAdd();
+            } catch (Exception) {
+                dlg.CloseWindow();
+                throw;
+            }
         }
 
         public IPythonOptions Options {

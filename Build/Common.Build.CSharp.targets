@@ -7,12 +7,6 @@
     <DefineConstants>$(DefineConstants);SUPPRESS_COMMON_ASSEMBLY_VERSION</DefineConstants>
   </PropertyGroup>
 
-  <ItemGroup Condition="$(AssemblyName) == 'TestUtilities'">
-    <Compile Include="$(BuildRoot)Python\Tests\Utilities.Python.Analysis\PythonTestData.cs">
-      <Link>PythonTestData.cs</Link>
-    </Compile>
-  </ItemGroup>
-
   <!-- If any references packages have been installed, use them. -->
   <PropertyGroup>
     <ResolveAssemblyReferencesDependsOn>$(ResolveAssemblyReferencesDependsOn);_AddPTVSReferences</ResolveAssemblyReferencesDependsOn>
@@ -20,18 +14,18 @@
   <Target Name="_AddPTVSReferences">
     <ItemGroup>
       <_NugetAssemblies Include="$(PackagesPath)\Microsoft.VisualStudio.*\lib\Microsoft.VisualStudio.*.dll" />
+      <_NugetAssemblies Include="$(PackagesPath)\Microsoft.VisualStudio.*\lib\net20\Microsoft.VisualStudio.*.dll" />
+      <_NugetAssemblies Include="$(PackagesPath)\Microsoft.VisualStudio.*\lib\net35\Microsoft.VisualStudio.*.dll" />
+      <_NugetAssemblies Include="$(PackagesPath)\Microsoft.VisualStudio.*\lib\net45\Microsoft.VisualStudio.*.dll" />
       <_NugetAssemblies Include="$(PackagesPath)\Microsoft.VisualStudio.*\lib\net46\Microsoft.VisualStudio.*.dll" />
+      <_NugetAssemblies Include="$(PackagesPath)\Microsoft.VisualStudio.*\lib\net461\Microsoft.VisualStudio.*.dll" />
     </ItemGroup>
     <PropertyGroup>
       <AssemblySearchPaths>
         $(BuildRoot)Python\References\Dev$(VSTarget);
         $(BuildRoot)Python\References\Common;
-        $(AssemblySearchPaths);
-        $(DevEnvDir);
-        $(DevEnvDir)CommonExtensions\Microsoft\Editor;
-        $(DevEnvDir)PrivateAssemblies;
-        $(DevEnvDir)PublicAssemblies;
         @(_NugetAssemblies->'%(RootDir)%(Directory)',';');
+        $(AssemblySearchPaths);
       </AssemblySearchPaths>
     </PropertyGroup>
   </Target>
