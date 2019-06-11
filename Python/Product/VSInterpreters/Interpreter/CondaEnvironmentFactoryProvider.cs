@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,11 +20,8 @@ using System.ComponentModel.Composition;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.PythonTools.Infrastructure;
-using Microsoft.VisualStudio.ComponentModelHost;
-using Microsoft.VisualStudio.Shell;
 using Newtonsoft.Json;
 
 namespace Microsoft.PythonTools.Interpreter {
@@ -39,7 +36,6 @@ namespace Microsoft.PythonTools.Interpreter {
     [Export(typeof(CondaEnvironmentFactoryProvider))]
     [PartCreationPolicy(CreationPolicy.Shared)]
     class CondaEnvironmentFactoryProvider : IPythonInterpreterFactoryProvider, IDisposable {
-        private readonly IServiceProvider _site;
         private readonly Dictionary<string, PythonInterpreterInformation> _factories = new Dictionary<string, PythonInterpreterInformation>();
         internal const string FactoryProviderName = "CondaEnv";
         internal const string EnvironmentCompanyName = "CondaEnv";
@@ -48,6 +44,7 @@ namespace Microsoft.PythonTools.Interpreter {
         private int _ignoreNotifications;
         private bool _initialized;
         private readonly CPythonInterpreterFactoryProvider _globalProvider;
+        private readonly ICondaLocatorProvider _condaLocatorProvider;
         private readonly bool _watchFileSystem;
         private FileSystemWatcher _envsTxtWatcher;
         private FileSystemWatcher _condaFolderWatcher;
@@ -61,19 +58,19 @@ namespace Microsoft.PythonTools.Interpreter {
         [ImportingConstructor]
         public CondaEnvironmentFactoryProvider(
             [Import] CPythonInterpreterFactoryProvider globalProvider,
-            [Import(typeof(SVsServiceProvider), AllowDefault = true)] IServiceProvider site = null,
+            [Import] ICondaLocatorProvider condaLocatorProvider,
             [Import("Microsoft.VisualStudioTools.MockVsTests.IsMockVs", AllowDefault = true)] object isMockVs = null
-        ) : this(globalProvider, site, isMockVs == null) {
+        ) : this(globalProvider, condaLocatorProvider, isMockVs == null) {
         }
 
         public CondaEnvironmentFactoryProvider(
-            CPythonInterpreterFactoryProvider globalProvider, 
-            IServiceProvider site,
+            CPythonInterpreterFactoryProvider globalProvider,
+            ICondaLocatorProvider condaLocatorProvider,
             bool watchFileSystem,
             string userProfileFolder = null) {
-            _site = site;
             _watchFileSystem = watchFileSystem;
             _globalProvider = globalProvider;
+            _condaLocatorProvider = condaLocatorProvider;
             _userProfileFolder = userProfileFolder;
         }
 
@@ -289,8 +286,8 @@ namespace Microsoft.PythonTools.Interpreter {
         }
 
         private void FindCondaEnvironments(List<PythonInterpreterInformation> envs) {
-            var mainCondaExePath = CondaUtils.GetRootCondaExecutablePath(_site);
-            if (mainCondaExePath != null) {
+            var mainCondaExePath = _condaLocatorProvider?.FindLocator()?.CondaExecutablePath;
+            if (!string.IsNullOrEmpty(mainCondaExePath)) {
                 envs.AddRange(FindCondaEnvironments(mainCondaExePath));
             }
         }
@@ -324,28 +321,14 @@ namespace Microsoft.PythonTools.Interpreter {
             var interpreterPath = Path.Combine(prefixPath, CondaEnvironmentFactoryConstants.ConsoleExecutable);
             var windowsInterpreterPath = Path.Combine(prefixPath, CondaEnvironmentFactoryConstants.WindowsExecutable);
 
-            InterpreterArchitecture arch = InterpreterArchitecture.Unknown;
-            Version version = null;
-
-            if (File.Exists(interpreterPath)) {
-                using (var output = ProcessOutput.RunHiddenAndCapture(
-                    interpreterPath, "-c", "import sys; print('%s.%s' % (sys.version_info[0], sys.version_info[1]))"
-                )) {
-                    output.Wait();
-                    if (output.ExitCode == 0) {
-                        var versionName = output.StandardOutputLines.FirstOrDefault() ?? "";
-                        if (!Version.TryParse(versionName, out version)) {
-                            version = null;
-                        }
-                    }
-                }
-
-                arch = CPythonInterpreterFactoryProvider.ArchitectureFromExe(interpreterPath);
-            } else {
+            if (!File.Exists(interpreterPath)) {
                 return null;
             }
 
-            var config = new InterpreterConfiguration(
+            var arch = CPythonInterpreterFactoryProvider.ArchitectureFromExe(interpreterPath);
+            var version = CPythonInterpreterFactoryProvider.VersionFromSysVersionInfo(interpreterPath);
+
+            var config = new VisualStudioInterpreterConfiguration(
                 CondaEnvironmentFactoryConstants.GetInterpreterId(CondaEnvironmentFactoryProvider.EnvironmentCompanyName, name),
                 description,
                 prefixPath,

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -125,7 +125,7 @@ namespace Microsoft.PythonTools.Interpreter {
             InterpreterConfiguration.DisambiguateDescriptions(_info.Select(i => i.Configuration).ToArray());
         }
 
-        private InterpreterConfiguration TryReadConfiguration(
+        private VisualStudioInterpreterConfiguration TryReadConfiguration(
             string company,
             string tag,
             RegistryKey tagKey,
@@ -220,7 +220,7 @@ namespace Microsoft.PythonTools.Interpreter {
                 }
             }
 
-            return new InterpreterConfiguration(
+            return new VisualStudioInterpreterConfiguration(
                 id,
                 description,
                 prefixPath,

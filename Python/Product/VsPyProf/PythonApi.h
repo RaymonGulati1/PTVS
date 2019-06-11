@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,7 +20,12 @@
 #include <Windows.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#pragma warning(push)
+#pragma warning(disable:4505) // unreferenced local function has been removed
 #include "python.h"
+#pragma warning(pop)
+
 #include "VSPerf.h"
 #include <unordered_set>
 #include <unordered_map>

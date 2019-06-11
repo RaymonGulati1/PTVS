@@ -6,8 +6,7 @@
              xmlns:l="clr-namespace:Microsoft.PythonTools.Environments"
              xmlns:wpf="clr-namespace:Microsoft.VisualStudioTools.Wpf"
              xmlns:ptwpf="clr-namespace:Microsoft.PythonTools.Wpf"
-             xmlns:catalog="clr-namespace:Microsoft.VisualStudio.Imaging;assembly=Microsoft.VisualStudio.ImageCatalog"
-             xmlns:imaging="clr-namespace:Microsoft.VisualStudio.Imaging;assembly=Microsoft.VisualStudio.Imaging"
+             xmlns:vsui="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Shell.15.0"
              xmlns:common="clr-namespace:Microsoft.PythonTools;assembly=Microsoft.PythonTools.Common"
              mc:Ignorable="d" 
              d:DesignHeight="450" d:DesignWidth="730">
@@ -80,6 +79,7 @@
                         SelectedItem="{Binding Path=SelectedProject}"
                         ItemTemplate="{StaticResource ProjectTemplate}"
                         AutomationProperties.AutomationId="Project"
+                        AutomationProperties.IsRequiredForForm="{Binding Path=Projects, Converter={x:Static wpf:Converters.NullOrEmptyIsFalse}}"
                         AutomationProperties.LabeledBy="{Binding ElementName=ProjectLabel}"/>
 
                     <Grid>
@@ -104,6 +104,7 @@
                                 HorizontalAlignment="Left"
                                 Text="{Binding Path=VirtualEnvName,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged,ValidatesOnNotifyDataErrors=False}"
                                 AutomationProperties.AutomationId="EnvName"
+                                AutomationProperties.IsRequiredForForm="True"
                                 AutomationProperties.LabeledBy="{Binding ElementName=EnvNameLabel}"/>
                         </StackPanel>
                         <StackPanel Grid.Column="2">
@@ -123,6 +124,7 @@
                                 HorizontalAlignment="Left"
                                 Style="{DynamicResource {x:Static ptwpf:ModernStyles.ThemedDialogComboBoxStyleKey}}"
                                 AutomationProperties.AutomationId="BaseInterpreter"
+                                AutomationProperties.IsRequiredForForm="True"
                                 AutomationProperties.LabeledBy="{Binding ElementName=BaseInterpreterLabel}"
                                 ItemsSource="{Binding Interpreters}"
                                 ItemTemplate="{StaticResource NameTemplate}"
@@ -140,8 +142,7 @@
                         Margin="0 0 0 7"
                         AutomationProperties.AutomationId="Location"/>
 
-                    <Button
-                        Style="{StaticResource NavigationButton}"
+                    <vsui:HyperlinkButton
                         Margin="0 0 0 18"
                         Content="{x:Static common:Strings.AddVirtualEnvironmentChangeLocationLink}"
                         AutomationProperties.AutomationId="ChangeLocation"
@@ -159,6 +160,7 @@
                         Margin="0 0 0 20"
                         Text="{Binding RequirementsPath,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged,ValidatesOnNotifyDataErrors=False}"
                         Watermark="{x:Static common:Strings.AddVirtualEnvironmentFileWatermark}"
+                        HelpText="{x:Static common:Strings.AddVirtualEnvironmentFileWatermark}"
                         AutomationProperties.LabeledBy="{Binding ElementName=RequirementsPathLabel}"
                         AutomationProperties.AutomationId="RequirementsPath"
                         BrowseButtonStyle="{StaticResource BrowseOpenFileButton}"
@@ -193,7 +195,6 @@
 
                     <CheckBox
                         Margin="0 0 0 3"
-                        x:Name="RegisterCustomEnvCheckBox"
                         IsEnabled="{Binding Path=IsRegisterCustomEnvEnabled}"
                         IsChecked="{Binding Path=IsRegisterCustomEnv}"
                         Content="{x:Static common:Strings.AddExistingEnvironmentRegisterGloballyCheckBox}"
@@ -205,8 +206,11 @@
                         Text="{Binding Path=Description,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged,ValidatesOnNotifyDataErrors=False}"
                         IsEnabled="{Binding Path=IsRegisterCustomEnv}"
                         Watermark="{x:Static common:Strings.AddVirtualEnvironmentDescriptionWatermark}"
-                        AutomationProperties.AutomationId="Description"
-                        AutomationProperties.LabeledBy="{Binding ElementName=RegisterCustomEnvCheckBox}"/>
+                        IsRequiredForForm="{Binding Path=IsRegisterCustomEnv}"
+                        HelpText="{x:Static common:Strings.AddVirtualEnvironmentDescriptionWatermark}"
+                        ToolTip="{x:Static common:Strings.AddVirtualEnvironmentDescriptionWatermark}"
+                        AutomationProperties.Name="{x:Static common:Strings.AddVirtualEnvironmentDescriptionName}"
+                        AutomationProperties.AutomationId="Description"/>
                 </StackPanel>
             </ScrollViewer>
 
@@ -222,48 +226,17 @@
                     Content="{x:Static common:Strings.AddVirtualEnvironmentPreviewLabel}"
                     Style="{StaticResource ModernLabel}"/>
 
-                <!-- Progress bar -->
-                <StackPanel
-                    Grid.Row="1"
-                    Orientation="Horizontal"
-                    VerticalAlignment="Center"
-                    HorizontalAlignment="Center"
-                    Visibility="{Binding Path=IsWorking, Converter={x:Static wpf:Converters.FalseIsCollapsed}}">
-
-                    <imaging:CrispImage
-                        Width="16"
-                        Height="16"
-                        Margin="4 0 0 0"
-                        Moniker="{x:Static catalog:KnownMonikers.Loading}"
-                        RenderTransformOrigin="0.5, 0.5">
-
-                        <imaging:CrispImage.RenderTransform>
-                            <RotateTransform x:Name="Rotation" />
-                        </imaging:CrispImage.RenderTransform>
-                        <imaging:CrispImage.Triggers>
-                            <EventTrigger RoutedEvent="Image.Loaded">
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation
-                                            Storyboard.TargetName="Rotation"
-                                            Storyboard.TargetProperty="Angle"
-                                            By="360.0"
-                                            Duration="0:0:2.0"
-                                            RepeatBehavior="Forever" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
-                        </imaging:CrispImage.Triggers>
-                    </imaging:CrispImage>
-                    <TextBlock
-                        Margin="4 0 0 0"
-                        Text="{x:Static common:Strings.AddVirtualEnvironmentPreviewInProgress}"/>
-                </StackPanel>
+                <!-- Progress bar, wrap in a grid to avoid accessibility issues when not visible -->
+                <Grid Grid.Row="1" Visibility="{Binding Progress.IsProgressDisplayed, Converter={x:Static wpf:Converters.FalseIsCollapsed}}">
+                    <vsui:ProgressControl
+                        HorizontalAlignment="Center"
+                        DataContext="{Binding Progress}"/>
+                </Grid>
 
                 <!-- Preview results -->
                 <StackPanel
                     Grid.Row="1"
-                    Visibility="{Binding Path=IsWorking, Converter={x:Static wpf:Converters.TrueIsCollapsed}}">
+                    Visibility="{Binding Path=Progress.IsProgressDisplayed, Converter={x:Static wpf:Converters.TrueIsCollapsed}}">
 
                     <StackPanel.Resources>
                         <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">

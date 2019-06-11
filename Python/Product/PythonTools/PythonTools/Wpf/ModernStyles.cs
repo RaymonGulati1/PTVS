@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -136,6 +136,12 @@ namespace Microsoft.PythonTools.Wpf {
         public static readonly object MenuItemHighlightBorderBrushKey = VsBrushes.CommandBarMenuBorderKey;
         public static readonly object MenuItemHighlightDisabledBackgroundBrushKey = VsBrushes.CommandBarMouseOverBackgroundEndKey;
         public static readonly object MenuItemHighlightDisabledBorderBrushKey = VsBrushes.CommandBarMenuBorderKey;
+
+        public static readonly object StatusBarDefaultTextBrushKey = EnvironmentColors.StatusBarDefaultTextBrushKey;
+        public static readonly object ToolTipTextBrushKey = EnvironmentColors.ToolTipTextBrushKey;
+
+        public static readonly string EnvironmentFontSizeKey = "VsFont.EnvironmentFontSize";
+        public static readonly string EnvironmentFontFamilyKey = "VsFont.EnvironmentFontFamily";
 
         public static ThemeResourceKey GridHeadingBackgroundBrushKey => ThemedDialogColors.GridHeadingBackgroundBrushKey;
         public static ThemeResourceKey GridHeadingTextBrushKey => ThemedDialogColors.GridHeadingTextBrushKey;

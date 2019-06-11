@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -58,7 +58,7 @@ namespace Microsoft.PythonTools.Refactoring {
             }
 
             var snapshot = buffer.CurrentSnapshot;
-            
+
             // extract once to validate the selection
             var extract = await entry.Analyzer.ExtractMethodAsync(
                 bi,
@@ -155,13 +155,14 @@ namespace Microsoft.PythonTools.Refactoring {
         private readonly PythonTextBufferInfo _buffer;
         private readonly ITextView _view;
         public AP.ExtractMethodResponse LastExtraction;
+        internal PythonLanguageVersion PythonVersion => _buffer.LanguageVersion;
 
         public ExtractedMethodCreator(PythonTextBufferInfo buffer, ITextView view, AP.ExtractMethodResponse initialExtraction) {
             _buffer = buffer;
             _view = view;
             LastExtraction = initialExtraction;
         }
-        
+
 
         internal async Task<AP.ExtractMethodResponse> GetExtractionResult(ExtractMethodRequest info) {
             return LastExtraction = (await _buffer.AnalysisEntry.Analyzer.ExtractMethodAsync(

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -26,7 +26,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
         private string _name;
         private BuiltinTypeId? _typeId;
         private IList<IPythonType> _propagateOnCall;
-        private IList<IPythonType> _mro;
+        private IReadOnlyList<IPythonType> _mro;
         private PythonMemberType _memberType;
         private bool? _genericTypeDefinition;
 
@@ -109,7 +109,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
             }
         }
 
-        public IList<IPythonType> Mro {
+        public IReadOnlyList<IPythonType> Mro {
             get {
                 if (_mro == null) {
                     var ri = RemoteInterpreter;

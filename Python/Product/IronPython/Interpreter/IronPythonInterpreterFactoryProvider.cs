@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -162,7 +162,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
                     if (_interpreterX64 == null) {
                         var config = GetConfiguration(InterpreterArchitecture.x64);
                         var opts = GetCreationOptions(_site, config);
-                        _interpreterX64 = (IPythonInterpreterFactory)new IronPythonAstInterpreterFactory(config, opts);
+                        _interpreterX64 = new IronPythonAstInterpreterFactory(config, opts);
                     }
                 }
             }
@@ -174,7 +174,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
                     if (_interpreter == null) {
                         var config = GetConfiguration(InterpreterArchitecture.x86);
                         var opts = GetCreationOptions(_site, config);
-                        _interpreter = (IPythonInterpreterFactory)new IronPythonAstInterpreterFactory(config, opts);
+                        _interpreter = new IronPythonAstInterpreterFactory(config, opts);
                     }
                 }
             }
@@ -216,7 +216,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
             }
         }
 
-        internal static InterpreterConfiguration GetConfiguration(InterpreterArchitecture arch) {
+        internal static VisualStudioInterpreterConfiguration GetConfiguration(InterpreterArchitecture arch) {
             var prefixPath = IronPythonResolver.GetPythonInstallDir();
             if (string.IsNullOrEmpty(prefixPath)) {
                 return null;
@@ -230,7 +230,7 @@ namespace Microsoft.IronPythonTools.Interpreter {
                 ipywExe = arch == InterpreterArchitecture.x64 ? "ipyw.exe" : "ipyw32.exe";
             }
 
-            return new InterpreterConfiguration(
+            return new VisualStudioInterpreterConfiguration(
                 GetInterpreterId(arch),
                 string.Format("IronPython 2.7{0: ()}", arch),
                 prefixPath,

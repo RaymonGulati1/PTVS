@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -74,10 +74,12 @@ namespace Microsoft.PythonTools.Logging {
         public string Architecture { get; set; }
         public string Version { get; set; }
         public string Reason { get; set; }
+        public bool IsIronPython { get; set; }
     }
 
     static class AnalysisInitializeReasons {
         public const string Project = "Project";
+        public const string Workspace = "Workspace";
         public const string Interactive = "Interactive";
         public const string Default = "Default";
     }
@@ -174,5 +176,13 @@ namespace Microsoft.PythonTools.Logging {
         public string Architecture { get; set; }
         public bool Custom { get; set; }
         public bool Global { get; set; }
+    }
+
+    sealed class SelectEnvFromToolbarInfo : PythonToolsLoggerData {
+        [PiiProperty]
+        public string InterpreterId { get; set; }
+        public string Architecture { get; set; }
+        public string Version { get; set; }
+        public bool IsIronPython { get; set; }
     }
 }

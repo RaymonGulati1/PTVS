@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -63,10 +63,11 @@ namespace Microsoft.PythonTools.Commands {
             var analyzer = activeView.GetAnalyzerAtCaret(_serviceProvider);
             ITextSelection selection = activeView.Selection;
             ITextSnapshot snapshot = activeView.TextBuffer.CurrentSnapshot;
+            var workspace = _serviceProvider.GetWorkspace();
 
             IVsInteractiveWindow repl;
             try {
-                repl = ExecuteInReplCommand.EnsureReplWindow(_serviceProvider, analyzer, project);
+                repl = ExecuteInReplCommand.EnsureReplWindow(_serviceProvider, analyzer, project, workspace);
             } catch (MissingInterpreterException ex) {
                 MessageBox.Show(ex.Message, Strings.ProductTitle);
                 return;

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,16 +20,16 @@ using Microsoft.PythonTools.Interpreter.Ast;
 
 namespace Microsoft.IronPythonTools.Interpreter {
     class IronPythonAstInterpreterFactory : AstPythonInterpreterFactory {
-        public IronPythonAstInterpreterFactory(InterpreterConfiguration config, InterpreterFactoryCreationOptions options)
+        public IronPythonAstInterpreterFactory(VisualStudioInterpreterConfiguration config, InterpreterFactoryCreationOptions options)
             : base(config, options) {
         }
 
-        private IronPythonAstInterpreterFactory(Dictionary<string, object> properties)
-            : base(InterpreterConfiguration.FromDictionary(properties), InterpreterFactoryCreationOptions.FromDictionary(properties)) {
-        }
+        public IronPythonAstInterpreterFactory(Dictionary<string, object> properties) :
+            this(VisualStudioInterpreterConfiguration.CreateFromDictionary(properties), InterpreterFactoryCreationOptions.FromDictionary(properties)) { }
 
         public override IPythonInterpreter CreateInterpreter() {
-            return new IronPythonInterpreter(this);
+            var pythonInterpreter = base.CreateInterpreter();
+            return new IronPythonInterpreter(this, pythonInterpreter);
         }
     }
 }

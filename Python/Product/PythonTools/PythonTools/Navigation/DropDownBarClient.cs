@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -56,7 +56,7 @@ namespace Microsoft.PythonTools.Navigation {
     class DropDownBarClient : IVsDropdownBarClient, IPythonTextBufferInfoEventSink {
         private readonly Dispatcher _dispatcher;                        // current dispatcher so we can get back to our thread
         private readonly PythonEditorServices _services;
-        private ITextView _textView;                                 // text view we're drop downs for
+        private ITextView _textView;                                    // text view we're drop downs for
         private IVsDropdownBar _dropDownBar;                            // drop down bar - used to refresh when changes occur
         private NavigationInfo _navigations;
         private readonly object _navigationsLock = new object();

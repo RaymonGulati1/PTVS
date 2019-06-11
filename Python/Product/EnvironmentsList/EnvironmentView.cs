@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -55,7 +55,7 @@ namespace Microsoft.PythonTools.EnvironmentsList {
         public bool ExtensionsCreated { get; set; }
 
         private EnvironmentView(string id, string localizedName, string localizedHelpText) {
-            Configuration = new InterpreterConfiguration(id, id);
+            Configuration = new VisualStudioInterpreterConfiguration(id, id);
             Description = LocalizedDisplayName = localizedName;
             LocalizedHelpText = localizedHelpText ?? "";
             Extensions = new ObservableCollection<object>();
@@ -95,9 +95,9 @@ namespace Microsoft.PythonTools.EnvironmentsList {
             Description = Factory.Configuration.Description;
             IsDefault = (_service != null && _service.DefaultInterpreterId == Configuration.Id);
 
-            PrefixPath = Factory.Configuration.PrefixPath;
+            PrefixPath = Factory.Configuration.GetPrefixPath();
             InterpreterPath = Factory.Configuration.InterpreterPath;
-            WindowsInterpreterPath = Factory.Configuration.WindowsInterpreterPath;
+            WindowsInterpreterPath = Factory.Configuration.GetWindowsInterpreterPath();
 
             Extensions = new ObservableCollection<object>();
             Extensions.Add(new EnvironmentPathsExtensionProvider());

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -174,7 +174,7 @@ namespace PythonToolsTests {
             using (var process = ProcessOutput.RunElevated(
                 fact.Configuration.InterpreterPath,
                 new[] { "-c", "import os, sys; print(sys.version[:3]); print(os.getcwd()); print(os.getenv('TEST_KEY')); sys.exit(7)" },
-                fact.Configuration.PrefixPath,
+                fact.Configuration.GetPrefixPath(),
                 new[] { new KeyValuePair<string, string>("TEST_KEY", "TEST_VALUE") },
                 redirector,
                 quoteArgs: true,
@@ -187,7 +187,7 @@ namespace PythonToolsTests {
                 Assert.AreEqual(7, process.ExitCode);
                 AssertUtil.AreEqual(output,
                     fact.Configuration.Version.ToString(),
-                    PathUtils.TrimEndSeparator(fact.Configuration.PrefixPath),
+                    PathUtils.TrimEndSeparator(fact.Configuration.GetPrefixPath()),
                     "TEST_VALUE"
                 );
             }

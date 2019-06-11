@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -72,7 +72,7 @@ namespace Microsoft.PythonTools.Project {
             try {
                 // Create a test file and delete it immediately to ensure we can do it.
                 // If this fails, prompt the user to see whether they want to elevate.
-                var testFile = PathUtils.GetAvailableFilename(config.PrefixPath, "access-test", ".txt");
+                var testFile = PathUtils.GetAvailableFilename(config.GetPrefixPath(), "access-test", ".txt");
                 using (new FileStream(testFile, FileMode.CreateNew, FileAccess.Write, FileShare.Delete, 4096, FileOptions.DeleteOnClose)) { }
                 return false;
             } catch (IOException) {

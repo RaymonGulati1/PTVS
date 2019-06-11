@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -32,7 +32,7 @@ namespace TestUtilities.Python {
 
         public MockInterpreterOptionsService() {
             _providers = new List<IPythonInterpreterFactoryProvider>();
-            _noInterpretersValue = new MockPythonInterpreterFactory(new InterpreterConfiguration("2.7", "No Interpreters", version: new Version(2, 7)));
+            _noInterpretersValue = new MockPythonInterpreterFactory(new VisualStudioInterpreterConfiguration("2.7", "No Interpreters", version: new Version(2, 7)));
             _packageManagers = new Dictionary<IPythonInterpreterFactory, IReadOnlyList<IPackageManager>>();
         }
 

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -442,13 +442,13 @@ namespace Microsoft.PythonTools.Project.ImportWizard {
             string id,
             InterpreterConfiguration config
         ) {
-            var prefixPath = config.PrefixPath ?? string.Empty;
+            var prefixPath = config.GetPrefixPath() ?? string.Empty;
             var interpreterPath = string.IsNullOrEmpty(config.InterpreterPath) ?
                 string.Empty :
                 PathUtils.GetRelativeFilePath(prefixPath, config.InterpreterPath);
-            var windowInterpreterPath = string.IsNullOrEmpty(config.WindowsInterpreterPath) ?
+            var windowInterpreterPath = string.IsNullOrEmpty(config.GetWindowsInterpreterPath()) ?
                 string.Empty :
-                PathUtils.GetRelativeFilePath(prefixPath, config.WindowsInterpreterPath);
+                PathUtils.GetRelativeFilePath(prefixPath, config.GetWindowsInterpreterPath());
             prefixPath = PathUtils.GetRelativeDirectoryPath(sourcePath, prefixPath);
 
             return project.AddItem(

@@ -9,27 +9,23 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System.Runtime.InteropServices;
-using EO = Microsoft.PythonTools.Interpreter.ExperimentalOptions;
 
 namespace Microsoft.PythonTools.Options {
     [ComVisible(true)]
     public class PythonDebuggingOptionsPage : PythonDialogPage {
         private PythonDebuggingOptionsControl _window;
+        private bool debugOptionsChangedRegistered = false;
 
         public PythonDebuggingOptionsPage() {
-            EO.UseVsCodeDebuggerChanged += OnUseVsCodeDebuggerChanged;
         }
 
-        private void OnUseVsCodeDebuggerChanged(object sender, System.EventArgs e) {
-            // Synchronize UI with backing properties.
-            _window?.SyncControlWithPageSettings(PyService);
-        }
+
 
         // replace the default UI of the dialog page w/ our own UI.
         protected override System.Windows.Forms.IWin32Window Window {
@@ -58,6 +54,10 @@ namespace Microsoft.PythonTools.Options {
             if (_window != null) {
                 _window.SyncControlWithPageSettings(PyService);
             }
+            if (!debugOptionsChangedRegistered) {
+                PyService.DebuggerOptions.Changed += OnDebugOptionsChanged;
+                debugOptionsChangedRegistered = true;
+            }
         }
 
         public override void SaveSettingsToStorage() {
@@ -67,7 +67,10 @@ namespace Microsoft.PythonTools.Options {
             }
 
             PyService.DebuggerOptions.Save();
+        }
 
+        private void OnDebugOptionsChanged(object sender, System.EventArgs e) {
+            _window?.SyncControlWithPageSettings(PyService);
         }
     }
 }

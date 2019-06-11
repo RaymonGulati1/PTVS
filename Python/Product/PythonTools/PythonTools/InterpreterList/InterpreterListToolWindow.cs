@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -26,9 +26,11 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
+using Microsoft.PythonTools.Commands;
 using Microsoft.PythonTools.Environments;
 using Microsoft.PythonTools.EnvironmentsList;
 using Microsoft.PythonTools.Infrastructure;
+using Microsoft.PythonTools.Infrastructure.Commands;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Project;
 using Microsoft.PythonTools.Repl;
@@ -75,7 +77,7 @@ namespace Microsoft.PythonTools.InterpreterList {
             _outputWindow = OutputWindowRedirector.GetGeneral(_site);
             Debug.Assert(_outputWindow != null);
             _statusBar = _site.GetService(typeof(SVsStatusbar)) as IVsStatusbar;
-            
+
             var list = new ToolWindow();
             list.ViewCreated += List_ViewCreated;
             list.ViewSelected += List_ViewSelected;
@@ -137,50 +139,18 @@ namespace Microsoft.PythonTools.InterpreterList {
                 DeleteEnvironment_CanExecute
             ));
 
-            RegisterCommands(new Command[] {
-                new AddEnvironmentCommand(this),
-            }, GuidList.guidPythonToolsCmdSet);
+            RegisterCommands(
+                CommandAsyncToOleMenuCommandShimFactory.CreateCommand(GuidList.guidPythonToolsCmdSet, (int)PkgCmdIDList.cmdidAddEnvironment, new AddEnvironmentCommand(this))
+            );
 
             Content = list;
         }
 
-        class AddEnvironmentCommand : Command {
-            private readonly InterpreterListToolWindow _window;
-
-            public AddEnvironmentCommand(InterpreterListToolWindow window) {
-                _window = window;
-            }
-
-            public override void DoCommand(object sender, EventArgs args) {
-                var service = _window._site.GetComponentModel().GetService<IInterpreterRegistryService>();
-                var sln = (IVsSolution)_window._site.GetService(typeof(SVsSolution));
-                var project = sln?.EnumerateLoadedPythonProjects().FirstOrDefault();
-                string ymlPath = project?.GetEnvironmentYmlPath();
-                string txtPath = project?.GetRequirementsTxtPath();
-
-                AddEnvironmentDialog.ShowAddEnvironmentDialogAsync(_window._site, project, null, ymlPath, txtPath)
-                    .HandleAllExceptions(_window._site, typeof(PythonProjectNode)).DoNotWait();
-            }
-
-            public override int CommandId {
-                get { return (int)PkgCmdIDList.cmdidAddEnvironment; }
-            }
-        }
-
-        private void RegisterCommands(IEnumerable<Command> commands, Guid cmdSet) {
-            OleMenuCommandService mcs = GetService(typeof(IMenuCommandService)) as OleMenuCommandService;
-            if (null != mcs) {
-                lock (_commandsLock) {
-                    foreach (var command in commands) {
-                        var beforeQueryStatus = command.BeforeQueryStatus;
-                        CommandID toolwndCommandID = new CommandID(cmdSet, command.CommandId);
-                        OleMenuCommand menuToolWin = new OleMenuCommand(command.DoCommand, toolwndCommandID);
-                        if (beforeQueryStatus != null) {
-                            menuToolWin.BeforeQueryStatus += beforeQueryStatus;
-                        }
-                        mcs.AddCommand(menuToolWin);
-                        _commands[command] = menuToolWin;
-                    }
+        internal void RegisterCommands(params MenuCommand[] commands) {
+            _uiThread.MustBeCalledFromUIThreadOrThrow();
+            if (GetService(typeof(IMenuCommandService)) is OleMenuCommandService mcs) {
+                foreach (var command in commands) {
+                    mcs.AddCommand(command);
                 }
             }
         }
@@ -255,7 +225,7 @@ namespace Microsoft.PythonTools.InterpreterList {
 
             var psi = new ProcessStartInfo();
             psi.UseShellExecute = false;
-            psi.FileName = "explorer.exe";
+            psi.FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
             psi.Arguments = "\"" + path + "\"";
 
             Process.Start(psi).Dispose();
@@ -408,7 +378,7 @@ namespace Microsoft.PythonTools.InterpreterList {
         private void OpenInteractiveWindow_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
             var view = e.Parameter as EnvironmentView;
             e.CanExecute = view != null &&
-                view.Factory != null && 
+                view.Factory != null &&
                 view.Factory.Configuration != null &&
                 File.Exists(view.Factory.Configuration.InterpreterPath);
         }
@@ -443,7 +413,7 @@ namespace Microsoft.PythonTools.InterpreterList {
             var view = e.Parameter as EnvironmentView;
             e.CanExecute = view != null && File.Exists(e.Command == EnvironmentPathsExtension.StartInterpreter ?
                 view.Factory.Configuration.InterpreterPath :
-                view.Factory.Configuration.WindowsInterpreterPath);
+                view.Factory.Configuration.GetWindowsInterpreterPath());
             e.Handled = true;
         }
 
@@ -452,7 +422,7 @@ namespace Microsoft.PythonTools.InterpreterList {
 
             var config = new LaunchConfiguration(view.Factory.Configuration) {
                 PreferWindowedInterpreter = (e.Command == EnvironmentPathsExtension.StartWindowsInterpreter),
-                WorkingDirectory = view.Factory.Configuration.PrefixPath,
+                WorkingDirectory = view.Factory.Configuration.GetPrefixPath(),
                 SearchPaths = new List<string>()
             };
 
@@ -500,7 +470,7 @@ namespace Microsoft.PythonTools.InterpreterList {
             // TODO: this is assuming that all environments that CanBeDeleted are conda environments, which may not be true in the future
             var view = e.Parameter as EnvironmentView;
             var result = MessageBox.Show(
-                Resources.EnvironmentPathsExtensionDeleteConfirmation.FormatUI(view.Configuration.PrefixPath),
+                Resources.EnvironmentPathsExtensionDeleteConfirmation.FormatUI(view.Configuration.GetPrefixPath()),
                 Resources.ProductTitle,
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question
@@ -513,7 +483,7 @@ namespace Microsoft.PythonTools.InterpreterList {
             var registry = compModel.GetService<IInterpreterRegistryService>();
             var mgr = CondaEnvironmentManager.Create(_site);
             mgr.DeleteAsync(
-                view.Configuration.PrefixPath,
+                view.Configuration.GetPrefixPath(),
                 new CondaEnvironmentManagerUI(_outputWindow),
                 CancellationToken.None
             ).HandleAllExceptions(_site, GetType()).DoNotWait();
@@ -553,13 +523,14 @@ namespace Microsoft.PythonTools.InterpreterList {
 
             var paths = GetPathEntries(view);
             var pathCmd = string.IsNullOrEmpty(paths) ? "" : string.Format("set PATH={0};%PATH% & ", paths);
-            var psi = new ProcessStartInfo("cmd.exe");
-            psi.Arguments = string.Join(" ", new[] {
-                "/S",
-                "/K",
-                pathCmd + string.Format("title {0} environment", view.Description)
-            }.Select(ProcessOutput.QuoteSingleArgument));
-            psi.WorkingDirectory = view.PrefixPath;
+            var psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe")) {
+                Arguments = string.Join(" ", new[] {
+                    "/S",
+                    "/K",
+                    pathCmd + string.Format("title {0} environment", view.Description)
+                }.Select(ProcessOutput.QuoteSingleArgument)),
+                WorkingDirectory = view.PrefixPath
+            };
 
             Process.Start(psi).Dispose();
         }
@@ -575,14 +546,15 @@ namespace Microsoft.PythonTools.InterpreterList {
 
             var paths = GetPathEntries(view);
             var pathCmd = string.IsNullOrEmpty(paths) ? "" : string.Format("$env:PATH='{0};' + $env:PATH; ", paths);
-            var psi = new ProcessStartInfo("powershell.exe");
-            psi.Arguments = string.Join(" ", new[] {
-                "-NoLogo",
-                "-NoExit",
-                "-Command",
-                pathCmd + string.Format("(Get-Host).UI.RawUI.WindowTitle = '{0} environment'", view.Description)
-            }.Select(ProcessOutput.QuoteSingleArgument));
-            psi.WorkingDirectory = view.PrefixPath;
+            var psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe")) {
+                Arguments = string.Join(" ", new[] {
+                    "-NoLogo",
+                    "-NoExit",
+                    "-Command",
+                    pathCmd + string.Format("(Get-Host).UI.RawUI.WindowTitle = '{0} environment'", view.Description)
+                }.Select(ProcessOutput.QuoteSingleArgument)),
+                WorkingDirectory = view.PrefixPath
+            };
 
             Process.Start(psi).Dispose();
         }
@@ -597,7 +569,7 @@ namespace Microsoft.PythonTools.InterpreterList {
         }
 
         internal static async System.Threading.Tasks.Task OpenAtAsync(IServiceProvider site, string viewId, Type extension) {
-            var service = (IPythonToolsToolWindowService) site?.GetService(typeof(IPythonToolsToolWindowService));
+            var service = (IPythonToolsToolWindowService)site?.GetService(typeof(IPythonToolsToolWindowService));
             if (service == null) {
                 Debug.Fail("Failed to get environment list window");
                 return;
@@ -615,7 +587,7 @@ namespace Microsoft.PythonTools.InterpreterList {
         }
 
         internal static async System.Threading.Tasks.Task OpenAtAsync(IServiceProvider site, IPythonInterpreterFactory interpreter, Type extension = null) {
-            var service = (IPythonToolsToolWindowService) site?.GetService(typeof(IPythonToolsToolWindowService));
+            var service = (IPythonToolsToolWindowService)site?.GetService(typeof(IPythonToolsToolWindowService));
             if (service == null) {
                 Debug.Fail("Failed to get environment list window");
                 return;

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -203,6 +203,20 @@ namespace Microsoft.VisualStudioTools.Project {
         public override bool IsShowingAllFiles {
             get {
                 return _showingAllFiles;
+            }
+        }
+
+        /// <summary>
+        /// Returns true if the item should be included in search results
+        /// </summary>
+        public override bool IsSearchable {
+            get {
+                // Starting with 16.0 Preview 2, it is important for the
+                // project to report as not searchable. Otherwise, find in
+                // files will return results in project file, and IsItemDirty
+                // and SaveItem won't work properly.
+                // See https://github.com/Microsoft/PTVS/issues/4887
+                return false;
             }
         }
 

@@ -44,11 +44,6 @@
     <PlatformTarget>AnyCPU</PlatformTarget>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Analysis\Analysis.csproj">
-      <Project>{A85D479D-67A9-4BDB-904A-7D86DAF68A6F}</Project>
-      <Name>Microsoft.PythonTools.Analysis</Name>
-      <IncludeInVSIX>True</IncludeInVSIX>
-    </ProjectReference>
     <ProjectReference Include="..\BuildTasks\BuildTasks.csproj">
       <Project>{89d51398-a003-44ba-b1b2-cfc6f8396d7e}</Project>
       <Name>Microsoft.PythonTools.BuildTasks</Name>
@@ -81,17 +76,6 @@
       <Name>Microsoft.PythonTools.VSInterpreters</Name>
       <IncludeInVSIX>True</IncludeInVSIX>
     </ProjectReference>
-    <ProjectReference Include="..\Analyzer\Analyzer.csproj">
-      <Project>{29a4fa1f-a562-4ed1-86fb-5850ef5da92c}</Project>
-      <Name>Microsoft.PythonTools.Analyzer</Name>
-      <IncludeInVSIX>True</IncludeInVSIX>
-    </ProjectReference>
-    <ProjectReference Include="..\Ipc.Json\Ipc.Json.csproj">
-      <Project>{e1e1613d-0c96-42f9-9f2d-052c72533297}</Project>
-      <Name>Microsoft.PythonTools.Ipc.Json</Name>
-      <IncludeInVSIX>True</IncludeInVSIX>
-    </ProjectReference>
-    <ProjectReference2 Include="..\Analyzer\Analyzer.csproj" />
     <ProjectReference Include="..\Attacher\Attacher.csproj">
       <Project>{666A22BB-0CB5-4C08-A20F-E17450DA6573}</Project>
       <Name>Attacher</Name>
@@ -191,8 +175,26 @@
     <Reference Include="Microsoft.VisualStudio.WizardFramework">
       <HintPath>$(DevEnvDir)\Microsoft.VisualStudio.WizardFramework.dll</HintPath>
     </Reference>
+    <Reference Include="Microsoft.VisualStudio.Workspace" />
+    <Reference Include="Microsoft.VisualStudio.Workspace.VSIntegration.Contracts" />
     <Reference Include="Newtonsoft.Json, Version=9.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed">
       <HintPath>$(PackagesPath)\Newtonsoft.Json\lib\net45\Newtonsoft.Json.dll</HintPath>
+      <Private>True</Private>
+      <IncludeInVSIX>True</IncludeInVSIX>
+    </Reference>
+    <Reference Include="Microsoft.Python.Analysis.Engine">
+      <Private>True</Private>
+      <IncludeInVSIX>True</IncludeInVSIX>
+    </Reference>
+    <Reference Include="Microsoft.Python.LanguageServer.Core">
+      <Private>True</Private>
+      <IncludeInVSIX>True</IncludeInVSIX>
+    </Reference>
+    <Reference Include="Microsoft.PythonTools.Ipc.Json">
+      <Private>True</Private>
+      <IncludeInVSIX>True</IncludeInVSIX>
+    </Reference>
+    <Reference Include="Microsoft.PythonTools.Analyzer">
       <Private>True</Private>
       <IncludeInVSIX>True</IncludeInVSIX>
     </Reference>
@@ -252,8 +254,26 @@
     <Reference Include="Microsoft.VisualStudio.Shell.Interop.15.6.DesignTime">
       <EmbedInteropTypes>True</EmbedInteropTypes>
     </Reference>
+    <Reference Include="Microsoft.VisualStudio.LanguageServer.Client" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="PythonTools\Debugger\CustomDebugAdapterProtocolExtension.cs" />
+    <Compile Include="PythonTools\Debugger\DebugAdapterLauncher.cs" />
+    <Compile Include="PythonTools\Debugger\DebugAdapterProcess.cs" />
+    <Compile Include="PythonTools\Debugger\DebugAdapterProcessStream.cs" />
+    <Compile Include="PythonTools\Debugger\DebugAdapterRemoteProcess.cs" />
+    <Compile Include="PythonTools\Debugger\PtvsdVersionHelper.cs" />
+    <Compile Include="PythonTools\Commands\CurrentEnvironmentListCommand.cs" />
+    <Compile Include="PythonTools\Commands\CurrentEnvironmentCommand.cs" />
+    <Compile Include="PythonTools\Commands\SwitchToEnvironmentCommand.cs" />
+    <Compile Include="PythonTools\Environments\EnvironmentSwitcherFileContext.cs" />
+    <Compile Include="PythonTools\Environments\EnvironmentSwitcherProjectContext.cs" />
+    <Compile Include="PythonTools\Environments\EnvironmentSwitcherWorkspaceContext.cs" />
+    <Compile Include="PythonTools\Environments\IEnvironmentSwitcherContext.cs" />
+    <Compile Include="PythonTools\Commands\AddEnvironmentCommand.cs" />
+    <Compile Include="PythonTools\Commands\ManagePackagesCommand.cs" />
+    <Compile Include="PythonTools\Commands\ViewAllEnvironmentsCommand.cs" />
+    <Compile Include="PythonTools\Environments\EnvironmentSwitcherManager.cs" />
     <Compile Include="PythonTools\Environments\InstallPackagesOperation.cs" />
     <Compile Include="PythonTools\Environments\CustomEnv.cs" />
     <Compile Include="PythonTools\Environments\AddEnvironmentTemplateSelector.cs" />
@@ -267,6 +287,8 @@
     <Compile Include="PythonTools\Environments\EnvironmentViewBase.cs" />
     <Compile Include="PythonTools\Environments\ProjectView.cs" />
     <Compile Include="PythonTools\Environments\UserSpecifiedCondaLocator.cs" />
+    <Compile Include="PythonTools\Intellisense\WorkspaceAnalyzer.cs" />
+    <Compile Include="PythonTools\Intellisense\WorkspaceAnalysis.cs" />
     <Compile Include="PythonTools\Options\CondaOptions.cs" />
     <Compile Include="PythonTools\Options\PythonCondaOptionsControl.cs">
       <SubType>UserControl</SubType>
@@ -288,6 +310,7 @@
     <Compile Include="PythonTools\Environments\AddVirtualEnvironmentControl.xaml.cs">
       <DependentUpon>AddVirtualEnvironmentControl.xaml</DependentUpon>
     </Compile>
+    <Compile Include="PythonTools\Options\PythonDebugOptionsService.cs" />
     <Compile Include="PythonTools\Project\PythonProjectInfoBar.cs" />
     <Compile Include="PythonTools\Project\PackageInstallInfoBar.cs" />
     <Compile Include="PythonTools\Project\VirtualEnvCreateInfoBar.cs" />
@@ -510,7 +533,6 @@
     <Compile Include="PythonTools\Commands\SendToReplCommand.cs" />
     <Compile Include="PythonTools\Intellisense\IContentTypeMetadata.cs" />
     <Compile Include="PythonTools\Intellisense\IOrderableContentTypeMetadata.cs" />
-    <Compile Include="PythonTools\Intellisense\MissingImportAnalysis.cs" />
     <Compile Include="PythonTools\Intellisense\RefactoringIconKind.cs" />
     <Compile Include="PythonTools\Navigation\TextViewFilter.cs" />
     <Compile Include="PythonTools\Options\PythonFormattingWrappingOptionsPage.cs">
@@ -724,6 +746,7 @@
     <Compile Include="PkgCmdID.cs" />
     <Compile Include="PythonTools\WebProject\PythonWebPropertyPage.cs" />
     <Compile Include="PythonTools\Wpf\ModernStyles.cs" />
+    <Compile Include="PythonTools\Wpf\VisualTreeExtensions.cs" />
     <Compile Include="VsCredentials.cs" />
     <Compile Include="PythonTools\Commands\UsePythonStepping.cs" />
     <Compile Include="PythonTools\Commands\ShowNativePythonFrames.cs" />
@@ -762,6 +785,41 @@
     <None Include="Theme\Repl\light.vstheme" />
     <None Include="Theme\Repl\additionalcontrast.vstheme" />
     <None Include="Theme\Repl\make_theme_pkgdef.py" />
+    <Content Include="$(PackagesPath)\Microsoft.VisualStudio.Python.LanguageServer\lib\vs16\scrape_module.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <VSIXSubPath>.</VSIXSubPath>
+    </Content>
+    <Content Include="$(PackagesPath)\Microsoft.VisualStudio.Python.LanguageServer\lib\vs16\BuiltinScraper.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <VSIXSubPath>.</VSIXSubPath>
+    </Content>
+    <Content Include="$(PackagesPath)\Microsoft.VisualStudio.Python.LanguageServer\lib\vs16\ExtensionScraper.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <VSIXSubPath>.</VSIXSubPath>
+    </Content>
+    <Content Include="$(PackagesPath)\Microsoft.VisualStudio.Python.LanguageServer\lib\vs16\IronPythonScraper.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <VSIXSubPath>.</VSIXSubPath>
+    </Content>
+    <Content Include="$(PackagesPath)\Microsoft.VisualStudio.Python.LanguageServer\lib\vs16\PythonScraper.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <VSIXSubPath>.</VSIXSubPath>
+    </Content>
+    <Content Include="$(PackagesPath)\Microsoft.VisualStudio.Python.LanguageServer\lib\vs16\get_search_paths.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <VSIXSubPath>.</VSIXSubPath>
+    </Content>
+    <Content Include="$(PackagesPath)\Microsoft.VisualStudio.Python.LanguageServer\lib\vs16\typing-stub.pyi">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <IncludeInVSIX>true</IncludeInVSIX>
+      <VSIXSubPath>.</VSIXSubPath>
+    </Content>
     <Content Include="NoInterpreters.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <IncludeInVSIX>true</IncludeInVSIX>
@@ -1122,6 +1180,7 @@
       <SubType>Designer</SubType>
     </Page>
   </ItemGroup>
+  <ItemGroup />
   <PropertyGroup>
     <SharedProject_IncludeUIThreadBase>false</SharedProject_IncludeUIThreadBase>
   </PropertyGroup>
@@ -1134,16 +1193,4 @@
   <Target Name="AfterBuild">
   </Target>
   -->
-  <!-- We build these assemblies into separate folders to avoid incremental cleaning issues,
-       but then CreatePkgDef can't find them for the ProvideCodeBase attributes. So we copy
-       into the PythonTools output folder temporarily to generate the pkgdef file. -->
-  <!--<Target Name="_CopyForCreatePkgDef" BeforeTargets="GeneratePkgDef">
-    <Copy SourceFiles="$(OutputPath)..\Analysis\Microsoft.PythonTools.Analysis.dll;$(OutputPath)..\EnvironmentsList\Microsoft.PythonTools.EnvironmentsList.dll;$(OutputPath)..\VSInterpreters\Microsoft.PythonTools.VSInterpreters.dll" DestinationFolder="$(OutputPath)">
-      <Output TaskParameter="CopiedFiles" ItemName="_CopiedForCreatePkgdef" />
-    </Copy>
-  </Target>
-  <Target Name="_DeleteAfterCreatePkgDef" AfterTargets="GeneratePkgDef">
-    <Delete Files="@(_CopiedForCreatePkgdef)" />
-  </Target>-->
-  <!--<Target Name="DetokenizeVsixManifestFile" />-->
 </Project>

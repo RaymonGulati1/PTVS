@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -298,14 +298,16 @@ namespace Microsoft.PythonTools.Interpreter {
                     } else {
                         key.DeleteValue(DescriptionKey, false);
                     }
+
+                    var vsConfig = (VisualStudioInterpreterConfiguration) config;
                     using (var installPath = key.CreateSubKey("InstallPath")) {
-                        string exePath = config.InterpreterPath ?? config.WindowsInterpreterPath ?? "";
-                        if (!string.IsNullOrEmpty(config.PrefixPath)) {
-                            installPath.SetValue("", config.PrefixPath);
+                        string exePath = config.InterpreterPath ?? vsConfig.WindowsInterpreterPath ?? "";
+                        if (!string.IsNullOrEmpty(vsConfig.PrefixPath)) {
+                            installPath.SetValue("", vsConfig.PrefixPath);
                         } else if (!string.IsNullOrWhiteSpace(exePath)) {
                             installPath.SetValue("", Path.GetDirectoryName(exePath));
                         }
-                        installPath.SetValue(WindowsPathKey, config.WindowsInterpreterPath ?? string.Empty);
+                        installPath.SetValue(WindowsPathKey, config.GetWindowsInterpreterPath() ?? string.Empty);
                         installPath.SetValue(PathKey, config.InterpreterPath ?? string.Empty);
                     }
                 }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -24,6 +24,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using Microsoft.PythonTools;
+using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Intellisense;
 using Microsoft.PythonTools.Repl;
 using Microsoft.VisualStudio.Language.Intellisense;
@@ -109,8 +110,11 @@ namespace ReplWindowUITests {
 
         public void CwdImport(PythonVisualStudioApp app, string interpreter) {
             using (var interactive = Prepare(app, interpreter)) {
+                var folder = PathUtils.TrimEndSeparator(TestData.GetTempPath());
+                FileUtils.CopyDirectory(TestData.GetPath("TestData", "ReplCwd"), folder);
+
                 interactive.SubmitCode("import sys\nsys.path");
-                interactive.SubmitCode("import os\nos.chdir(r'" + TestData.GetPath("TestData\\ReplCwd") + "')");
+                interactive.SubmitCode("import os\nos.chdir(r'" + folder + "')");
 
                 var importErrorFormat = ((ReplWindowProxySettings)interactive.Settings).ImportError;
                 interactive.SubmitCode("import module1");
@@ -1938,7 +1942,7 @@ $cls
                 s.AddNewLineAtEndOfFullyTypedWord = addNewLineAtEndOfFullyTypedWord;
             }
 
-            return ReplWindowProxy.Prepare(app, s, useIPython: useIPython);
+            return ReplWindowProxy.Prepare(app, s, projectName: null, workspaceName: null, useIPython: useIPython);
         }
 
         private static void EnsureInputFunction(ReplWindowProxy interactive) {

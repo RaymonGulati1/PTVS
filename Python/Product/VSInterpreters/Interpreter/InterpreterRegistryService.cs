@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -130,7 +130,8 @@ namespace Microsoft.PythonTools.Interpreter {
                 if (_noInterpretersValue == null) {
                     // Our default value is analysis-only for 3.6, since that is the default
                     // Python we would have shipped with VS.
-                    _noInterpretersValue = InterpreterFactoryCreator.CreateAnalysisInterpreterFactory(new Version(3, 6), Strings.NoInterpretersDescription);
+                    var configuration = new VisualStudioInterpreterConfiguration("AnalysisOnly|3.6", Strings.NoInterpretersDescription, version: new Version(3, 6));
+                    _noInterpretersValue = InterpreterFactoryCreator.CreateInterpreterFactory(configuration);
                 }
                 return _noInterpretersValue;
             }

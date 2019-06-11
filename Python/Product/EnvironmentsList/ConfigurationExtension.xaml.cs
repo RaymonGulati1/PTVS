@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -213,14 +213,13 @@ namespace Microsoft.PythonTools.EnvironmentsList {
                 }
             }
 
-            Version version;
-            if (!Version.TryParse(view.VersionName, out version)) {
+            if (!Version.TryParse(view.VersionName, out var version)) {
                 version = null;
             }
 
             return _interpreterOptions.AddConfigurableInterpreter(
                 view.Description,
-                new InterpreterConfiguration(
+                new VisualStudioInterpreterConfiguration(
                     "",
                     view.Description,
                     view.PrefixPath,
@@ -247,9 +246,9 @@ namespace Microsoft.PythonTools.EnvironmentsList {
 
             var factory = view.EnvironmentView.Factory;
             return view.Description != factory.Configuration.Description ||
-                view.PrefixPath != factory.Configuration.PrefixPath ||
+                view.PrefixPath != factory.Configuration.GetPrefixPath() ||
                 view.InterpreterPath != factory.Configuration.InterpreterPath ||
-                view.WindowsInterpreterPath != factory.Configuration.WindowsInterpreterPath ||
+                view.WindowsInterpreterPath != factory.Configuration.GetWindowsInterpreterPath() ||
                 view.PathEnvironmentVariable != factory.Configuration.PathEnvironmentVariable ||
                 InterpreterArchitecture.TryParse(view.ArchitectureName) != factory.Configuration.Architecture ||
                 view.VersionName != factory.Configuration.Version.ToString();
@@ -258,9 +257,9 @@ namespace Microsoft.PythonTools.EnvironmentsList {
         public void ResetConfiguration(ConfigurationEnvironmentView view) {
             var factory = view.EnvironmentView?.Factory;
             view.Description = factory?.Configuration.Description;
-            view.PrefixPath = factory?.Configuration.PrefixPath;
+            view.PrefixPath = factory?.Configuration.GetPrefixPath();
             view.InterpreterPath = factory?.Configuration.InterpreterPath;
-            view.WindowsInterpreterPath = factory?.Configuration.WindowsInterpreterPath;
+            view.WindowsInterpreterPath = factory?.Configuration.GetWindowsInterpreterPath();
             view.PathEnvironmentVariable = factory?.Configuration.PathEnvironmentVariable;
             view.ArchitectureName = factory?.Configuration.Architecture.ToString();
             view.VersionName = factory?.Configuration.Version.ToString();

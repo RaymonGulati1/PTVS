@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -34,12 +34,13 @@ namespace Microsoft.PythonTools.Interpreter {
         private readonly List<PackageSpec> _packages;
         private CancellationTokenSource _currentRefresh;
         private bool _isReady, _everCached;
+        private KeyValuePair<string, string>[] _activatedEnvironmentVariables;
 
         private List<FileSystemWatcher> _libWatchers;
         private Timer _refreshIsCurrentTrigger;
 
         private readonly PipPackageManagerCommands _commands;
-
+        private readonly ICondaLocatorProvider _condaLocatorProvider;
         internal readonly SemaphoreSlim _working = new SemaphoreSlim(1);
 
         private bool _pipListHasFormatOption;
@@ -60,7 +61,8 @@ namespace Microsoft.PythonTools.Interpreter {
         public PipPackageManager(
             IPythonInterpreterFactory factory,
             PipPackageManagerCommands commands,
-            int priority
+            int priority,
+            ICondaLocatorProvider condaLocatorProvider
         ) {
             _packages = new List<PackageSpec>();
             _pipListHasFormatOption = true;
@@ -75,7 +77,7 @@ namespace Microsoft.PythonTools.Interpreter {
             _factory = factory;
             _commands = commands ?? new PipPackageManagerCommands();
             Priority = priority;
-
+            _condaLocatorProvider = condaLocatorProvider;
             _cache = PipPackageCache.GetCache();
         }
 
@@ -105,7 +107,29 @@ namespace Microsoft.PythonTools.Interpreter {
             if (!IsReady) {
                 await UpdateIsReadyAsync(false, cancellationToken);
                 if (!IsReady) {
-                    throw new InvalidOperationException(Strings.MisconfiguredPip.FormatUI(_factory?.Configuration?.PrefixPath ?? "<null>"));
+                    throw new InvalidOperationException(Strings.MisconfiguredPip.FormatUI((_factory?.Configuration as VisualStudioInterpreterConfiguration)?.PrefixPath ?? "<null>"));
+                }
+            }
+        }
+
+        private void EnsureActivated() {
+            if (_activatedEnvironmentVariables == null) {
+                var prefixPath = _factory.Configuration.GetPrefixPath();
+                if (_condaLocatorProvider != null && Directory.Exists(prefixPath) && CondaUtils.IsCondaEnvironment(prefixPath)) {
+                    var rootConda = _condaLocatorProvider.FindLocator()?.CondaExecutablePath;
+                    if (File.Exists(rootConda)) {
+                        var env = CondaUtils.CaptureActivationEnvironmentVariablesForPrefix(rootConda, prefixPath);
+                        _activatedEnvironmentVariables = env.Union(UnbufferedEnv).ToArray();
+                    } else {
+                        // Normally, the root is required for this environment to have been discovered,
+                        // but it could be that the user added this as a custom environment and then
+                        // uninstalled the root. When that's the case, there is no way to activate,
+                        // so proceed without activation env variables.
+                        _activatedEnvironmentVariables = UnbufferedEnv;
+                    }
+                } else {
+                    // Not a conda environment, no activation necessary.
+                    _activatedEnvironmentVariables = UnbufferedEnv;
                 }
             }
         }
@@ -137,11 +161,13 @@ namespace Microsoft.PythonTools.Interpreter {
                 }
             }
             try {
+                EnsureActivated();
+
                 using (var proc = ProcessOutput.Run(
                     _factory.Configuration.InterpreterPath,
                     _commands.CheckIsReady(),
-                    _factory.Configuration.PrefixPath,
-                    UnbufferedEnv,
+                    _factory.Configuration.GetPrefixPath(),
+                    _activatedEnvironmentVariables,
                     false,
                     null
                 )) {
@@ -174,11 +200,13 @@ namespace Microsoft.PythonTools.Interpreter {
                 ui?.OnOperationStarted(this, operation);
                 ui?.OnOutputTextReceived(this, Strings.InstallingPipStarted);
 
+                EnsureActivated();
+
                 using (var proc = ProcessOutput.Run(
                     _factory.Configuration.InterpreterPath,
                     _commands.Prepare(),
-                    _factory.Configuration.PrefixPath,
-                    UnbufferedEnv,
+                    _factory.Configuration.GetPrefixPath(),
+                    _activatedEnvironmentVariables,
                     false,
                     PackageManagerUIRedirector.Get(this, ui),
                     elevate: await ShouldElevate(ui, operation)
@@ -207,12 +235,14 @@ namespace Microsoft.PythonTools.Interpreter {
                 ui?.OnOutputTextReceived(this, operation);
                 ui?.OnOperationStarted(this, Strings.ExecutingCommandStarted.FormatUI(arguments));
 
+                EnsureActivated();
+
                 try {
                     using (var output = ProcessOutput.Run(
                         _factory.Configuration.InterpreterPath,
                         new[] { args.Trim() },
-                        _factory.Configuration.PrefixPath,
-                        UnbufferedEnv,
+                        _factory.Configuration.GetPrefixPath(),
+                        _activatedEnvironmentVariables,
                         false,
                         PackageManagerUIRedirector.Get(this, ui),
                         quoteArgs: false,
@@ -255,12 +285,14 @@ namespace Microsoft.PythonTools.Interpreter {
                 ui?.OnOperationStarted(this, operation);
                 ui?.OnOutputTextReceived(this, Strings.InstallingPackageStarted.FormatUI(name));
 
+                EnsureActivated();
+
                 try {
                     using (var output = ProcessOutput.Run(
                         _factory.Configuration.InterpreterPath,
                         args,
-                        _factory.Configuration.PrefixPath,
-                        UnbufferedEnv,
+                        _factory.Configuration.GetPrefixPath(),
+                        _activatedEnvironmentVariables,
                         false,
                         PackageManagerUIRedirector.Get(this, ui),
                         quoteArgs: false,
@@ -303,11 +335,13 @@ namespace Microsoft.PythonTools.Interpreter {
                     ui?.OnOperationStarted(this, operation);
                     ui?.OnOutputTextReceived(this, Strings.UninstallingPackageStarted.FormatUI(name));
 
+                    EnsureActivated();
+
                     using (var output = ProcessOutput.Run(
                         _factory.Configuration.InterpreterPath,
                         args,
-                        _factory.Configuration.PrefixPath,
-                        UnbufferedEnv,
+                        _factory.Configuration.GetPrefixPath(),
+                        _activatedEnvironmentVariables,
                         false,
                         PackageManagerUIRedirector.Get(this, ui),
                         elevate: await ShouldElevate(ui, operation)
@@ -391,11 +425,13 @@ namespace Microsoft.PythonTools.Interpreter {
 
                 var concurrencyLock = alreadyHasConcurrencyLock ? null : await _concurrencyLock.LockAsync(cancellationToken);
                 try {
+                    EnsureActivated();
+
                     using (var proc = ProcessOutput.Run(
                         _factory.Configuration.InterpreterPath,
                         args,
-                        _factory.Configuration.PrefixPath,
-                        UnbufferedEnv,
+                        _factory.Configuration.GetPrefixPath(),
+                        _activatedEnvironmentVariables,
                         false,
                         null
                     )) {
@@ -597,8 +633,8 @@ namespace Microsoft.PythonTools.Interpreter {
 
             IReadOnlyList<string> paths = null;
 
-            if (_factory is Ast.AstPythonInterpreterFactory astFactory) {
-                paths = await astFactory.GetSearchPathsAsync(CancellationToken.None);
+            if (_factory.Configuration.SearchPaths.Any()) {
+                paths = _factory.Configuration.SearchPaths;
             }
 
             if (paths == null) {
@@ -612,7 +648,7 @@ namespace Microsoft.PythonTools.Interpreter {
             }
 
             paths = paths
-                .Where(p => Directory.Exists(p))
+                .Where(Directory.Exists)
                 .OrderBy(p => p.Length)
                 .ToList();
 
@@ -716,8 +752,10 @@ namespace Microsoft.PythonTools.Interpreter {
         }
 
         private void OnChanged(object sender, FileSystemEventArgs e) {
-            if ((Directory.Exists(e.FullPath) && !"__pycache__".Equals(PathUtils.GetFileOrDirectoryName(e.FullPath))) ||
-                ModulePath.IsPythonFile(e.FullPath, false, true, false)) {
+            if ((Directory.Exists(e.FullPath) && 
+                !PathUtils.GetFileOrDirectoryName(e.FullPath).Equals("__pycache__", StringComparison.OrdinalIgnoreCase)) ||
+                ModulePath.IsPythonFile(e.FullPath, false, true, false)
+            ) {
                 try {
                     _refreshIsCurrentTrigger.Change(1000, Timeout.Infinite);
                 } catch (ObjectDisposedException) {

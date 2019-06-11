@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,9 +18,9 @@
 //
 
 #include "stdafx.h"
-
 #include "PyDebugAttach.h"
 #include "..\VsPyProf\python.h"
+#include <algorithm>
 
 // _Always_ is not defined for all versions, so make it a no-op if missing.
 #ifndef _Always_
@@ -260,83 +260,6 @@ typedef __kernel_entry NTSTATUS NTAPI
     OUT PULONG ReturnLength OPTIONAL
     );
 
-
-// A helper version of EnumProcessModules.  On Win7 uses the real EnumProcessModules which
-// lives in kernel32, and so is safe to use in DLLMain.  Pre-Win7 we use NtQueryInformationProcess
-// (http://msdn.microsoft.com/en-us/library/windows/desktop/ms684280(v=vs.85).aspx) and walk the 
-// LDR_DATA_TABLE_ENTRY data structures http://msdn.microsoft.com/en-us/library/windows/desktop/aa813708(v=vs.85).aspx
-// which have changed in Windows 7, and may change more in the future, so we can't use them there.
-__success(return) BOOL EnumProcessModulesHelper(
-    __in   HANDLE hProcess,
-    __out  HMODULE *lphModule,
-    __in   DWORD cb,
-    _Always_(__out) LPDWORD lpcbNeeded
-    ) {
-        if (lpcbNeeded == nullptr) {
-            return FALSE;
-        }
-        *lpcbNeeded = 0;
-
-        auto kernel32 = GetModuleHandle(L"kernel32.dll");
-        if (kernel32 == nullptr) {
-            return FALSE;
-        }
-
-        auto enumProc = (EnumProcessModulesFunc*)GetProcAddress(kernel32, "K32EnumProcessModules");
-        if (enumProc == nullptr) {
-            // Fallback to pre-Win7 method
-            PROCESS_BASIC_INFORMATION basicInfo;
-            auto ntdll = GetModuleHandle(L"ntdll.dll");
-            if (ntdll == nullptr) {
-                return FALSE;
-            }
-
-            // http://msdn.microsoft.com/en-us/library/windows/desktop/ms684280(v=vs.85).aspx
-            NtQueryInformationProcessFunc* queryInfo = (NtQueryInformationProcessFunc*)GetProcAddress(ntdll, "NtQueryInformationProcess");
-            if (queryInfo == nullptr) {
-                return FALSE;
-            }
-
-            auto result = queryInfo(
-                GetCurrentProcess(),
-                ProcessBasicInformation,
-                &basicInfo,
-                sizeof(PROCESS_BASIC_INFORMATION),
-                NULL
-                );
-
-            if (FAILED(result)) {
-                return FALSE;
-            }
-
-            // http://msdn.microsoft.com/en-us/library/windows/desktop/aa813708(v=vs.85).aspx
-            PEB* peb = basicInfo.PebBaseAddress;
-            auto start = (LDR_DATA_TABLE_ENTRY*)(peb->Ldr->InMemoryOrderModuleList.Flink);
-
-            auto cur = start;
-            *lpcbNeeded = 0;
-
-            do {
-                if ((*lpcbNeeded + sizeof(SIZE_T)) <= cb) {
-                    PVOID *curLink = (PVOID*)cur;
-                    curLink -= 2;
-                    LDR_DATA_TABLE_ENTRY* curTable = (LDR_DATA_TABLE_ENTRY*)curLink;
-                    if (curTable->DllBase == nullptr) {
-                        break;
-                    }
-                    lphModule[(*lpcbNeeded) / sizeof(SIZE_T)] = (HMODULE)curTable->DllBase;
-                }
-
-                (*lpcbNeeded) += sizeof(SIZE_T);
-                cur = (LDR_DATA_TABLE_ENTRY*)((LIST_ENTRY*)cur)->Flink;
-            } while (cur != start && cur != 0);
-
-            return *lpcbNeeded <= cb;
-        }
-
-        return enumProc(hProcess, lphModule, cb, lpcbNeeded);
-}
-
 // This function will work with Win7 and later versions of the OS and is safe to call under
 // the loader lock (all APIs used are in kernel32).
 BOOL PatchFunction(LPSTR exportingDll, PVOID replacingFunc, LPVOID newFunction) {
@@ -349,7 +272,7 @@ BOOL PatchFunction(LPSTR exportingDll, PVOID replacingFunc, LPVOID newFunction) 
         return FALSE;
     }
 
-    while (!EnumProcessModulesHelper(hProcess, hMods, modSize, &modsNeeded)) {
+    while (!EnumProcessModules(hProcess, hMods, modSize, &modsNeeded)) {
         // try again w/ more space...
         _freea(hMods);
         hMods = (HMODULE*)_malloca(modsNeeded);
@@ -393,35 +316,17 @@ int AttachCallback(void *initThreads) {
     SetEvent(g_initedEvent);
     return 0;
 }
-
-char* ReadCodeFromFile(wchar_t* filePath) {
+//Change this to a boolean and output through string reference
+bool ReadCodeFromFile(wchar_t* filePath, string& fileContents) {
     ifstream filestr;
     filestr.open(filePath, ios::binary);
     if (filestr.fail()) {
-        return nullptr;
+        return false;
     }
-
-    // get length of file:
-    filestr.seekg(0, ios::end);
-    auto length = filestr.tellg();
-    filestr.seekg(0, ios::beg);
-
-    int len = (int)length;
-    char* buffer = new char[len + 1];
-    filestr.read(buffer, len);
-    buffer[len] = 0;
-
-    // remove carriage returns, copy zero byte
-    for (int read = 0, write = 0; read <= len; read++) {
-        if (buffer[read] == '\r') {
-            continue;
-        } else if (write != read) {
-            buffer[write] = buffer[read];
-        }
-        write++;
-    }
-
-    return buffer;
+    
+    copy_if(istreambuf_iterator<char>(filestr), {}, back_inserter(fileContents), [](auto ch) { return ch != '\r'; });
+    
+    return true;
 }
 
 // create a custom heap for our unordered map.  This is necessary because if we suspend a thread while in a heap function
@@ -454,14 +359,21 @@ public:
     PrivateHeapAllocator(PrivateHeapAllocator<U> const&) {}
 
     pointer allocate(size_type size, allocator<void>::const_pointer hint = 0) {
-        if (g_heap == nullptr) {
-            g_heap = HeapCreate(0, 0, 0);
-        }
+        UNREFERENCED_PARAMETER(hint);
+
+    g_heap = (g_heap == nullptr) ? HeapCreate(0, 0, 0) : g_heap;
+    if (g_heap != nullptr)
+    {
         auto mem = HeapAlloc(g_heap, 0, size * sizeof(T));
         return static_cast<pointer>(mem);
     }
 
+        return nullptr;
+    }
+ 
     void deallocate(pointer p, size_type n) {
+        UNREFERENCED_PARAMETER(n);
+
         HeapFree(g_heap, 0, p);
     }
 
@@ -570,6 +482,9 @@ void IncRef(PyObject* object) {
     object->ob_refcnt++;
 }
 
+#pragma warning(push)
+#pragma warning(disable:4324) // 'MemoryBuffer': structure was padded due to alignment specifier
+
 // Structure for our shared memory communication, aligned to be identical on 64-bit and 32-bit
 struct MemoryBuffer {
     int32_t PortNumber;                                 // offset 0-4
@@ -582,13 +497,16 @@ struct MemoryBuffer {
     char DebugOptions[1];                               // null terminated string (VLA)
 };
 
+#pragma warning(pop)
+
 class ConnectionInfo {
 public:
     HANDLE FileMapping;
     MemoryBuffer *Buffer;
     bool Succeeded;
 
-    ConnectionInfo() : Succeeded(false) {
+    ConnectionInfo() : 
+        Succeeded(false), Buffer(nullptr), FileMapping(nullptr) {
     }
 
     ConnectionInfo(MemoryBuffer *memoryBuffer, HANDLE fileMapping) :
@@ -617,7 +535,7 @@ public:
 
                 serveraddr.sin_family = AF_INET;
                 serveraddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-                serveraddr.sin_port = htons(Buffer->PortNumber);
+                serveraddr.sin_port = htons(static_cast<u_short>(Buffer->PortNumber));
 
                 // connect to our DebugConnectionListener and report the error.
                 if (connect(sock, (sockaddr*)&serveraddr, sizeof(sockaddr_in)) == 0) {
@@ -758,12 +676,14 @@ bool LoadAndEvaluateCode(
     PyEval_EvalCode* pyEvalCode, PyString_FromString* strFromString, PyEval_GetBuiltins* getBuiltins,
     PyErr_Print pyErrPrint
  ) {
-    auto debuggerCode = ReadCodeFromFile(filePath);
-    if (debuggerCode == nullptr) {
+    string fileContents;
+    if (!ReadCodeFromFile(filePath, fileContents))
+    {
         connInfo.ReportErrorAfterAttachDone(ConnError_LoadDebuggerFailed);
         return false;
     }
-
+    
+    auto debuggerCode = fileContents.data();
     auto code = PyObjectHolder(isDebug, pyCompileString(debuggerCode, fileName, 257 /*Py_file_input*/));
     delete[] debuggerCode;
 
@@ -785,6 +705,8 @@ bool LoadAndEvaluateCode(
     if (*evalResult == nullptr) {
         pyErrPrint();
     }
+#else
+    UNREFERENCED_PARAMETER(pyErrPrint);
 #endif
 
     return true;
@@ -818,14 +740,11 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
         auto gilRelease = (PyGILState_Release*)GetProcAddress(module, "PyGILState_Release");
         auto threadHead = (PyInterpreterState_ThreadHead*)GetProcAddress(module, "PyInterpreterState_ThreadHead");
         auto initThreads = (PyEval_Lock*)GetProcAddress(module, "PyEval_InitThreads");
-        auto acquireLock = (PyEval_Lock*)GetProcAddress(module, "PyEval_AcquireLock");
         auto releaseLock = (PyEval_Lock*)GetProcAddress(module, "PyEval_ReleaseLock");
         auto threadsInited = (PyEval_ThreadsInitialized*)GetProcAddress(module, "PyEval_ThreadsInitialized");
         auto threadNext = (PyThreadState_Next*)GetProcAddress(module, "PyThreadState_Next");
         auto threadSwap = (PyThreadState_Swap*)GetProcAddress(module, "PyThreadState_Swap");
         auto pyDictNew = (PyDict_New*)GetProcAddress(module, "PyDict_New");
-        auto pyModuleNew = (PyModule_New*)GetProcAddress(module, "PyModule_New");
-        auto pyModuleGetDict = (PyModule_GetDict*)GetProcAddress(module, "PyModule_GetDict");
         auto pyCompileString = (Py_CompileString*)GetProcAddress(module, "Py_CompileString");
         auto pyEvalCode = (PyEval_EvalCode*)GetProcAddress(module, "PyEval_EvalCode");
         auto getDictItem = (PyDict_GetItemString*)GetProcAddress(module, "PyDict_GetItemString");
@@ -919,9 +838,15 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
                 // not available on 3.2
                 saveIntervalCheck = *intervalCheck;
                 *intervalCheck = -1;    // lower the interval check so pending calls are processed faster
+                saveLongIntervalCheck = 0; // prevent compiler warning
             } else if (getSwitchInterval != nullptr && setSwitchInterval != nullptr) {
                 saveLongIntervalCheck = getSwitchInterval();
                 setSwitchInterval(0);
+                saveIntervalCheck = 0; // prevent compiler warning
+            }
+            else {
+                saveIntervalCheck = 0; // prevent compiler warning
+                saveLongIntervalCheck = 0; // prevent compiler warning
             }
 
             // 
@@ -965,7 +890,7 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
 #define TICKS_DIFF(prev, cur) ((cur) >= (prev)) ? ((cur)-(prev)) : ((0xFFFFFFFF-(prev))+(cur)) 
             const DWORD ticksPerSecond = 1000;
 
-            DWORD startTickCount = GetTickCount();
+            ULONGLONG startTickCount = GetTickCount64();
             do {
                 SuspendThreads(suspendedThreads, addPendingCall, threadsInited);
 
@@ -998,6 +923,10 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
                             // http://pytools.codeplex.com/workitem/834
                             gilState = gilEnsure();
                         }
+                        else {
+                            gilState = PyGILState_LOCKED; // prevent compiler warning
+                        }
+
                         initThreads();
 
                         if (version >= PythonVersion_32) {
@@ -1015,7 +944,7 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
                 }
                 ResumeThreads(suspendedThreads);
             } while (!threadsInited() &&
-                (TICKS_DIFF(startTickCount, GetTickCount())) < (ticksPerSecond * 20) &&
+                (TICKS_DIFF(startTickCount, GetTickCount64())) < (ticksPerSecond * 20) &&
                 !addedPendingCall);
 
             if (!threadsInited()) {
@@ -1167,6 +1096,9 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
                             frame = ((PyThreadState_34_36*)curThread)->frame;
                         } else if (PyThreadState_37::IsFor(version)) {
                             frame = ((PyThreadState_37*)curThread)->frame;
+                        } else {
+                            _ASSERTE(false);
+                            frame = nullptr; // prevent compiler warning
                         }
 
                         auto threadObj = PyObjectHolder(isDebug, call(new_thread.ToPython(), pyThreadId.ToPython(), pyTrue, frame, NULL));
@@ -1178,14 +1110,15 @@ bool DoAttach(HMODULE module, ConnectionInfo& connInfo, bool isDebug) {
                         // all of the work here needs to be minimal - in particular we shouldn't
                         // ever evaluate user defined code as we could end up switching to this
                         // thread on the main thread and corrupting state.
-                        auto prevThreadState = getThreadTls(threadStateIndex);
                         delThreadTls(threadStateIndex);
                         setThreadTls(threadStateIndex, curThread);
                         auto prevThread = threadSwap(curThread);
 
                         // save and restore the error in case something funky happens...
                         auto errOccured = errOccurred();
-                        PyObject *type, *value, *traceback;
+                        PyObject* type = nullptr;
+                        PyObject* value = nullptr;
+                        PyObject* traceback = nullptr;
                         if (errOccured) {
                             pyErrFetch(&type, &value, &traceback);
                         }
@@ -1260,6 +1193,8 @@ bool IsPythonModule(HMODULE module, bool &isDebug) {
 }
 
 DWORD __stdcall AttachWorker(LPVOID arg) {
+    UNREFERENCED_PARAMETER(arg);
+
     HANDLE hProcess = GetCurrentProcess();
     DWORD modSize = sizeof(HMODULE) * 1024;
     HMODULE* hMods = (HMODULE*)_malloca(modSize);
@@ -1324,6 +1259,8 @@ DWORD __stdcall AttachWorker(LPVOID arg) {
 // portion of the debugger, let it setup the thread object, and then we dispatch
 // to it so that it gets the 1st call event.
 int TraceGeneral(int interpreterId, PyObject *obj, PyFrameObject *frame, int what, PyObject *arg) {
+    UNREFERENCED_PARAMETER(obj);
+
     auto curInterpreter = _interpreterInfo[interpreterId];
 
     auto new_thread = curInterpreter->NewThreadFunction;
@@ -1560,6 +1497,8 @@ typedef NTSTATUS NTAPI LdrUnregisterDllNotification(
 #define LDR_DLL_NOTIFICATION_REASON_UNLOADED 2
 
 void CALLBACK DllLoadNotify(ULONG NotificationReason, _LDR_DLL_NOTIFICATION_DATA* NotificationData, PVOID Context) {
+    UNREFERENCED_PARAMETER(Context);
+
     if (NotificationReason == LDR_DLL_NOTIFICATION_REASON_LOADED) {
         // patch any Python functions the newly loaded DLL is calling.
         for (DWORD i = 0; i < _interpreterCount; i++) {
@@ -1597,7 +1536,7 @@ void Attach() {
         modsNeeded = 0;
         return;
     } else {
-        while (!EnumProcessModulesHelper(hProcess, hMods, modSize, &modsNeeded)) {
+        while (!EnumProcessModules(hProcess, hMods, modSize, &modsNeeded)) {
             // try again w/ more space...
             _freea(hMods);
             hMods = (HMODULE*)_malloca(modsNeeded);
@@ -1683,7 +1622,7 @@ void Detach() {
         return;
     }
 
-    while (!EnumProcessModulesHelper(hProcess, hMods, modSize, &modsNeeded)) {
+    while (!EnumProcessModules(hProcess, hMods, modSize, &modsNeeded)) {
         // try again w/ more space...
         _freea(hMods);
         hMods = (HMODULE*)_malloca(modsNeeded);

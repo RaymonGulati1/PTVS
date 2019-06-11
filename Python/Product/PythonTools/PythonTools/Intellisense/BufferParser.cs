@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -224,23 +224,6 @@ namespace Microsoft.PythonTools.Intellisense {
             }
         }
 
-        [Conditional("DEBUG")]
-        private static void ValidateBufferContents(IEnumerable<ITextSnapshot> snapshots, AP.FileUpdateResponse response) {
-#if DEBUG
-            if (response?.newCode == null) {
-                return;
-            }
-
-            var total = snapshots.Aggregate(string.Empty, (t, s) => t + s.GetText());
-
-            if (response.newCode.TrimEnd() != total.TrimEnd()) {
-                Console.Error.WriteLine($"New Code: {response.version} [{response.newCode}]");
-                Console.Error.WriteLine($"Snapshot: {string.Join(", ", snapshots.Select(s => s.Version.VersionNumber))} [{total}]");
-                Debug.Fail("Buffer content mismatch");
-            }
-#endif
-        }
-
         internal static async Task ParseBuffersAsync(
             PythonEditorServices services,
             VsProjectAnalyzer analyzer,
@@ -282,7 +265,6 @@ namespace Microsoft.PythonTools.Intellisense {
                     }
                 } else {
                     analyzer.OnAnalysisStarted();
-                    ValidateBufferContents(task.Item1, res);
                 }
             }
 
@@ -307,10 +289,6 @@ namespace Microsoft.PythonTools.Intellisense {
                         endLine = oldEnd.Line,
                         endColumn = oldEnd.Column,
                         newText = change.NewText,
-#if DEBUG
-                        _startIndex = change.OldPosition,
-                        _endIndex = change.OldEnd
-#endif
                     });
                 }
             }

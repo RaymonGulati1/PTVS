@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -42,6 +42,7 @@ namespace Microsoft.PythonTools.Environments {
             OptionsService = serviceProvider.GetComponentModel().GetService<IInterpreterOptionsService>();
 
             AcceptCaption = Strings.AddEnvironmentAddButton;
+            AcceptAutomationName = Strings.AddEnvironmentAddButtonAutomationName;
             IsAcceptEnabled = true;
             Projects = new ObservableCollection<ProjectView>(projects);
             SelectedProject = selectedProject;
@@ -59,6 +60,9 @@ namespace Microsoft.PythonTools.Environments {
 
         public static readonly DependencyProperty AcceptCaptionProperty =
             DependencyProperty.Register(nameof(AcceptCaption), typeof(string), typeof(EnvironmentViewBase));
+
+        public static readonly DependencyProperty AcceptAutomationNameProperty =
+            DependencyProperty.Register(nameof(AcceptAutomationName), typeof(string), typeof(EnvironmentViewBase));
 
         public static readonly DependencyProperty IsAcceptEnabledProperty =
             DependencyProperty.Register(nameof(IsAcceptEnabled), typeof(bool), typeof(EnvironmentViewBase));
@@ -100,6 +104,11 @@ namespace Microsoft.PythonTools.Environments {
         public string AcceptCaption {
             get { return (string)GetValue(AcceptCaptionProperty); }
             set { SetValue(AcceptCaptionProperty, value); }
+        }
+
+        public string AcceptAutomationName {
+            get { return (string)GetValue(AcceptAutomationNameProperty); }
+            set { SetValue(AcceptAutomationNameProperty, value); }
         }
 
         public bool IsAcceptEnabled {
