@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -110,30 +110,6 @@ namespace PythonToolsUITests {
             Assert.IsTrue(Directory.Exists(envPath), "Environment folder not found.");
             Assert.IsTrue(ui.OutputText.Any(line => line.Contains($"Successfully created '{envName}'")));
             AssertCondaMetaFiles(envPath, "python-2.7.*.json");
-        }
-
-        [TestMethod, Priority(0)]
-        [TestCategory("10s")]
-        public async Task CreateEnvironmentByNameAlreadyExists() {
-            var mgr = CreateEnvironmentManager();
-            var ui = new MockCondaEnvironmentManagerUI();
-
-            var envName = GetUnusedEnvironmentName(mgr);
-            bool result = await mgr.CreateAsync(envName, Python27Packages, ui, CancellationToken.None);
-
-            var envPath = EnqueueEnvironmentDeletion(mgr, envName);
-
-            Assert.IsTrue(result, "Create failed.");
-            Assert.IsTrue(Directory.Exists(envPath), "Environment folder not found.");
-
-            ui.Clear();
-
-            result = await mgr.CreateAsync(envName, Python27Packages, ui, CancellationToken.None);
-
-            Assert.IsFalse(result, "Create did not fail.");
-            Assert.IsTrue(ui.ErrorText.Any(line => line.Contains("prefix already exists")));
-            Assert.IsTrue(ui.OutputText.Any(line => line.Contains($"Failed to create '{envName}'")));
-            Assert.IsTrue(Directory.Exists(envPath), "Environment folder should not have been deleted.");
         }
 
         [TestMethod, Priority(0)]
@@ -359,7 +335,7 @@ namespace PythonToolsUITests {
             var version = PythonPaths.AnacondaVersions.FirstOrDefault();
             string condaPath = CondaUtils.GetCondaExecutablePath(version.PrefixPath, allowBatch: false);
             Assert.IsTrue(File.Exists(condaPath), $"Conda executable not found: '{condaPath}' for environment prefix at '{version.PrefixPath}'");
-            return new CondaEnvironmentManager(condaPath);
+            return CondaEnvironmentManager.Create(condaPath);
         }
 
         class MockCondaEnvironmentManagerUI : ICondaEnvironmentManagerUI {

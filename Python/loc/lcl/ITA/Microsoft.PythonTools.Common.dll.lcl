@@ -42,10 +42,13 @@
       </Item>
       <Item ItemId=";AddCondaEnvironmentFileHelp" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[The environment file is typically named environment.yml and specifies the conda and pip packages to install when creating the conda environment.]]></Val>
+          <Val><![CDATA[Path to environment.yml file, which specifies the Conda and pip packages to install when creating the Conda environment.]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Nel file di ambiente, il cui nome è in genere environment.yml, specifica i pacchetti conda e pip da installare quando si crea l'ambiente Conda.]]></Val>
+            <Val><![CDATA[Percorso del file environment.yml, che specifica i pacchetti Conda e pip da installare quando si crea l'ambiente Conda.]]></Val>
           </Tgt>
+          <Prev Cat="Text">
+            <Val><![CDATA[The environment file is typically named environment.yml and specifies the Conda and pip packages to install when creating the Conda environment.]]></Val>
+          </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
@@ -54,6 +57,15 @@
           <Val><![CDATA[Conda environment file '{0}' does not exist.]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
             <Val><![CDATA[Il file di ambiente Conda '{0}' non esiste.]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";AddCondaEnvironmentFileName" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Environment file path]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Percorso del file di ambiente]]></Val>
           </Tgt>
         </Str>
         <Disp Icon="Str" />
@@ -111,10 +123,13 @@
       </Item>
       <Item ItemId=";AddCondaEnvironmentPreviewInProgress" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[Preview in progress...]]></Val>
+          <Val><![CDATA[Building preview...]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Anteprima in corso...]]></Val>
+            <Val><![CDATA[Creazione dell'anteprima...]]></Val>
           </Tgt>
+          <Prev Cat="Text">
+            <Val><![CDATA[Preview in progress...]]></Val>
+          </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
@@ -154,11 +169,32 @@
         </Str>
         <Disp Icon="Str" />
       </Item>
+      <Item ItemId=";AddCondaPackagesBrowseButton" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Add packages]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Aggiungi pacchetti]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
       <Item ItemId=";AddCondaPackagesHelpText" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[List of conda packages to install when creating the conda environment. Entries should be separated by spaces.]]></Val>
+          <Val><![CDATA[List of Conda packages to install when creating the Conda environment. Entries should be separated by spaces. Example: numpy pandas]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Elenco dei pacchetti Conda da installare quando si crea l'ambiente Conda. Le voci devono essere delimitate da spazi.]]></Val>
+            <Val><![CDATA[Elenco dei pacchetti Conda da installare quando si crea l'ambiente Conda. Le voci devono essere delimitate da spazi. Esempio: numpy pandas]]></Val>
+          </Tgt>
+          <Prev Cat="Text">
+            <Val><![CDATA[List of Conda packages to install when creating the Conda environment. Entries should be separated by spaces.]]></Val>
+          </Prev>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";AddCondaPackagesName" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Package names]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Nomi dei pacchetti]]></Val>
           </Tgt>
         </Str>
         <Disp Icon="Str" />
@@ -174,10 +210,13 @@
       </Item>
       <Item ItemId=";AddCondaPackagesWatermark" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[ex. numpy pandas]]></Val>
-          <Tgt Cat="Text" Stat="Loc" Orig="New">
+          <Val><![CDATA[Example: "numpy pandas". If no packages are listed, Python will be installed]]></Val>
+          <Tgt Cat="Text" Stat="Update" Orig="New">
             <Val><![CDATA[ad esempio numpy pandas]]></Val>
           </Tgt>
+          <Prev Cat="Text">
+            <Val><![CDATA[ex. numpy pandas]]></Val>
+          </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
@@ -217,6 +256,15 @@
         </Str>
         <Disp Icon="Str" />
       </Item>
+      <Item ItemId=";AddEnvironmentAddButtonAutomationName" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Add]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Aggiungi]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
       <Item ItemId=";AddEnvironmentCancelButton" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
           <Val><![CDATA[_Cancel]]></Val>
@@ -235,11 +283,29 @@
         </Str>
         <Disp Icon="Str" />
       </Item>
+      <Item ItemId=";AddEnvironmentComboListEntry" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Add Environment...]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Aggiungi ambiente...]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
       <Item ItemId=";AddEnvironmentCreateButton" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
           <Val><![CDATA[C_reate]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
             <Val><![CDATA[C_rea]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";AddEnvironmentCreateButtonAutomationName" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Create]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Crea]]></Val>
           </Tgt>
         </Str>
         <Disp Icon="Str" />
@@ -480,10 +546,13 @@
       </Item>
       <Item ItemId=";AddExistingEnvironmentWindowsInterpreterPathLabel" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[Windo_wed interpreter]]></Val>
+          <Val><![CDATA[Windo_wed interpreter (optional)]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Interprete con _finestra]]></Val>
+            <Val><![CDATA[Interprete con _finestra (facoltativo)]]></Val>
           </Tgt>
+          <Prev Cat="Text">
+            <Val><![CDATA[Windo_wed interpreter]]></Val>
+          </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
@@ -505,6 +574,24 @@
           <Prev Cat="Text">
             <Val><![CDATA[To install a new Python interpreter, open Visual Studio Installer and install it from there.]]></Val>
           </Prev>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";AddInstalledEnvironmentInstallButton" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[_Install]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[_Installa]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";AddInstalledEnvironmentInstallButtonAutomationName" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Install]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Installa]]></Val>
+          </Tgt>
         </Str>
         <Disp Icon="Str" />
       </Item>
@@ -538,23 +625,20 @@
         </Str>
         <Disp Icon="Str" />
       </Item>
-      <Item ItemId=";AddInstalledEnvironmentLaunch" ItemType="0" PsrId="211" Leaf="true">
-        <Str Cat="Text">
-          <Val><![CDATA[Install]]></Val>
-          <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Installa]]></Val>
-          </Tgt>
-          <Prev Cat="Text">
-            <Val><![CDATA[Open Visual Studio Installer]]></Val>
-          </Prev>
-        </Str>
-        <Disp Icon="Str" />
-      </Item>
       <Item ItemId=";AddInstalledEnvironmentNone" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
           <Val><![CDATA[(none)]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
             <Val><![CDATA[(nessuno)]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";AddInstalledEnvironmentNoneAvailable" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[(none available)]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[(nessuno disponibile)]]></Val>
           </Tgt>
         </Str>
         <Disp Icon="Str" />
@@ -591,6 +675,15 @@
           <Val><![CDATA[Change virtual environment _location]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
             <Val><![CDATA[M_odifica il percorso dell'ambiente virtuale]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";AddVirtualEnvironmentDescriptionName" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Environment description]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Descrizione dell'ambiente]]></Val>
           </Tgt>
         </Str>
         <Disp Icon="Str" />
@@ -693,10 +786,13 @@
       </Item>
       <Item ItemId=";AddVirtualEnvironmentPreviewInProgress" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[Please wait...]]></Val>
+          <Val><![CDATA[Building preview...]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Attendere...]]></Val>
+            <Val><![CDATA[Creazione dell'anteprima...]]></Val>
           </Tgt>
+          <Prev Cat="Text">
+            <Val><![CDATA[Please wait...]]></Val>
+          </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
@@ -711,10 +807,13 @@
       </Item>
       <Item ItemId=";AddVirtualEnvironmentRequirementsPathLabel" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[Install packages fr_om file]]></Val>
+          <Val><![CDATA[Install packages fr_om file (optional)]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Installa pacchetti dal _file]]></Val>
+            <Val><![CDATA[Installa pacchetti dal _file (facoltativo)]]></Val>
           </Tgt>
+          <Prev Cat="Text">
+            <Val><![CDATA[Install packages fr_om file]]></Val>
+          </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
@@ -1153,6 +1252,24 @@
         </Str>
         <Disp Icon="Str" />
       </Item>
+      <Item ItemId=";CondaEnvCreatedWithoutPython" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Conda environment '{0}' was created, but it will not be detected by Visual Studio because it does not contain Python.]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[L'ambiente Conda '{0}' è stato creato, ma non verrà rilevato da Visual Studio perché non contiene Python.]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";CondaEnvNotDetected" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Conda environment not detected]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Ambiente Conda non rilevato]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
       <Item ItemId=";CondaEnvironmentDescription" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
           <Val><![CDATA[Conda Environment]]></Val>
@@ -1260,36 +1377,36 @@
       </Item>
       <Item ItemId=";CondaInfoBarCreateNewMessage" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[The project '{0}' has a conda environment.yml file, but no conda environments.]]></Val>
+          <Val><![CDATA[The project "{0}" has a Conda environment.yml file, but no Conda environments.]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Il progetto '{0}' contiene un file environment.yml di Conda, ma nessun ambiente Conda.]]></Val>
+            <Val><![CDATA[Il progetto "{0}" contiene un file environment.yml di Conda, ma nessun ambiente Conda.]]></Val>
           </Tgt>
           <Prev Cat="Text">
-            <Val><![CDATA[The project '{0}' has a conda environment.yml file, but no conda environments. Would you like to create one?]]></Val>
+            <Val><![CDATA[The project '{0}' has a conda environment.yml file, but no conda environments.]]></Val>
           </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
       <Item ItemId=";CondaInfoBarProjectIgnoreAction" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[Don't show this again]]></Val>
+          <Val><![CDATA[Don't show this message again]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
             <Val><![CDATA[Non visualizzare più questo messaggio]]></Val>
           </Tgt>
           <Prev Cat="Text">
-            <Val><![CDATA[Don't Show This Again]]></Val>
+            <Val><![CDATA[Don't show this again]]></Val>
           </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
       <Item ItemId=";CondaInfoBarRecreateMessage" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[The project '{0}' has a reference to a missing conda environment '{1}'.]]></Val>
+          <Val><![CDATA[The project "{0}" has a reference to a missing Conda environment "{1}".]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Il progetto '{0}' contiene un riferimento a un ambiente Conda '{1}' mancante.]]></Val>
+            <Val><![CDATA[Il progetto "{0}" contiene un riferimento a un ambiente Conda "{1}" mancante.]]></Val>
           </Tgt>
           <Prev Cat="Text">
-            <Val><![CDATA[The project '{0}' has a reference to a missing conda environment '{1}'. Would you like to create it?]]></Val>
+            <Val><![CDATA[The project '{0}' has a reference to a missing conda environment '{1}'.]]></Val>
           </Prev>
         </Str>
         <Disp Icon="Str" />
@@ -1350,28 +1467,37 @@
       </Item>
       <Item ItemId=";CondaStatusBarCreateFailed" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[Failed to create conda environment '{0}']]></Val>
+          <Val><![CDATA[Failed to create Conda environment "{0}"]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Non è stato possibile creare l'ambiente Conda '{0}']]></Val>
+            <Val><![CDATA[Non è stato possibile creare l'ambiente Conda "{0}"]]></Val>
           </Tgt>
+          <Prev Cat="Text">
+            <Val><![CDATA[Failed to create conda environment '{0}']]></Val>
+          </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
       <Item ItemId=";CondaStatusBarCreateStarted" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[Creating conda environment '{0}']]></Val>
+          <Val><![CDATA[Creating Conda environment "{0}"]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Creazione dell'ambiente Conda '{0}']]></Val>
+            <Val><![CDATA[Creazione dell'ambiente Conda "{0}"]]></Val>
           </Tgt>
+          <Prev Cat="Text">
+            <Val><![CDATA[Creating conda environment '{0}']]></Val>
+          </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
       <Item ItemId=";CondaStatusBarCreateSucceeded" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[Successfully created conda environment '{0}']]></Val>
+          <Val><![CDATA[Successfully created Conda environment "{0}"]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[L'ambiente Conda '{0}' è stato creato]]></Val>
+            <Val><![CDATA[L'ambiente Conda "{0}" è stato creato]]></Val>
           </Tgt>
+          <Prev Cat="Text">
+            <Val><![CDATA[Successfully created conda environment '{0}']]></Val>
+          </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
@@ -1422,10 +1548,13 @@
       </Item>
       <Item ItemId=";CondaStatusCenterCreateTitle" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[Create conda environment '{0}']]></Val>
+          <Val><![CDATA[Create Conda environment "{0}"]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Crea l'ambiente Conda '{0}']]></Val>
+            <Val><![CDATA[Crea l'ambiente Conda "{0}"]]></Val>
           </Tgt>
+          <Prev Cat="Text">
+            <Val><![CDATA[Create conda environment '{0}']]></Val>
+          </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
@@ -3084,6 +3213,33 @@
           <Val><![CDATA['{0}' will be removed from the project.]D;]A;No files will be deleted from disk.]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
             <Val><![CDATA['{0}' verrà rimosso dal progetto.]D;]A;Nessun file verrà eliminato dal disco.]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";EnvironmentSwitcherNoCurrentEnvironment" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[(no Python environment)]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[(nessun ambiente Python)]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";EnvironmentSwitcherTooltipWithKeyBinding" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Python Environment ({0})]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Ambiente Python ({0})]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";EnvironmentSwitcherTooltipWithoutKeyBinding" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Python Environment]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Ambiente Python]]></Val>
           </Tgt>
         </Str>
         <Disp Icon="Str" />
@@ -5724,10 +5880,13 @@
       </Item>
       <Item ItemId=";ReplProjectConfigurationChanged" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[The associated project '{0}' has changed its configuration. These changes will not be reflected until you reset this interactive window.]]></Val>
+          <Val><![CDATA[The associated project "{0}" has changed its configuration. These changes will not be reflected until you reset this interactive window.]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Il progetto associato '{0}' ha modificato la relativa configurazione. Per rendere effettive tali modifiche, è necessario ripristinare prima questa finestra interattiva.]]></Val>
+            <Val><![CDATA[Il progetto associato "{0}" ha modificato la relativa configurazione. Per rendere effettive tali modifiche, è necessario ripristinare prima questa finestra interattiva.]]></Val>
           </Tgt>
+          <Prev Cat="Text">
+            <Val><![CDATA[The associated project '{0}' has changed its configuration. These changes will not be reflected until you reset this interactive window.]]></Val>
+          </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
@@ -5878,6 +6037,24 @@
         </Str>
         <Disp Icon="Str" />
       </Item>
+      <Item ItemId=";ReplWorkspaceCaption" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Workspace: {0}]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Area di lavoro: {0}]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";ReplWorkspaceConfigurationChanged" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[The associated workspace "{0}" has changed its configuration. These changes will not be reflected until you reset this interactive window.]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[L'area di lavoro associata "{0}" ha modificato la relativa configurazione. Per rendere effettive tali modifiche, è necessario ripristinare prima questa finestra interattiva.]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
       <Item ItemId=";ReplaceMultipleImportsWithMultipleStatementsLong" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
           <Val><![CDATA[If checked, import statements with multiple modules are separated onto individual lines. If unchecked, import statements with multiple modules are not modified.]]></Val>
@@ -5916,12 +6093,12 @@
       </Item>
       <Item ItemId=";RequirementsTxtCreateVirtualEnvInfoBarMessage" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[Python package specification file '{0}' was detected in project '{1}'.]]></Val>
+          <Val><![CDATA[Python package specification file "{0}" was detected in project "{1}".]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Nel progetto '{1}' è stato rilevato il file di specifiche '{0}' del pacchetto Python.]]></Val>
+            <Val><![CDATA[Nel progetto "{1}" è stato rilevato il file di specifiche "{0}" del pacchetto Python.]]></Val>
           </Tgt>
           <Prev Cat="Text">
-            <Val><![CDATA[Package specification file '{0}' was detected in project '{1}'. Would you like to add a virtual environment?]]></Val>
+            <Val><![CDATA[Python package specification file '{0}' was detected in project '{1}'.]]></Val>
           </Prev>
         </Str>
         <Disp Icon="Str" />
@@ -5997,24 +6174,24 @@
       </Item>
       <Item ItemId=";RequirementsTxtInfoBarProjectIgnoreAction" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[Don't show this again]]></Val>
+          <Val><![CDATA[Don't show this message again]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
             <Val><![CDATA[Non visualizzare più questo messaggio]]></Val>
           </Tgt>
           <Prev Cat="Text">
-            <Val><![CDATA[Don't Show This Again]]></Val>
+            <Val><![CDATA[Don't show this again]]></Val>
           </Prev>
         </Str>
         <Disp Icon="Str" />
       </Item>
       <Item ItemId=";RequirementsTxtInstallPackagesInfoBarMessage" ItemType="0" PsrId="211" Leaf="true">
         <Str Cat="Text">
-          <Val><![CDATA[One or more packages listed in '{0}' of project '{1}' are missing from the '{2}' environment.]]></Val>
+          <Val><![CDATA[One or more packages listed in "{0}" of project "{1}" are missing from the "{2}" environment.]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
-            <Val><![CDATA[Nell'ambiente '{2}' mancano uno o più pacchetti elencati in '{0}' del progetto '{1}'.]]></Val>
+            <Val><![CDATA[Nell'ambiente "{2}" mancano uno o più pacchetti elencati in "{0}" del progetto "{1}".]]></Val>
           </Tgt>
           <Prev Cat="Text">
-            <Val><![CDATA[One or more packages listed in '{0}' of project '{1}' are missing. Would you like to install packages in the '{2}' environment?]]></Val>
+            <Val><![CDATA[One or more packages listed in '{0}' of project '{1}' are missing from the '{2}' environment.]]></Val>
           </Prev>
         </Str>
         <Disp Icon="Str" />
@@ -7239,6 +7416,15 @@
           <Val><![CDATA[WebPI references have been deprecated. We recommend replacing the reference with a custom installation script.]]></Val>
           <Tgt Cat="Text" Stat="Loc" Orig="New">
             <Val><![CDATA[I riferimenti di WebPI sono stati deprecati. È consigliabile sostituire il riferimento con uno script di installazione personalizzato.]]></Val>
+          </Tgt>
+        </Str>
+        <Disp Icon="Str" />
+      </Item>
+      <Item ItemId=";WorkspaceEnvironmentDescription" ItemType="0" PsrId="211" Leaf="true">
+        <Str Cat="Text">
+          <Val><![CDATA[Workspace Environment]]></Val>
+          <Tgt Cat="Text" Stat="Loc" Orig="New">
+            <Val><![CDATA[Ambiente area di lavoro]]></Val>
           </Tgt>
         </Str>
         <Disp Icon="Str" />

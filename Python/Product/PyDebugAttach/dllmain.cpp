@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,23 +21,21 @@
 void Attach();
 void Detach();
 
-BOOL APIENTRY DllMain( HMODULE hModule,
-                       DWORD  ul_reason_for_call,
-                       LPVOID lpReserved
-					 )
-{
-	switch (ul_reason_for_call)
-	{
-	case DLL_PROCESS_ATTACH:
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved) {
+    UNREFERENCED_PARAMETER(hModule);
+    UNREFERENCED_PARAMETER(lpReserved);
+
+    switch (ul_reason_for_call)
+    {
+    case DLL_PROCESS_ATTACH:
         Attach();
-		break;
-	case DLL_PROCESS_DETACH:
+        break;
+    case DLL_PROCESS_DETACH:
         Detach();
         break;
-	case DLL_THREAD_ATTACH:
-	case DLL_THREAD_DETACH:
+    case DLL_THREAD_ATTACH:
+    case DLL_THREAD_DETACH:
         break;
-	}
-	return TRUE;
+    }
+    return TRUE;
 }
-

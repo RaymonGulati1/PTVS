@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -243,8 +243,16 @@ namespace Microsoft.PythonTools {
         }
 
 
+        internal static PythonProjectNode GetPythonProject(this ProjectNode project) {
+            return ((IVsHierarchy)project).GetPythonProject();
+        }
+
         internal static PythonProjectNode GetPythonProject(this IVsProject project) {
-            return ((IVsHierarchy)project).GetProject()?.GetCommonProject() as PythonProjectNode;
+            return ((IVsHierarchy)project).GetPythonProject();
+        }
+
+        internal static PythonProjectNode GetPythonProject(this IVsHierarchy project) {
+            return project.GetProject()?.GetCommonProject() as PythonProjectNode;
         }
 
         internal static PythonProjectNode GetPythonProject(this EnvDTE.Project project) {
@@ -445,7 +453,12 @@ namespace Microsoft.PythonTools {
         internal static PythonProjectNode GetProjectFromFile(this IServiceProvider serviceProvider, string filename) {
             return serviceProvider.GetProjectFromOpenFile(filename) ?? serviceProvider.GetProjectContainingFile(filename);
         }
-        
+
+        internal static IPythonWorkspaceContext GetWorkspace(this IServiceProvider serviceProvider) {
+            var workspaceContextProvider = serviceProvider.GetComponentModel().GetService<IPythonWorkspaceContextProvider>();
+            return workspaceContextProvider.Workspace;
+        }
+
         internal static ITrackingSpan GetCaretSpan(this ITextView view) {
             var caretPoint = view.GetPythonCaret();
             Debug.Assert(caretPoint != null);
@@ -943,6 +956,10 @@ namespace Microsoft.PythonTools {
 
         internal static int GetStartIncludingIndentation(this Node self, PythonAst ast) {
             return self.StartIndex - (self.GetIndentationLevel(ast) ?? "").Length;
+        }
+
+        internal static bool IsIronPython(this InterpreterConfiguration config) {
+            return config.Id.StartsWithOrdinal("IronPython|", ignoreCase: true);
         }
 
         internal static string LimitLines(

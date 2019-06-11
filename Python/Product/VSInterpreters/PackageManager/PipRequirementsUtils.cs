@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -18,16 +18,25 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using Microsoft.PythonTools.Infrastructure;
 
 namespace Microsoft.PythonTools.Interpreter {
     static class PipRequirementsUtils {
-        internal static readonly Regex FindRequirementRegex = new Regex(@"
-            (?<!\#.*)       # ensure we are not in a comment
-            (?<=\s|\A)      # ensure we are preceded by a space/start of the line
+        private static readonly Regex ParseRequirementLineRegex = new Regex(@"
+            #If the string begins with a '#' or '-r' or 'git+', regex will not return a match
+            (?!(\#))
+            (?!(-r))
+            (?!(git\+))
+            #Since the regex tries to find multiple matches, if any of the above 3 conditions are true, 
+            #The regex will move to the new character position and try to find another match 
+            #The \A will tell it to only match if the current character is the first character in the string
+            #This will only be true if any of the above 3 cases did not occur. 
+            (?<=\A)
             (?<spec>        # <spec> includes name, version and whitespace
                 (?<name>[^\s\#<>=!\-][^\s\#<>=!]*)  # just the name, no whitespace
                 (\s*(?<cmp><=|>=|<|>|!=|==)\s*
-                    (?<ver>[^\s\#]+)
+                    (?<ver>[^\#]+)
                 )?          # cmp and ver are optional
             )", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace
         );
@@ -52,17 +61,14 @@ namespace Microsoft.PythonTools.Interpreter {
             var seen = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase);
             foreach (var _line in original) {
                 var line = _line;
-                foreach (var m in FindRequirementRegex.Matches(line).Cast<Match>()) {
-                    string newReq;
-                    var name = m.Groups["name"].Value;
-                    if (existing.TryGetValue(name, out newReq)) {
-                        line = FindRequirementRegex.Replace(line, m2 =>
-                            name.Equals(m2.Groups["name"].Value, StringComparison.InvariantCultureIgnoreCase) ?
-                                newReq :
-                                m2.Value
-                        );
-                        seen.Add(name);
-                    }
+                var name = ParseRequirementLineRegex.Match(line.Trim()).Groups["name"].Value;
+                if (existing.TryGetValue(name, out string newReq)) {
+                    line = ParseRequirementLineRegex.Replace(line, m2 =>
+                        name.Equals(m2.Groups["name"].Value, StringComparison.InvariantCultureIgnoreCase) ?
+                            newReq :
+                            m2.Value
+                    );
+                    seen.Add(name);
                 }
                 yield return line;
             }
@@ -78,18 +84,28 @@ namespace Microsoft.PythonTools.Interpreter {
             }
         }
 
-        internal static bool AnyPackageMissing(
-            IEnumerable<string> original,
-            IEnumerable<PackageSpec> installed
-        ) {
-            foreach (var _line in original) {
-                var line = _line;
-                foreach (var m in FindRequirementRegex.Matches(line).Cast<Match>()) {
-                    var name = m.Groups["name"].Value;
-                    if (installed.FirstOrDefault(pkg => string.Compare(pkg.Name, name, StringComparison.OrdinalIgnoreCase) == 0) == null) {
-                        return true;
-                    }
+        /// <summary>
+        /// Returns true if a missing package is detected. A package could be missing and not be detected (Git+...)
+        /// Returns false when a missing package is not detected such as file not found exception or invalid file, etc
+        /// </summary>
+        /// <param name="interpreterPath"></param>
+        /// <param name="reqTxtPath"></param>
+        /// <returns></returns>
+        internal static async Task<bool> DetectMissingPackagesAsync(string interpreterPath, string reqTxtPath) {
+            try {
+                var processOutput = ProcessOutput.RunHiddenAndCapture(
+                    interpreterPath,
+                    PythonToolsInstallPath.GetFile("missing_req_packages.py"),
+                    reqTxtPath
+                );
+
+                await processOutput;
+                if (processOutput.ExitCode == 1) {
+                    return true;
                 }
+
+            } catch (Exception) {
+                // Do nothing. End of function will return false because no missing packages detected due to exception
             }
 
             return false;

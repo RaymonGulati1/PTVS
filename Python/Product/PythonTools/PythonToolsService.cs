@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -23,9 +23,9 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.PythonTools.Editor;
+using Microsoft.PythonTools.Environments;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Intellisense;
 using Microsoft.PythonTools.Interpreter;
@@ -54,7 +54,6 @@ namespace Microsoft.PythonTools {
         private Lazy<IInterpreterOptionsService> _interpreterOptionsService;
         private Lazy<IInterpreterRegistryService> _interpreterRegistryService;
         private readonly ConcurrentDictionary<string, VsProjectAnalyzer> _analyzers;
-        private readonly IPythonToolsLogger _logger;
         private readonly Lazy<AdvancedEditorOptions> _advancedOptions;
         private readonly Lazy<DebuggerOptions> _debuggerOptions;
         private readonly Lazy<CondaOptions> _condaOptions;
@@ -107,8 +106,10 @@ namespace Microsoft.PythonTools {
             _suppressDialogOptions = new Lazy<SuppressDialogOptions>(() => new SuppressDialogOptions(this));
             _interactiveOptions = new Lazy<PythonInteractiveOptions>(() => CreateInteractiveOptions("Interactive"));
             _debugInteractiveOptions = new Lazy<PythonInteractiveOptions>(() => CreateInteractiveOptions("Debug Interactive Window"));
-            _logger = (IPythonToolsLogger)container.GetService(typeof(IPythonToolsLogger));
             _diagnosticsProvider = new DiagnosticsProvider(container);
+            Logger = (IPythonToolsLogger)container.GetService(typeof(IPythonToolsLogger));
+            EnvironmentSwitcherManager = new EnvironmentSwitcherManager(container);
+            WorkspaceInfoBarManager = new WorkspaceInfoBarManager(container);
 
             _idleManager.OnIdle += OnIdleInitialization;
 
@@ -123,6 +124,7 @@ namespace Microsoft.PythonTools {
 
             _expansionCompletions = new ExpansionCompletionSource(Site);
             InitializeLogging();
+            EnvironmentSwitcherManager.Initialize();
         }
 
         public void Dispose() {
@@ -140,25 +142,31 @@ namespace Microsoft.PythonTools {
             foreach (var kv in GetActiveSharedAnalyzers()) {
                 kv.Value.Dispose();
             }
+
+            EnvironmentSwitcherManager.Dispose();
+            WorkspaceInfoBarManager.Dispose();
         }
 
         private void InitializeLogging() {
             try {
                 var registry = ComponentModel.GetService<IInterpreterRegistryService>();
-                if (registry != null) { // not available in some test cases...
-                                                    // log interesting stats on startup
+                if (registry != null) {
+                    // not available in some test cases...
+                    // log interesting stats on startup
                     var installed = registry.Configurations.Count();
                     var installedV2 = registry.Configurations.Count(c => c.Version.Major == 2);
                     var installedV3 = registry.Configurations.Count(c => c.Version.Major == 3);
+                    var installedIronPython = registry.Configurations.Where(c => c.IsIronPython()).Count();
 
-                    _logger.LogEvent(PythonLogEvent.InstalledInterpreters, new Dictionary<string, object> {
+                    Logger.LogEvent(PythonLogEvent.InstalledInterpreters, new Dictionary<string, object> {
                         { "Total", installed },
                         { "3x", installedV3 },
-                        { "2x", installedV2 }
+                        { "2x", installedV2 },
+                        { "IronPython", installedIronPython },
                     });
                 }
 
-                _logger.LogEvent(PythonLogEvent.Experiments, new Dictionary<string, object> {
+                Logger.LogEvent(PythonLogEvent.Experiments, new Dictionary<string, object> {
                     { "UseVsCodeDebugger", !DebuggerOptions.UseLegacyDebugger }
                 });
             } catch (Exception ex) {
@@ -175,12 +183,18 @@ namespace Microsoft.PythonTools {
         internal IInterpreterOptionsService InterpreterOptionsService => _interpreterOptionsService.Value;
         internal IInterpreterRegistryService InterpreterRegistryService => _interpreterRegistryService.Value;
 
-        internal IPythonToolsLogger Logger => _logger;
+        internal IPythonToolsLogger Logger { get; }
+
+        internal EnvironmentSwitcherManager EnvironmentSwitcherManager { get; }
+
+        internal WorkspaceInfoBarManager WorkspaceInfoBarManager { get; }
 
         internal Task<VsProjectAnalyzer> CreateAnalyzerAsync(IPythonInterpreterFactory factory) {
             if (factory == null) {
-                return VsProjectAnalyzer.CreateDefaultAsync(EditorServices, InterpreterFactoryCreator.CreateAnalysisInterpreterFactory(new Version(2, 7)));
+                var configuration = new VisualStudioInterpreterConfiguration("AnalysisOnly|2.7", "Analysis Only 2.7", version: new Version(2, 7));
+                factory = InterpreterFactoryCreator.CreateInterpreterFactory(configuration);
             }
+
             return VsProjectAnalyzer.CreateDefaultAsync(EditorServices, factory);
         }
 
@@ -253,6 +267,12 @@ namespace Microsoft.PythonTools {
                 if (analyzer != null) {
                     yield return new KeyValuePair<string, VsProjectAnalyzer>(proj.Caption, analyzer);
                 }
+            }
+
+            var workspaceAnalysis = _container.GetComponentModel().GetService<WorkspaceAnalysis>();
+            var workspaceAnalyzer = workspaceAnalysis.TryGetWorkspaceAnalyzer();
+            if (workspaceAnalyzer != null) {
+                yield return new KeyValuePair<string, VsProjectAnalyzer>(workspaceAnalysis.WorkspaceName, workspaceAnalyzer);
             }
         }
 
@@ -656,6 +676,19 @@ namespace Microsoft.PythonTools {
                 pathVar = "PYTHONPATH";
             }
             baseEnv[pathVar] = string.Empty;
+
+            // TODO: We could introduce a cache so that we don't activate the
+            // environment + capture the env variables every time. Not doing this
+            // right now to minimize risk/complexity so close to release.
+            if (CondaUtils.IsCondaEnvironment(config.Interpreter.GetPrefixPath())) {
+                var condaExe = CondaUtils.GetRootCondaExecutablePath(Site);
+                var prefixPath = config.Interpreter.GetPrefixPath();
+                if (File.Exists(condaExe) && Directory.Exists(prefixPath)) {
+                    var condaEnv = CondaUtils.CaptureActivationEnvironmentVariablesForPrefix(condaExe, prefixPath);
+                    baseEnv = PathUtils.MergeEnvironments(baseEnv.AsEnumerable<string, string>(), condaEnv, "Path", pathVar);
+                }
+            }
+
             var env = PathUtils.MergeEnvironments(
                 baseEnv.AsEnumerable<string, string>(),
                 config.GetEnvironmentVariables(),

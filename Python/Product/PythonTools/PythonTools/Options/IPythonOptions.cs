@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -60,6 +60,19 @@ namespace Microsoft.PythonTools.Options {
     [Guid("0AC0FBE6-C711-46DB-9856-0DD169E1EB9E")]
     public interface IPythonOptions2 : IPythonOptions {
         bool UseLegacyDebugger {
+            get;
+            set;
+        }
+    }
+
+    [Guid("E02D8200-D02B-4437-B9D3-A3AE883B9C37")]
+    public interface IPythonOptions3 : IPythonOptions2 {
+        bool PromptForEnvCreate {
+            get;
+            set;
+        }
+
+        bool PromptForPackageInstallation {
             get;
             set;
         }

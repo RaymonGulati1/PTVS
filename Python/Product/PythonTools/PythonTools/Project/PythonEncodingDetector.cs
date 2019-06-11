@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -27,14 +27,6 @@ namespace Microsoft.PythonTools.Project {
     [Order(Before = "XmlEncodingDetector")]
     [Name("PythonEncodingDetector")]
     class PythonEncodingDetector : IEncodingDetector {
-        public Encoding GetStreamEncoding(Stream stream) {
-            var res = Parser.GetEncodingFromStream(stream) ?? Parser.DefaultEncodingNoFallback;
-            if (res == Parser.DefaultEncoding) {
-                // return a version of the fallback buffer that doesn't throw exceptions, VS will detect the failure, and inform
-                // the user of the problem.
-                return Parser.DefaultEncodingNoFallback;
-            }
-            return res;
-        }
+        public Encoding GetStreamEncoding(Stream stream) => Parser.GetEncodingFromStream(stream) ?? Parser.DefaultEncoding;
     }
 }

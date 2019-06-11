@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -24,7 +24,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using Microsoft.PythonTools.Analysis.LanguageServer;
+using Microsoft.PythonTools.Analysis;
 using Microsoft.PythonTools.Infrastructure;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudio;
@@ -1024,8 +1024,7 @@ namespace Microsoft.PythonTools.Intellisense {
                 var model = container.GetComponentModel();
                 var errorProvider = model != null ? model.GetService<IErrorProviderFactory>() : null;
                 return new ErrorTaskProvider(container, errorList, errorProvider, new[] {
-                    VsProjectAnalyzer.ParserTaskMoniker,
-                    VsProjectAnalyzer.AnalyzerTaskMoniker,
+                    VsProjectAnalyzer.PythonMoniker,
                     VsProjectAnalyzer.InvalidEncodingMoniker,
                 });
             }

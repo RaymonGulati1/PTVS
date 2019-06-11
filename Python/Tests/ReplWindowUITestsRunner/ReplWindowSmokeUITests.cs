@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -121,5 +121,10 @@ namespace ReplWindowUITestsRunner {
     [TestClass]
     public class ReplWindowSmokeUITests36 : ReplWindowSmokeUITests {
         protected override string Interpreter => "Python36|Python36_x64";
+    }
+
+    [TestClass]
+    public class ReplWindowSmokeUITests37 : ReplWindowSmokeUITests {
+        protected override string Interpreter => "Python37|Python37_x64";
     }
 }

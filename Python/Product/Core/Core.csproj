@@ -52,6 +52,7 @@
   <ItemGroup>
     <Reference Include="Microsoft.VisualStudio.Shell.15.0" />
     <Reference Include="Microsoft.VisualStudio.Shell.Framework" />
+    <Reference Include="Microsoft.Python.Analysis.Engine" />
   </ItemGroup>
   <ItemDefinitionGroup>
     <ProjectReference>
@@ -66,10 +67,6 @@
     </Content>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Analysis\Analysis.csproj">
-      <Project>{A85D479D-67A9-4BDB-904A-7D86DAF68A6F}</Project>
-      <Name>Microsoft.PythonTools.Analysis</Name>
-    </ProjectReference>
     <ProjectReference Include="..\AttacherX86\AttacherX86.csproj">
       <Project>{f3a5829d-ee15-4be7-828f-2519172c6671}</Project>
       <Name>Microsoft.PythonTools.AttacherX86</Name>
@@ -77,14 +74,6 @@
     <ProjectReference Include="..\BuildTasks\BuildTasks.csproj">
       <Project>{89d51398-a003-44ba-b1b2-cfc6f8396d7e}</Project>
       <Name>Microsoft.PythonTools.BuildTasks</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\DebuggerHelper\DebuggerHelper.vcxproj">
-      <Project>{25956dfa-17a2-4109-b9e5-d46cce1ed52f}</Project>
-      <Name>DebuggerHelper</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\DebuggerHelper\DebuggerHelperX86.vcxproj">
-      <Project>{a2a795f7-27d0-4801-88da-95b368f070ad}</Project>
-      <Name>DebuggerHelperX86</Name>
     </ProjectReference>
     <ProjectReference Include="..\Debugger\Debugger.csproj">
       <Project>{DECC7971-FA58-4DB0-9561-BFFADD393BBD}</Project>
@@ -101,14 +90,6 @@
     <ProjectReference Include="..\ProjectWizards\ProjectWizards.csproj">
       <Project>{3814d9db-10e6-4478-bd98-6c5840612af8}</Project>
       <Name>Microsoft.PythonTools.ProjectWizards</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\PyDebugAttach\PyDebugAttach.vcxproj">
-      <Project>{ac19caa0-5c69-4b20-8a18-d4b6b65f22b8}</Project>
-      <Name>PyDebugAttach</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\PyDebugAttach\PyDebugAttachX86.vcxproj">
-      <Project>{70e7eb43-81d3-4aa0-9870-0b304732aff2}</Project>
-      <Name>PyDebugAttachX86</Name>
     </ProjectReference>
     <ProjectReference Include="..\PythonTools\PythonTools.csproj">
       <Project>{fa7be5f5-e04f-4613-b7ac-70ce10d1bb68}</Project>
@@ -135,14 +116,6 @@
       <Project>{815db0cd-c0dd-4997-b43c-abee4dbeffe7}</Project>
       <Name>Microsoft.PythonTools.VSInterpreters</Name>
       <IncludeInVSIX>True</IncludeInVSIX>
-    </ProjectReference>
-    <ProjectReference Include="..\Analyzer\Analyzer.csproj">
-      <Project>{29a4fa1f-a562-4ed1-86fb-5850ef5da92c}</Project>
-      <Name>Microsoft.PythonTools.Analyzer</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\Ipc.Json\Ipc.Json.csproj">
-      <Project>{e1e1613d-0c96-42f9-9f2d-052c72533297}</Project>
-      <Name>Microsoft.PythonTools.Ipc.Json</Name>
     </ProjectReference>
     <ProjectReference Include="..\Workspace\Workspace.csproj">
       <Project>{24f9e050-9f7e-4fe8-895d-819e527b8f45}</Project>
@@ -182,6 +155,19 @@
     <ItemGroup>
       <_InteropDll Include="$(DevEnvDir)Extensions\*\Microsoft.VisualStudio.Debugger.DebugAdapterHost.Interfaces.dll" />
       <Content Include="..\..\References\Dev$(VSTarget)\Microsoft.VisualStudio.Debugger.DebugAdapterHost.Interfaces.dll;VSCodeInterop.pkgdef" Condition="@(_InteropDll) == ''" />
+    </ItemGroup>
+  </Target>
+  <Target Name="_IncludeLanguageServer" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <LanguageServerFiles Include="$(PackagesPath)\Microsoft.VisualStudio.Python.LanguageServer\lib\vs16\**\*" />
+      <LanguageServerFiles>
+        <IncludeInVSIX>true</IncludeInVSIX>
+        <Link>\%(RecursiveDir)\%(Filename)%(Extension)</Link>
+        <VSIXSubPath>\%(RecursiveDir)</VSIXSubPath>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </LanguageServerFiles>
+      <Content Include="@(LanguageServerFiles)" />
+      <FileWrites Include="@(LanguageServerFiles)" />
     </ItemGroup>
   </Target>
 </Project>

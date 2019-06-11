@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -20,6 +20,7 @@ using System.Windows.Media;
 using Microsoft.PythonTools.Editor;
 using Microsoft.PythonTools.Parsing;
 using Microsoft.VisualStudio.Language.StandardClassification;
+using Microsoft.VisualStudio.LanguageServer.Client;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
 using Microsoft.VisualStudio.Utilities;
@@ -91,7 +92,7 @@ namespace Microsoft.PythonTools {
                 _categoryMap = FillCategoryMap(_services.ClassificationTypeRegistryService);
             }
 
-            if (buffer.ContentType.IsOfType("code-languageserver-preview")) {
+            if (buffer.ContentType.IsOfType(CodeRemoteContentDefinition.CodeRemoteContentTypeName)) {
                 return null;
             }
 

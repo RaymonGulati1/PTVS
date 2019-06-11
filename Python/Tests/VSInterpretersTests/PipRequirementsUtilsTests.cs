@@ -14,8 +14,12 @@
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
+using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
+using System.Text;
+using System.Threading.Tasks;
 using Microsoft.PythonTools.Interpreter;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using TestUtilities;
@@ -33,7 +37,11 @@ namespace VSInterpretersTests {
                     "# just a comment B==01234",
                     "",
                     "x < 1",
-                    "d==1.0 e==2.0 f==3.0"
+                    "d==1.0",
+                    "e==2.0",
+                    "f==3.0",
+                    "-r user/requirements.txt",
+                    "git+https://myvcs.com/some_dependency",
                 }, new[] {
                     "b==0.1",
                     "a==0.2",
@@ -46,7 +54,11 @@ namespace VSInterpretersTests {
                 "# just a comment B==01234",
                 "",
                 "x==0.8",
-                "d==1.0 e==4.0 f==3.0"
+                "d==1.0",
+                "e==4.0",
+                "f==3.0",
+                "-r user/requirements.txt",
+                "git+https://myvcs.com/some_dependency"
             );
 
             // addNew is true, so the c==0.3 should be added.
@@ -131,99 +143,82 @@ namespace VSInterpretersTests {
         }
 
         [TestMethod, Priority(0)]
-        public void FindRequirementsRegexTest() {
-            var r = PipRequirementsUtils.FindRequirementRegex;
-            AssertUtil.AreEqual(r.Matches("aaaa bbbb cccc").Cast<Match>().Select(m => m.Value),
-                "aaaa",
-                "bbbb",
-                "cccc"
-            );
-            AssertUtil.AreEqual(r.Matches("aaaa#a\r\nbbbb#b\r\ncccc#c\r\n").Cast<Match>().Select(m => m.Value),
-                "aaaa",
-                "bbbb",
-                "cccc"
-            );
+        public async Task DetectReqPkgMissingPython2Async() {
+            PythonVersion pythonInterpreter =   PythonPaths.Python27_x64 ??
+                                                PythonPaths.Python26_x64 ??
+                                                PythonPaths.Python27 ??
+                                                PythonPaths.Python26;
+            pythonInterpreter.AssertInstalled("Unable to run test because python 2.6 or 2.7 must be installed");
 
-            AssertUtil.AreEqual(r.Matches("a==1 b!=2 c<=3").Cast<Match>().Select(m => m.Value),
-                "a==1",
-                "b!=2",
-                "c<=3"
-            );
-
-            AssertUtil.AreEqual(r.Matches("a==1 b!=2 c<=3").Cast<Match>().Select(m => m.Groups["name"].Value),
-                "a",
-                "b",
-                "c"
-            );
-
-            AssertUtil.AreEqual(r.Matches("a==1#a\r\nb!=2#b\r\nc<=3#c\r\n").Cast<Match>().Select(m => m.Value),
-                "a==1",
-                "b!=2",
-                "c<=3"
-            );
-
-            AssertUtil.AreEqual(r.Matches("a == 1 b != 2 c <= 3").Cast<Match>().Select(m => m.Value),
-                "a == 1",
-                "b != 2",
-                "c <= 3"
-            );
-
-            AssertUtil.AreEqual(r.Matches("a == 1 b != 2 c <= 3").Cast<Match>().Select(m => m.Groups["name"].Value),
-                "a",
-                "b",
-                "c"
-            );
-
-            AssertUtil.AreEqual(r.Matches("a -u b -f:x c").Cast<Match>().Select(m => m.Groups["name"].Value),
-                "a",
-                "b",
-                "c"
-            );
+            await DetectReqPkgMissingAsync(pythonInterpreter);
         }
 
         [TestMethod, Priority(0)]
-        public void AnyPackageMissing() {
-            // AnyPackageMissing only checks if a package is listed or not
-            // It does NOT compare version numbers.
-            Assert.IsFalse(PipRequirementsUtils.AnyPackageMissing(
-                new[] { "Django" },
-                new[] { new PackageSpec("Django", "1.11") }
-            ));
+        public async Task DetectReqPkgMissingPython3Async() {
+            PythonVersion pythonInterpreter =   PythonPaths.Python37_x64 ??
+                                                PythonPaths.Python36_x64 ??
+                                                PythonPaths.Python37 ??
+                                                PythonPaths.Python36;
+            pythonInterpreter.AssertInstalled("Unable to run test because python 3.6 or 3.7 must be installed");
 
-            Assert.IsFalse(PipRequirementsUtils.AnyPackageMissing(
-                new[] { "django" },
-                new[] { new PackageSpec("Django", "1.11") }
-            ));
+            await DetectReqPkgMissingAsync(pythonInterpreter);
+        }
 
-            Assert.IsFalse(PipRequirementsUtils.AnyPackageMissing(
-                new[] { "Flask", "Flask-Admin" },
-                new[] { new PackageSpec("Flask", "1.0.2"), new PackageSpec("Flask-Admin", "1.5.2") }
-            ));
+        private async Task DetectReqPkgMissingAsync(PythonVersion pythonInterpreter) {
+            string virtualEnvPath = TestData.GetTempPath();
+            string interpreterExePath = Path.Combine(virtualEnvPath, "Scripts", "python.exe");
+            string reqTextPath = Path.Combine(virtualEnvPath, "requirements.txt");
+            var installPackages = new[] { "cookies >= 2.0", "Bottle==0.8.2" };
 
-            Assert.IsFalse(PipRequirementsUtils.AnyPackageMissing(
-                new[] { "django >=1.9, <2" },
-                new[] { new PackageSpec("Django", "1.11") }
-            ));
+            pythonInterpreter.CreatePythonVirtualEnvWithPkgs(virtualEnvPath, installPackages);
 
-            Assert.IsFalse(PipRequirementsUtils.AnyPackageMissing(
-                new[] { "django==1.11" },
-                new[] { new PackageSpec("Django", "1.11") }
-            ));
+            // Test cases for packages not missing
+            bool isPackageMissing = await PipRequirementsUtils.DetectMissingPackagesAsync(interpreterExePath, reqTextPath);
+            Assert.IsFalse(isPackageMissing, "Expected no missing packages because requirements.txt does not exist");
 
-            Assert.IsFalse(PipRequirementsUtils.AnyPackageMissing(
-                new[] { "django >=1.9, <2" },
-                new[] { new PackageSpec("Django", "1.8") }
-            ));
+            File.WriteAllText(reqTextPath, String.Empty);
+            isPackageMissing = await PipRequirementsUtils.DetectMissingPackagesAsync(interpreterExePath, reqTextPath);
+            Assert.IsFalse(isPackageMissing, "Expected no missing packages because requirements.txt is empty");
+            File.Delete(reqTextPath);
 
-            Assert.IsTrue(PipRequirementsUtils.AnyPackageMissing(
-                new[] { "Flask" },
-                new PackageSpec[0]
-            ));
+            File.WriteAllLines(reqTextPath, installPackages);
+            File.AppendAllLines(reqTextPath,
+                new string[] {
+                    "    ",
+                    "$InvalidLineOfText   ",
+                    "#MissingPackageName",
+                    " git+https://myvcs.com/some_dependency@",
+                    "coo kies",
+                    "cookies >  = 100 ",
+                    "cookies >= 1.0 <= 2.0 flask == 2.0"
+                });
+            isPackageMissing = await PipRequirementsUtils.DetectMissingPackagesAsync(interpreterExePath, reqTextPath);
+            Assert.IsFalse(isPackageMissing, "Expected no missing packages because all packages are installed and invalid lines should be ignored");
+            File.Delete(reqTextPath);
 
-            Assert.IsTrue(PipRequirementsUtils.AnyPackageMissing(
-                new[] { "Flask", "Flask-Admin" },
-                new[] { new PackageSpec("Flask", "1.0.2") }
-            ));
+            File.WriteAllLines(reqTextPath, installPackages, encoding: new UTF8Encoding(true));
+            isPackageMissing = await PipRequirementsUtils.DetectMissingPackagesAsync(interpreterExePath, reqTextPath);
+            Assert.IsFalse(isPackageMissing, "Expected no missing packages because all packages are installed and UTF-8 BOM signature should be ignored");
+            File.Delete(reqTextPath);
+
+            // Test cases for packages missing
+            File.WriteAllLines(reqTextPath,
+                new string[] { "   MissingPackageName   " });
+            isPackageMissing = await PipRequirementsUtils.DetectMissingPackagesAsync(interpreterExePath, reqTextPath);
+            Assert.IsTrue(isPackageMissing, "Expected missing packages because \"MissingPackageName\" it is not installed");
+            File.Delete(reqTextPath);
+
+            File.WriteAllLines(reqTextPath,
+                new string[] { "Cookies<=1.0" });
+            isPackageMissing = await PipRequirementsUtils.DetectMissingPackagesAsync(interpreterExePath, reqTextPath);
+            Assert.IsTrue(isPackageMissing, "Expected missing packages because \"cookies\" is incorrect version");
+            File.Delete(reqTextPath);
+
+            File.WriteAllLines(reqTextPath,
+                new string[] { "Cookies>=1.0", "Cookies>=100.0" });
+            isPackageMissing = await PipRequirementsUtils.DetectMissingPackagesAsync(interpreterExePath, reqTextPath);
+            Assert.IsTrue(isPackageMissing, "Expected missing package because \"cookies\" has a valid and invalid package version");
+            File.Delete(reqTextPath);
         }
     }
 }

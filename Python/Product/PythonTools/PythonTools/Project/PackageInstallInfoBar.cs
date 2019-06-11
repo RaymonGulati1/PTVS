@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -28,26 +28,107 @@ using Microsoft.VisualStudio.Shell.Interop;
 using Task = System.Threading.Tasks.Task;
 
 namespace Microsoft.PythonTools.Project {
-    internal sealed class PackageInstallInfoBar : PythonProjectInfoBar {
-        public PackageInstallInfoBar(PythonProjectNode projectNode)
-            : base (projectNode) {
+    internal abstract class PackageInstallInfoBar : PythonInfoBar {
+        public PackageInstallInfoBar(IServiceProvider site)
+            : base(site) {
         }
 
+        protected string RequirementsTxtPath { get; set; }
+
+        protected string Caption { get; set; }
+
+        protected string Context { get; set; }
+
+        protected IPackageManager PackageManager { get; set; }
+
+        protected bool IsGloballySuppressed =>
+            !Site.GetPythonToolsService().GeneralOptions.PromptForPackageInstallation;
+
+        protected abstract void Suppress();
+
+        protected void ShowInfoBar() {
+            var messages = new List<IVsInfoBarTextSpan>();
+            var actions = new List<InfoBarActionItem>();
+
+            messages.Add(new InfoBarTextSpan(
+                Strings.RequirementsTxtInstallPackagesInfoBarMessage.FormatUI(
+                    PathUtils.GetFileOrDirectoryName(RequirementsTxtPath),
+                    Caption,
+                    PackageManager.Factory.Configuration.Description
+            )));
+            actions.Add(new InfoBarHyperlink(Strings.RequirementsTxtInfoBarInstallPackagesAction, (Action)InstallPackages));
+            actions.Add(new InfoBarHyperlink(Strings.RequirementsTxtInfoBarProjectIgnoreAction, (Action)Ignore));
+
+            Logger?.LogEvent(
+                PythonLogEvent.PackageInstallInfoBar,
+                new PackageInstallInfoBarInfo() {
+                    Action = PackageInstallInfoBarActions.Prompt,
+                    Context = Context,
+                }
+            );
+
+            Create(new InfoBarModel(messages, actions, KnownMonikers.StatusInformation, isCloseButtonVisible: true));
+        }
+
+        private void Ignore() {
+            Logger?.LogEvent(
+                PythonLogEvent.PackageInstallInfoBar,
+                new PackageInstallInfoBarInfo() {
+                    Action = PackageInstallInfoBarActions.Ignore,
+                    Context = Context,
+                }
+            );
+            Suppress();
+            Close();
+        }
+
+        private void InstallPackages() {
+            Logger?.LogEvent(
+                PythonLogEvent.PackageInstallInfoBar,
+                new PackageInstallInfoBarInfo() {
+                    Action = PackageInstallInfoBarActions.Install,
+                    Context = Context,
+                }
+            );
+            PythonProjectNode.InstallRequirementsAsync(Site, PackageManager, RequirementsTxtPath)
+                .HandleAllExceptions(Site, typeof(PackageInstallInfoBar))
+                .DoNotWait();
+            Close();
+        }
+
+        protected static async Task<bool> DetectMissingPackagesAsync(IPackageManager packageManager, string reqTxtPath) {
+            try {
+                return await PipRequirementsUtils.DetectMissingPackagesAsync(
+                    packageManager.Factory.Configuration.InterpreterPath, 
+                    reqTxtPath
+                );
+            } catch (IOException) {
+            } catch (OperationCanceledException) {
+            }
+
+            return false;
+        }
+    }
+
+    internal sealed class PackageInstallProjectInfoBar : PackageInstallInfoBar {
+        public PackageInstallProjectInfoBar(IServiceProvider site, PythonProjectNode projectNode)
+            : base(site) {
+            Project = projectNode ?? throw new ArgumentNullException(nameof(projectNode));
+        }
+
+        private PythonProjectNode Project { get; }
+
         public override async Task CheckAsync() {
-            if (IsCreated) {
+            if (IsCreated || IsGloballySuppressed) {
                 return;
             }
 
-            if (!Project.Site.GetPythonToolsService().GeneralOptions.PromptForPackageInstallation) {
-                return;
-            }
+            RequirementsTxtPath = Project.GetRequirementsTxtPath();
+            Caption = Project.Caption;
+            Context = InfoBarContexts.Project;
+            PackageManager = null;
 
-            var suppressProp = Project.GetProjectProperty(PythonConstants.SuppressPackageInstallationPrompt);
-            if (suppressProp.IsTrue()) {
-                return;
-            }
-
-            if (Project.IsActiveInterpreterGlobalDefault) {
+            if (Project.GetProjectProperty(PythonConstants.SuppressPackageInstallationPrompt).IsTrue()) {
                 return;
             }
 
@@ -56,77 +137,87 @@ namespace Microsoft.PythonTools.Project {
                 return;
             }
 
+            if (Project.IsActiveInterpreterGlobalDefault) {
+                return;
+            }
+
             var active = Project.ActiveInterpreter;
             if (!active.IsRunnable()) {
                 return;
             }
 
-            var pm = Project.InterpreterOptions.GetPackageManagers(active).FirstOrDefault(p => p.UniqueKey == "pip");
-            if (pm == null) {
+            var options = Site.GetPythonToolsService().InterpreterOptionsService;
+            PackageManager = options.GetPackageManagers(active).FirstOrDefault(p => p.UniqueKey == "pip");
+            if (PackageManager == null) {
                 return;
             }
 
-            var missing = await PackagesMissingAsync(pm, txtPath);
+            var missing = await DetectMissingPackagesAsync(PackageManager, RequirementsTxtPath);
             if (!missing) {
                 return;
             }
 
-            Action installPackages = () => {
-                Logger?.LogEvent(
-                    PythonLogEvent.PackageInstallInfoBar,
-                    new PackageInstallInfoBarInfo() {
-                        Action = PackageInstallInfoBarActions.Install,
-                    }
-                );
-                PythonProjectNode.InstallRequirementsAsync(Project.Site, pm, txtPath)
-                    .HandleAllExceptions(Project.Site, typeof(PackageInstallInfoBar))
-                    .DoNotWait();
-                Close();
-            };
-
-            Action projectIgnore = () => {
-                Logger?.LogEvent(
-                    PythonLogEvent.PackageInstallInfoBar,
-                    new PackageInstallInfoBarInfo() {
-                        Action = PackageInstallInfoBarActions.Ignore,
-                    }
-                );
-                Project.SetProjectProperty(PythonConstants.SuppressEnvironmentCreationPrompt, true.ToString());
-                Close();
-            };
-
-            var messages = new List<IVsInfoBarTextSpan>();
-            var actions = new List<InfoBarActionItem>();
-
-            messages.Add(new InfoBarTextSpan(
-                Strings.RequirementsTxtInstallPackagesInfoBarMessage.FormatUI(
-                    PathUtils.GetFileOrDirectoryName(txtPath),
-                    Project.Caption,
-                    pm.Factory.Configuration.Description
-            )));
-            actions.Add(new InfoBarHyperlink(Strings.RequirementsTxtInfoBarInstallPackagesAction, installPackages));
-            actions.Add(new InfoBarHyperlink(Strings.RequirementsTxtInfoBarProjectIgnoreAction, projectIgnore));
-
-            Logger?.LogEvent(
-                PythonLogEvent.PackageInstallInfoBar,
-                new PackageInstallInfoBarInfo() {
-                    Action = PackageInstallInfoBarActions.Prompt,
-                }
-            );
-
-            Create(new InfoBarModel(messages, actions, KnownMonikers.StatusInformation, isCloseButtonVisible: true));
+            ShowInfoBar();
         }
 
-        private async Task<bool> PackagesMissingAsync(IPackageManager pm, string txtPath) {
-            try {
-                var original = File.ReadAllLines(txtPath);
-                var installed = await pm.GetInstalledPackagesAsync(CancellationTokens.After15s);
-                return PipRequirementsUtils.AnyPackageMissing(original, installed);
-            } catch (IOException) {
-            } catch (OperationCanceledException) {
+        protected override void Suppress() {
+            Project.SetProjectProperty(PythonConstants.SuppressPackageInstallationPrompt, true.ToString());
+        }
+    }
+
+    internal sealed class PackageInstallWorkspaceInfoBar : PackageInstallInfoBar {
+        public PackageInstallWorkspaceInfoBar(IServiceProvider site, IPythonWorkspaceContext workspace)
+            : base(site) {
+            Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
+        }
+
+        private IPythonWorkspaceContext Workspace { get; }
+
+        public override async Task CheckAsync() {
+            if (IsCreated || IsGloballySuppressed) {
+                return;
             }
 
-            return false;
+            RequirementsTxtPath = Workspace.GetRequirementsTxtPath();
+            Caption = Workspace.WorkspaceName;
+            Context = InfoBarContexts.Workspace;
+            PackageManager = null;
+
+            if (Workspace.GetBoolProperty(PythonConstants.SuppressPackageInstallationPrompt) == true) {
+                return;
+            }
+
+            if (!File.Exists(RequirementsTxtPath)) {
+                return;
+            }
+
+            if (Workspace.IsCurrentFactoryDefault) {
+                return;
+            }
+
+            var active = Workspace.CurrentFactory;
+            if (!active.IsRunnable()) {
+                return;
+            }
+
+            var options = Site.GetPythonToolsService().InterpreterOptionsService;
+            PackageManager = options.GetPackageManagers(active).FirstOrDefault(p => p.UniqueKey == "pip");
+            if (PackageManager == null) {
+                return;
+            }
+
+            var missing = await DetectMissingPackagesAsync(PackageManager, RequirementsTxtPath);
+            if (!missing) {
+                return;
+            }
+
+            ShowInfoBar();
+        }
+
+        protected override void Suppress() {
+            Workspace.SetPropertyAsync(PythonConstants.SuppressPackageInstallationPrompt, true)
+                .HandleAllExceptions(Site, typeof(PackageInstallWorkspaceInfoBar))
+                .DoNotWait();
         }
     }
 }

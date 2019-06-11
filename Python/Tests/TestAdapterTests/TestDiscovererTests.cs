@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -119,7 +119,7 @@ class MyTest(unittest.TestCase):
 ";
                 var entry = AddModule(analyzer, "Fob", code);
 
-                entry.Analyze(CancellationToken.None, true);
+                entry.PreAnalyze();
                 analyzer.AnalyzeQueuedEntries(CancellationToken.None);
 
                 var tests = TestAnalyzer.GetTestCasesFromAnalysis(entry)
@@ -172,9 +172,9 @@ class MyTest3(TestBase):
 ";
                 var entry3 = AddModule(analyzer, "__main__", code);
 
-                entry1.Analyze(CancellationToken.None, true);
-                entry2.Analyze(CancellationToken.None, true);
-                entry3.Analyze(CancellationToken.None, true);
+                entry1.PreAnalyze();
+                entry2.PreAnalyze();
+                entry3.PreAnalyze();
                 analyzer.AnalyzeQueuedEntries(CancellationToken.None);
 
                 var test = TestAnalyzer.GetTestCasesFromAnalysis(entry3).ToList();
@@ -199,7 +199,7 @@ class TestBase(unittest.TestCase):
 ";
                 var entry = AddModule(analyzer, "__main__", code);
 
-                entry.Analyze(CancellationToken.None, true);
+                entry.PreAnalyze();
                 analyzer.AnalyzeQueuedEntries(CancellationToken.None);
 
                 var test = TestAnalyzer.GetTestCasesFromAnalysis(entry).ToList();
@@ -226,7 +226,7 @@ class TestBase(unittest.TestCase):
 ";
                 var entry = AddModule(analyzer, "__main__", code);
 
-                entry.Analyze(CancellationToken.None, true);
+                entry.PreAnalyze();
                 analyzer.AnalyzeQueuedEntries(CancellationToken.None);
 
                 var test = TestAnalyzer.GetTestCasesFromAnalysis(entry).ToList();

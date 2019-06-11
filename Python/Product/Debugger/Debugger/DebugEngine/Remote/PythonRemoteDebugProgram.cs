@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -21,6 +21,8 @@ using Microsoft.VisualStudio.Debugger.Interop;
 
 namespace Microsoft.PythonTools.Debugger.Remote {
     internal class PythonRemoteDebugProgram : IDebugProgram2 {
+        public const string VSCodeDebugEngineId = "{86432F39-ADFD-4C56-AA8F-AF8FCDC66039}";
+        public static Guid VSCodeDebugEngine = new Guid(VSCodeDebugEngineId);
 
         private readonly PythonRemoteDebugProcess _process;
         private readonly Guid _guid = Guid.NewGuid();
@@ -86,8 +88,8 @@ namespace Microsoft.PythonTools.Debugger.Remote {
         }
 
         public int GetEngineInfo(out string pbstrEngine, out Guid pguidEngine) {
-            pguidEngine = ExperimentalOptions.UseVsCodeDebugger && !IsUnitTest() ? 
-                DebugAdapterLauncher.VSCodeDebugEngine : 
+            pguidEngine = !PythonDebugOptionsServiceHelper.Options.UseLegacyDebugger && !IsUnitTest() ? 
+                VSCodeDebugEngine : 
                 AD7Engine.DebugEngineGuid;
             pbstrEngine = null;
             return 0;

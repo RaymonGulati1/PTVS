@@ -37,7 +37,7 @@
     <CreateVsixContainer>true</CreateVsixContainer>
     <GeneratePkgDefFile>false</GeneratePkgDefFile>
     <CopyVsixManifestToOutput>true</CopyVsixManifestToOutput>
-    <DeployExtension>true</DeployExtension>
+    <DeployExtension>$(BuildingInsideVisualStudio)</DeployExtension>
     <DefineConstants>$(DefineConstants);$(SignedSym)</DefineConstants>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
@@ -45,17 +45,14 @@
     <PlatformTarget>AnyCPU</PlatformTarget>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Microsoft.VisualStudio.LanguageServer.Protocol, Version=15.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
+    <Reference Include="Microsoft.Python.Analysis.Engine" />
+    <Reference Include="Microsoft.VisualStudio.LanguageServer.Protocol" />
     <Reference Include="System" />
     <Reference Include="System.Collections.Immutable" />
     <Reference Include="System.ComponentModel.Composition" />
     <Reference Include="System.Core" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Analysis\Analysis.csproj">
-      <Project>{a85d479d-67a9-4bdb-904a-7d86daf68a6f}</Project>
-      <Name>Analysis</Name>
-    </ProjectReference>
     <ProjectReference Include="..\PythonTools\PythonTools.csproj">
       <Project>{fa7be5f5-e04f-4613-b7ac-70ce10d1bb68}</Project>
       <Name>PythonTools</Name>
@@ -64,13 +61,17 @@
       <Project>{a52ac77f-6df9-4387-bb08-8ded3fd95a0f}</Project>
       <Name>VSCommon</Name>
     </ProjectReference>
+    <ProjectReference Include="..\VSInterpreters\VSInterpreters.csproj">
+      <Project>{815DB0CD-C0DD-4997-B43C-ABEE4DBEFFE7}</Project>
+      <Name>VSInterpreters</Name>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Microsoft.VisualStudio.LiveShare" />
     <Reference Include="Microsoft.VisualStudio.LiveShare.LanguageServices" />
+    <Reference Include="Microsoft.VisualStudio.Text.Data" />
     <Reference Include="Microsoft.VisualStudio.Threading" />
     <Reference Include="Microsoft.VisualStudio.Shell.Framework" />
-    <!-- <Reference Include="Microsoft.VisualStudio.Text.UI" /> -->
     <Reference Include="Newtonsoft.Json, Version=9.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed">
       <HintPath>$(PackagesPath)\Newtonsoft.Json\lib\net45\Newtonsoft.Json.dll</HintPath>
       <Private>True</Private>
@@ -78,6 +79,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="PythonLanguageClient.cs" />
     <Compile Include="PythonLanguageClientFactory.cs" />
     <Compile Include="PythonLanguageServiceProviderCallback.cs" />
@@ -95,21 +97,4 @@
   <Target Name="AfterBuild">
   </Target>
   -->
-  <Target Name="_AddCascadeAssemblies" BeforeTargets="_AddPTVSReferences">
-    <ItemGroup>
-      <_NugetAssemblies Include="$(PackagesPath)\Microsoft.Cascade.*\lib\net461\Microsoft.Cascade.*.dll" />
-    </ItemGroup>
-  </Target>
-  <!-- We build these assemblies into separate folders to avoid incremental cleaning issues,
-       but then CreatePkgDef can't find them for the ProvideCodeBase attributes. So we copy
-       into the PythonTools output folder temporarily to generate the pkgdef file. -->
-  <!--<Target Name="_CopyForCreatePkgDef" BeforeTargets="GeneratePkgDef">
-    <Copy SourceFiles="$(OutputPath)..\Analysis\Microsoft.PythonTools.Analysis.dll;$(OutputPath)..\EnvironmentsList\Microsoft.PythonTools.EnvironmentsList.dll;$(OutputPath)..\VSInterpreters\Microsoft.PythonTools.VSInterpreters.dll" DestinationFolder="$(OutputPath)">
-      <Output TaskParameter="CopiedFiles" ItemName="_CopiedForCreatePkgdef" />
-    </Copy>
-  </Target>
-  <Target Name="_DeleteAfterCreatePkgDef" AfterTargets="GeneratePkgDef">
-    <Delete Files="@(_CopiedForCreatePkgdef)" />
-  </Target>-->
-  <!--<Target Name="DetokenizeVsixManifestFile" />-->
 </Project>

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -17,6 +17,7 @@
 using System;
 using System.Diagnostics;
 using System.Linq;
+using Microsoft.Python.LanguageServer;
 using Microsoft.PythonTools.Editor;
 using Microsoft.PythonTools.Editor.Core;
 using Microsoft.PythonTools.Infrastructure;
@@ -91,7 +92,7 @@ namespace Microsoft.PythonTools.Intellisense {
                 analysis,
                 location,
                 _options.MemberOptions,
-                triggerChar == '\0' ? Analysis.LanguageServer.CompletionTriggerKind.Invoked : Analysis.LanguageServer.CompletionTriggerKind.TriggerCharacter,
+                triggerChar == '\0' ? CompletionTriggerKind.Invoked : CompletionTriggerKind.TriggerCharacter,
                 triggerChar == '\0' ? null : triggerChar.ToString()
             ), "GetCompletions.GetMembers", null, pyReplEval?.Analyzer == null ? 1 : 5);
 

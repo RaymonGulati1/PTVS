@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -81,7 +81,7 @@ namespace DjangoTests {
                 p.Tree = parser.ParseFile();
                 p.Complete();
             }
-            entry.Analyze(CancellationToken.None, false);
+            entry.Analyze(CancellationToken.None);
 
             AssertUtil.ContainsExactly(
                 proj._filters.Keys.Except(DjangoAnalyzer._knownFilters.Keys),
@@ -111,7 +111,7 @@ namespace DjangoTests {
                 p.Tree = parser.ParseFile();
                 p.Complete();
             }
-            entry.Analyze(CancellationToken.None, false);
+            entry.Analyze(CancellationToken.None);
 
             AssertUtil.ContainsExactly(
                 proj._tags.Keys.Except(DjangoAnalyzer._knownTags.Keys),
@@ -183,7 +183,7 @@ namespace DjangoTests {
             }
 
             foreach (var entry in entries) {
-                entry.Analyze(CancellationToken.None, false);
+                entry.Analyze(CancellationToken.None);
             }
 
             Debug.WriteLine((testFact as IPythonInterpreterFactoryWithLog)?.GetAnalysisLogContent(CultureInfo.CurrentUICulture) ?? "(no logs)");

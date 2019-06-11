@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -55,6 +55,8 @@ namespace TestUtilities {
         public static readonly PythonVersion Anaconda27_x64 = GetAnacondaVersion(PythonLanguageVersion.V27, InterpreterArchitecture.x64);
         public static readonly PythonVersion Anaconda36 = GetAnacondaVersion(PythonLanguageVersion.V36, InterpreterArchitecture.x86);
         public static readonly PythonVersion Anaconda36_x64 = GetAnacondaVersion(PythonLanguageVersion.V36, InterpreterArchitecture.x64);
+        public static readonly PythonVersion Anaconda37 = GetAnacondaVersion(PythonLanguageVersion.V37, InterpreterArchitecture.x86);
+        public static readonly PythonVersion Anaconda37_x64 = GetAnacondaVersion(PythonLanguageVersion.V37, InterpreterArchitecture.x64);
         public static readonly PythonVersion IronPython27_x64 = GetIronPythonVersion(true);
 
         public static readonly PythonVersion Jython27 = GetJythonVersion(PythonLanguageVersion.V27);
@@ -70,12 +72,12 @@ namespace TestUtilities {
                 }
 
                 return new PythonVersion(
-                    new InterpreterConfiguration(
+                    new VisualStudioInterpreterConfiguration(
                         x64 ? "IronPython|2.7-64" : "IronPython|2.7-32",
                         string.Format("IronPython {0} 2.7", x64 ? "64-bit" : "32-bit"),
                         installPath,
                         Path.Combine(installPath, exeName),
-                        arch: x64 ? InterpreterArchitecture.x64 : InterpreterArchitecture.x86,
+                        architecture: x64 ? InterpreterArchitecture.x64 : InterpreterArchitecture.x86,
                         version: new Version(2, 7),
                         pathVar: "IRONPYTHONPATH"
                     ),
@@ -124,13 +126,13 @@ namespace TestUtilities {
                     ProcessorArchitecture.None;
 
                 if (procArch == Microsoft.PythonTools.Infrastructure.NativeMethods.GetBinaryType(path)) {
-                    return new PythonVersion(new InterpreterConfiguration(
+                    return new PythonVersion(new VisualStudioInterpreterConfiguration(
                         CPythonInterpreterFactoryConstants.GetInterpreterId("PythonCore", tag),
                         "Python {0} {1}".FormatInvariant(arch, ver),
                         prefixPath,
                         exePath,
                         pathVar: CPythonInterpreterFactoryConstants.PathEnvironmentVariableName,
-                        arch: arch,
+                        architecture: arch,
                         version: ver
                     ));
                 }
@@ -164,7 +166,7 @@ namespace TestUtilities {
                 if (libPath == null || !libPath.EnumerateFiles("site.py").Any()) {
                     continue;
                 }
-                return new PythonVersion(new InterpreterConfiguration(
+                return new PythonVersion(new VisualStudioInterpreterConfiguration(
                     CPythonInterpreterFactoryConstants.GetInterpreterId(
                         "Jython",
                         version.ToVersion().ToString()
@@ -180,6 +182,8 @@ namespace TestUtilities {
 
         public static IEnumerable<PythonVersion> AnacondaVersions {
             get {
+                if (Anaconda37 != null) yield return Anaconda37;
+                if (Anaconda37_x64 != null) yield return Anaconda37_x64;
                 if (Anaconda36 != null) yield return Anaconda36;
                 if (Anaconda36_x64 != null) yield return Anaconda36_x64;
                 if (Anaconda27 != null) yield return Anaconda27;
@@ -262,7 +266,7 @@ namespace TestUtilities {
         }
 
         public override string ToString() => Configuration.Description;
-        public string PrefixPath => Configuration.PrefixPath;
+        public string PrefixPath => Configuration.GetPrefixPath();
         public string InterpreterPath => Configuration.InterpreterPath;
         public PythonLanguageVersion Version => Configuration.Version.ToLanguageVersion();
         public string Id => Configuration.Id;
@@ -271,10 +275,45 @@ namespace TestUtilities {
     }
 
     public static class PythonVersionExtensions {
-        public static void AssertInstalled(this PythonVersion self) {
-            if(self == null || !File.Exists(self.InterpreterPath)) {
-                Assert.Inconclusive("Python interpreter not installed");
+        public static void AssertInstalled(this PythonVersion pyVersion, string customMessage = "Python interpreter not installed") {
+            if (pyVersion == null || !File.Exists(pyVersion.InterpreterPath)) {
+                Assert.Inconclusive(customMessage);
             }
+        }
+
+        /// <summary>
+        /// Creates a Python virtual environment in vEnvPath directory and installs the specified packages
+        /// </summary>
+        /// <param name="pyVersion"></param>
+        /// <param name="virtualEnvPath"></param>
+        /// <param name="packages"></param>
+        public static void CreatePythonVirtualEnvWithPkgs(this PythonVersion pyVersion, string virtualEnvPath, string[] packages) {
+            pyVersion.CreatePythonVirtualEnv(virtualEnvPath);
+
+            var envPythonExePath = Path.Combine(virtualEnvPath, "scripts", "python.exe");
+            foreach (var package in packages.MaybeEnumerate()) {
+                using (var output = ProcessOutput.RunHiddenAndCapture(envPythonExePath, "-m", "pip", "install", package)) {
+                    Assert.IsTrue(output.Wait(TimeSpan.FromSeconds(30)));
+                    Assert.AreEqual(0, output.ExitCode);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates a Python virtual environment in vEnvPath directory
+        /// </summary>
+        /// <param name="pyVersion"></param>
+        /// <param name="vEnvPath"></param>
+        public static void CreatePythonVirtualEnv(this PythonVersion pyVersion, string vEnvPath) {
+            var virtualEnvModule = (pyVersion.Version < PythonLanguageVersion.V30) ? "virtualenv" : "venv";
+            using (var p = ProcessOutput.RunHiddenAndCapture(pyVersion.InterpreterPath, "-m", virtualEnvModule, vEnvPath)) {
+                Console.WriteLine(p.Arguments);
+                Assert.IsTrue(p.Wait(TimeSpan.FromMinutes(3)));
+                Console.WriteLine(string.Join(Environment.NewLine, p.StandardOutputLines.Concat(p.StandardErrorLines)));
+                Assert.AreEqual(0, p.ExitCode);
+            }
+
+            Assert.IsTrue(File.Exists(Path.Combine(vEnvPath, "scripts", "python.exe")));
         }
     }
 }

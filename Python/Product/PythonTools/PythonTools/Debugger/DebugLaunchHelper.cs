@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -42,6 +42,7 @@ namespace Microsoft.PythonTools.Debugger {
         ) {
             var options = pyService.DebuggerOptions;
 
+            yield return AD7Engine.StopOnEntry + "=True";
             if (alwaysPauseAtEnd || allowPauseAtEnd && options.WaitOnAbnormalExit) {
                 yield return AD7Engine.WaitOnAbnormalExitSetting + "=True";
             }
@@ -56,6 +57,9 @@ namespace Microsoft.PythonTools.Debugger {
             }
             if (options.DebugStdLib) {
                 yield return AD7Engine.DebugStdLib + "=True";
+            }
+            if (options.ShowFunctionReturnValue) {
+                yield return AD7Engine.ShowReturnValue + "=True";
             }
         }
 
@@ -110,9 +114,9 @@ namespace Microsoft.PythonTools.Debugger {
             );
         }
 
-        private static string GetLaunchJsonForVsCodeDebugAdapter(IServiceProvider provider, LaunchConfiguration config) {
+        private static string GetLaunchJsonForVsCodeDebugAdapter(IServiceProvider provider, LaunchConfiguration config, Dictionary<string, string> fullEnvironment) {
             JArray envArray = new JArray();
-            foreach (var kv in provider.GetPythonToolsService().GetFullEnvironment(config)) {
+            foreach (var kv in fullEnvironment) {
                 JObject pair = new JObject {
                     ["name"] = kv.Key,
                     ["value"] = kv.Value
@@ -173,7 +177,8 @@ namespace Microsoft.PythonTools.Debugger {
                 // null-terminated block of null-terminated strings. 
                 // Each string is in the following form:name=value\0
                 var buf = new StringBuilder();
-                foreach (var kv in provider.GetPythonToolsService().GetFullEnvironment(config)) {
+                var fullEnvironment = provider.GetPythonToolsService().GetFullEnvironment(config);
+                foreach (var kv in fullEnvironment) {
                     buf.AppendFormat("{0}={1}\0", kv.Key, kv.Value);
                 }
                 if (buf.Length > 0) {
@@ -196,7 +201,7 @@ namespace Microsoft.PythonTools.Debugger {
                     dti.Info.grfLaunch = (uint)__VSDBGLAUNCHFLAGS.DBGLAUNCH_StopDebuggingOnEnd;
 
                     if (!pyService.DebuggerOptions.UseLegacyDebugger) {
-                        dti.Info.bstrOptions = GetLaunchJsonForVsCodeDebugAdapter(provider, config);
+                        dti.Info.bstrOptions = GetLaunchJsonForVsCodeDebugAdapter(provider, config, fullEnvironment);
                     }
                 }
                 

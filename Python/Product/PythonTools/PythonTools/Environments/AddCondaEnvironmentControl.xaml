@@ -6,8 +6,7 @@
              xmlns:l="clr-namespace:Microsoft.PythonTools.Environments"
              xmlns:wpf="clr-namespace:Microsoft.VisualStudioTools.Wpf"
              xmlns:ptwpf="clr-namespace:Microsoft.PythonTools.Wpf"
-             xmlns:catalog="clr-namespace:Microsoft.VisualStudio.Imaging;assembly=Microsoft.VisualStudio.ImageCatalog"
-             xmlns:imaging="clr-namespace:Microsoft.VisualStudio.Imaging;assembly=Microsoft.VisualStudio.Imaging"
+             xmlns:vsui="clr-namespace:Microsoft.VisualStudio.PlatformUI;assembly=Microsoft.VisualStudio.Shell.15.0"
              xmlns:common="clr-namespace:Microsoft.PythonTools;assembly=Microsoft.PythonTools.Common"
              mc:Ignorable="d" 
              d:DesignHeight="450" d:DesignWidth="730">
@@ -128,9 +127,9 @@
         </Grid>
         <Grid Visibility="{Binding Path=IsCondaMissing, Converter={x:Static wpf:Converters.TrueIsHidden}}">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="514*"/>
+                <ColumnDefinition Width="514"/>
                 <ColumnDefinition Width="28"/>
-                <ColumnDefinition Width="188*"/>
+                <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <ScrollViewer
                 Grid.Column="0"
@@ -153,6 +152,7 @@
                         SelectedItem="{Binding Path=SelectedProject}"
                         ItemTemplate="{StaticResource ProjectTemplate}"
                         AutomationProperties.LabeledBy="{Binding ElementName=ProjectLabel}"
+                        AutomationProperties.IsRequiredForForm="{Binding Path=Projects, Converter={x:Static wpf:Converters.NullOrEmptyIsFalse}}"
                         AutomationProperties.AutomationId="Project"
                         Style="{DynamicResource {x:Static ptwpf:ModernStyles.ThemedDialogComboBoxStyleKey}}"/>
 
@@ -170,14 +170,30 @@
                         HorizontalAlignment="Left"
                         Text="{Binding Path=EnvName,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged,ValidatesOnNotifyDataErrors=False}"
                         AutomationProperties.AutomationId="EnvName"
+                        AutomationProperties.IsRequiredForForm="True"
                         AutomationProperties.LabeledBy="{Binding ElementName=EnvNameLabel}"/>
 
-                    <Label
-                        Content="{x:Static common:Strings.AddCondaEnvironmentAddPackagesLabel}"
-                        Style="{StaticResource ModernLabel}"/>
+                    <!-- Wrap in a group box so that narrator reads the radio button header when entering the group -->
+                    <GroupBox
+                        Header="{x:Static common:Strings.AddCondaEnvironmentAddPackagesLabel}"
+                        BorderThickness="0"
+                        BorderBrush="Transparent"
+                        Background="Transparent"
+                        Padding="0"
+                        Margin="0">
 
+                        <GroupBox.HeaderTemplate>
+                            <DataTemplate>
+                                <Border Background="Transparent" BorderBrush="Transparent" BorderThickness="0">
+                                    <Label
+                                        Content="{Binding}"
+                                        Style="{StaticResource ModernLabel}"
+                                        Margin="-2 0 0 3"/>
+                                </Border>
+                            </DataTemplate>
+                        </GroupBox.HeaderTemplate>
+                    <StackPanel>
                     <RadioButton
-                        x:Name="EnvFileRadioButton"
                         Margin="16 6 0 3"
                         Content="{x:Static common:Strings.AddCondaEnvironmentFileRadioButton}"
                         IsChecked="{Binding Path=IsEnvFile}"
@@ -190,14 +206,16 @@
                         IsEnabled="{Binding Path=IsEnvFile}"
                         Text="{Binding SelectedEnvFilePath,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged,ValidatesOnNotifyDataErrors=False}"
                         Watermark="{x:Static common:Strings.AddCondaEnvironmentFileWatermark}"
+                        HelpText="{x:Static common:Strings.AddCondaEnvironmentFileHelp}"
+                        ToolTip="{x:Static common:Strings.AddCondaEnvironmentFileHelp}"
                         AutomationProperties.AutomationId="EnvFile"
-                        AutomationProperties.LabeledBy="{Binding ElementName=EnvFileRadioButton}"
+                        AutomationProperties.Name="{x:Static common:Strings.AddCondaEnvironmentFileName}"
+                        IsRequiredForForm="{Binding Path=IsEnvFile}"
                         BrowseButtonStyle="{StaticResource BrowseOpenFileButton}"
                         BrowseCommandParameter="{x:Static common:Strings.AddCondaEnvironmentFileBrowseFilter}"
                         BrowseAutomationName="{x:Static common:Strings.AddCondaEnvironmentFileBrowseButton}"/>
 
                     <RadioButton
-                        x:Name="PackagesRadioButton"
                         Margin="16 0 0 3"
                         Content="{x:Static common:Strings.AddCondaPackagesRadioButton}"
                         IsChecked="{Binding Path=IsPackages}"
@@ -210,10 +228,15 @@
                         IsEnabled="{Binding Path=IsPackages}"
                         Text="{Binding Packages,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}"
                         BrowseButtonStyle="{StaticResource BrowsePackagesButton}"
+                        BrowseAutomationName="{x:Static common:Strings.AddCondaPackagesBrowseButton}"
                         Watermark="{x:Static common:Strings.AddCondaPackagesWatermark}"
-                        AutomationProperties.AutomationId="Packages"
-                        AutomationProperties.LabeledBy="{Binding ElementName=PackagesRadioButton}"/>
-
+                        HelpText="{x:Static common:Strings.AddCondaPackagesHelpText}"
+                        ToolTip="{x:Static common:Strings.AddCondaPackagesHelpText}"
+                        AutomationProperties.Name="{x:Static common:Strings.AddCondaPackagesName}"
+                        AutomationProperties.AutomationId="Packages"/>
+                    </StackPanel>
+                    </GroupBox>
+                    
                     <CheckBox
                         Margin="0 0 0 10"
                         IsChecked="{Binding Path=SetAsCurrent}"
@@ -253,43 +276,12 @@
                     Content="{x:Static common:Strings.AddCondaEnvironmentPreviewLabel}"
                     Style="{StaticResource ModernLabel}"/>
 
-                <!-- Progress bar -->
-                <StackPanel
-                    Orientation="Horizontal"
-                    Grid.Row="1"
-                    VerticalAlignment="Center"
-                    HorizontalAlignment="Center"
-                    Visibility="{Binding Path=CondaPreview.IsInProgress, Converter={x:Static wpf:Converters.FalseIsCollapsed}}">
-
-                    <imaging:CrispImage
-                        Width="16"
-                        Height="16"
-                        Margin="4 0 0 0"
-                        Moniker="{x:Static catalog:KnownMonikers.Loading}"
-                        RenderTransformOrigin="0.5, 0.5">
-
-                        <imaging:CrispImage.RenderTransform>
-                            <RotateTransform x:Name="Rotation" />
-                        </imaging:CrispImage.RenderTransform>
-                        <imaging:CrispImage.Triggers>
-                            <EventTrigger RoutedEvent="Image.Loaded">
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation
-                                            Storyboard.TargetName="Rotation"
-                                            Storyboard.TargetProperty="Angle"
-                                            By="360.0"
-                                            Duration="0:0:2.0"
-                                            RepeatBehavior="Forever" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
-                        </imaging:CrispImage.Triggers>
-                    </imaging:CrispImage>
-                    <TextBlock
-                        Margin="4 0 0 0"
-                        Text="{x:Static common:Strings.AddCondaEnvironmentPreviewInProgress}"/>
-                </StackPanel>
+                <!-- Progress bar, wrap in a grid to avoid accessibility issues when not visible -->
+                <Grid Grid.Row="1" Visibility="{Binding CondaPreview.Progress.IsProgressDisplayed, Converter={x:Static wpf:Converters.FalseIsCollapsed}}">
+                    <vsui:ProgressControl
+                        HorizontalAlignment="Center"
+                        DataContext="{Binding CondaPreview.Progress}"/>
+                </Grid>
 
                 <!-- Preview results -->
                 <ScrollViewer

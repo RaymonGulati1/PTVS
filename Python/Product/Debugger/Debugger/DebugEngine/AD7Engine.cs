@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -138,6 +138,16 @@ namespace Microsoft.PythonTools.Debugger.DebugEngine {
         /// Specifies if the debugger should step/break into std lib code.
         /// </summary>
         public const string DebugStdLib = "DEBUG_STDLIB";
+
+        /// <summary>
+        /// Specifies the debugger should stop on first statement.
+        /// </summary>
+        public const string StopOnEntry = "STOP_ON_ENTRY";
+
+        /// <summary>
+        /// Specifies if the debugger should display the function return values in locals window
+        /// </summary>
+        public const string ShowReturnValue = "SHOW_RETURN_VALUE";
 
         /// <summary>
         /// Specifies if the debugger should treat the application as if it doesn't have a console.

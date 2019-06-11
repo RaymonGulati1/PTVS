@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -98,7 +98,7 @@ namespace Microsoft.CookiecutterTools.Interpreters {
 
             var cmp = StringComparer.OrdinalIgnoreCase;
             return cmp.Equals(PrefixPath, other.PrefixPath) &&
-                string.Equals(Id, other.Id) &&
+                cmp.Equals(Id, other.Id) &&
                 cmp.Equals(InterpreterPath, other.InterpreterPath) &&
                 cmp.Equals(WindowsInterpreterPath, other.WindowsInterpreterPath) &&
                 cmp.Equals(PathEnvironmentVariable, other.PathEnvironmentVariable) &&

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -39,7 +39,7 @@ VsPyProf* VsPyProf::Create(HMODULE pythonModule) {
             return nullptr;
     }
 
-    HMODULE vsPerf = LoadLibrary(buffer);
+    HMODULE vsPerf = LoadLibraryEx(buffer, 0, LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (vsPerf == 0) {
         // can't load VsPerf100
         return nullptr;

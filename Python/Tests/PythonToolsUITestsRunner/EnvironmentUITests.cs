@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -90,38 +90,74 @@ namespace PythonToolsUITestsRunner {
 
         [TestMethod, Priority(0)]
         [TestCategory("Installed")]
-        public void CreateVEnv() {
-            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.CreateVEnv));
+        public void ProjectCreateVEnv() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.ProjectCreateVEnv));
         }
 
         [TestMethod, Priority(0)]
         [TestCategory("Installed")]
-        public void CreateCondaEnvFromPackages() {
-            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.CreateCondaEnvFromPackages));
+        public void ProjectCreateCondaEnvFromPackages() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.ProjectCreateCondaEnvFromPackages));
         }
 
         [TestMethod, Priority(0)]
         [TestCategory("Installed")]
-        public void CreateCondaEnvFromEnvFile() {
-            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.CreateCondaEnvFromEnvFile));
+        public void ProjectCreateCondaEnvFromEnvFile() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.ProjectCreateCondaEnvFromEnvFile));
         }
 
         [TestMethod, Priority(0)]
         [TestCategory("Installed")]
-        public void AddExistingVEnvLocal() {
-            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.AddExistingVEnvLocal));
+        public void ProjectAddExistingVEnvLocal() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.ProjectAddExistingVEnvLocal));
         }
 
         [TestMethod, Priority(0)]
         [TestCategory("Installed")]
-        public void AddCustomEnvLocal() {
-            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.AddCustomEnvLocal));
+        public void ProjectAddCustomEnvLocal() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.ProjectAddCustomEnvLocal));
         }
 
         [TestMethod, Priority(0)]
         [TestCategory("Installed")]
-        public void AddExistingEnv() {
-            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.AddExistingEnv));
+        public void ProjectAddExistingEnv() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.ProjectAddExistingEnv));
+        }
+
+        [TestMethod, Priority(0)]
+        [TestCategory("Installed")]
+        public void WorkspaceCreateVEnv() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.WorkspaceCreateVEnv));
+        }
+
+        [TestMethod, Priority(0)]
+        [TestCategory("Installed")]
+        public void WorkspaceCreateCondaEnvFromEnvFile() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.WorkspaceCreateCondaEnvFromEnvFile));
+        }
+
+        [TestMethod, Priority(0)]
+        [TestCategory("Installed")]
+        public void WorkspaceCreateCondaEnvFromPackages() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.WorkspaceCreateCondaEnvFromPackages));
+        }
+
+        [TestMethod, Priority(0)]
+        [TestCategory("Installed")]
+        public void WorkspaceCreateCondaEnvFromNoPackages() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.WorkspaceCreateCondaEnvFromNoPackages));
+        }
+
+        [TestMethod, Priority(0)]
+        [TestCategory("Installed")]
+        public void WorkspaceAddCustomEnvLocal() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.WorkspaceAddCustomEnvLocal));
+        }
+
+        [TestMethod, Priority(0)]
+        [TestCategory("Installed")]
+        public void WorkspaceAddExistingEnv() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.WorkspaceAddExistingEnv));
         }
 
         [TestMethod, Priority(0)]
@@ -140,6 +176,24 @@ namespace PythonToolsUITestsRunner {
         [TestCategory("Installed")]
         public void VirtualEnvironmentReplWorkingDirectory() {
             _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.VirtualEnvironmentReplWorkingDirectory));
+        }
+
+        [TestMethod, Priority(0)]
+        [TestCategory("Installed")]
+        public void SwitcherSingleProject() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.SwitcherSingleProject));
+        }
+
+        [TestMethod, Priority(0)]
+        [TestCategory("Installed")]
+        public void SwitcherWorkspace() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.SwitcherWorkspace));
+        }
+
+        [TestMethod, Priority(0)]
+        [TestCategory("Installed")]
+        public void SwitcherNoProject() {
+            _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.SwitcherNoProject));
         }
     }
 }

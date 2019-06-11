@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -42,14 +42,6 @@ namespace Microsoft.CookiecutterTools.View {
 
         private void Browse_Executed(object sender, ExecutedRoutedEventArgs e) {
             WpfCommands.Executed(null, sender, e);
-        }
-
-        private void Odbc_CanExecute(object sender, CanExecuteRoutedEventArgs e) {
-            SqlCommands.CanExecute(null, sender, e);
-        }
-
-        private void Odbc_Executed(object sender, ExecutedRoutedEventArgs e) {
-            SqlCommands.Executed(null, sender, e);
         }
 
         private void Home_CanExecute(object sender, CanExecuteRoutedEventArgs e) {

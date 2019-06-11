@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -40,8 +40,7 @@ namespace Microsoft.PythonTools.Repl {
         IInteractiveEvaluator,
         IPythonInteractiveEvaluator,
         IMultipleScopeEvaluator,
-        IPythonInteractiveIntellisense
-    {
+        IPythonInteractiveIntellisense {
         private PythonDebugProcessReplEvaluator _activeEvaluator;
         private readonly Dictionary<int, PythonDebugProcessReplEvaluator> _evaluators = new Dictionary<int, PythonDebugProcessReplEvaluator>(); // process id to evaluator
         private readonly Dictionary<int, Task> _attachingTasks = new Dictionary<int, Task>();
@@ -121,7 +120,7 @@ namespace Microsoft.PythonTools.Repl {
             }
             if (_activeEvaluator != null) {
                 return _activeEvaluator.CanExecuteCode(text);
-            }else if (CustomDebugAdapterProtocolExtension.CanUseExperimental()) {
+            } else if (CustomDebugAdapterProtocolExtension.CanUseExperimental()) {
                 return CanExecuteCodeExperimental(text);
             }
             return true;
@@ -200,10 +199,7 @@ namespace Microsoft.PythonTools.Repl {
         }
 
         public string FormatClipboard() {
-            if (_activeEvaluator != null) {
-                return _activeEvaluator.FormatClipboard();
-            }
-            return String.Empty;
+            return PythonCommonInteractiveEvaluator.FormatClipboard(_serviceProvider, CurrentWindow);
         }
 
         public void Dispose() {
@@ -561,8 +557,9 @@ namespace Microsoft.PythonTools.Repl {
             }
 
             process.ProcessExited += new EventHandler<ProcessExitedEventArgs>(OnProcessExited);
-            var evaluator = new PythonDebugProcessReplEvaluator(_serviceProvider, process, threadIdMapper);
-            evaluator.CurrentWindow = CurrentWindow;
+            var evaluator = new PythonDebugProcessReplEvaluator(_serviceProvider, process, threadIdMapper) {
+                CurrentWindow = CurrentWindow
+            };
             evaluator.AvailableScopesChanged += new EventHandler<EventArgs>(evaluator_AvailableScopesChanged);
             evaluator.MultipleScopeSupportChanged += new EventHandler<EventArgs>(evaluator_MultipleScopeSupportChanged);
             await evaluator.InitializeAsync();

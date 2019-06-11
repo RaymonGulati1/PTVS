@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -57,8 +57,14 @@ namespace DebuggerUITestsRunner {
 
         [TestMethod, Priority(0)]
         [TestCategory("Installed")]
-        public void DebugPythonProjectWithAndWithoutClearingPythonPath() {
-            _vs.RunTest(nameof(DebuggerUITests.DebugProjectUITests.DebugPythonProjectWithAndWithoutClearingPythonPath), UseVsCodeDebugger, Interpreter);
+        public void DebugPythonProjectWithClearingPythonPath() {
+            _vs.RunTest(nameof(DebuggerUITests.DebugProjectUITests.DebugPythonProjectWithClearingPythonPath), UseVsCodeDebugger, Interpreter);
+        }
+
+        [TestMethod, Priority(0)]
+        [TestCategory("Installed")]
+        public void DebugPythonProjectWithoutClearingPythonPath() {
+            _vs.RunTest(nameof(DebuggerUITests.DebugProjectUITests.DebugPythonProjectWithoutClearingPythonPath), UseVsCodeDebugger, Interpreter);
         }
 
         [TestMethod, Priority(0)]
@@ -175,6 +181,7 @@ namespace DebuggerUITestsRunner {
             _vs.RunTest(nameof(DebuggerUITests.DebugProjectUITests.BreakpointsDisableReenable), UseVsCodeDebugger, Interpreter);
         }
 
+        [Ignore] // Not reliable enough right now
         [TestMethod, Priority(0)]
         [TestCategory("Installed")]
         public void LaunchWithErrorsDontRun() {

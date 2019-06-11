@@ -9,13 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.ComponentModel;
+using System.Globalization;
 
 namespace Microsoft.PythonTools.Project {
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Property | AttributeTargets.Field, Inherited = false, AllowMultiple = false)]
@@ -28,7 +29,7 @@ namespace Microsoft.PythonTools.Project {
 
         public override string DisplayName {
             get {
-                return Strings.ResourceManager.GetString(_name) ?? VisualStudioTools.Project.SR.GetString(_name);
+                return Strings.ResourceManager.GetString(_name, Strings.Culture) ?? VisualStudioTools.Project.SR.GetString(_name);
             }
         }
     }
@@ -45,7 +46,7 @@ namespace Microsoft.PythonTools.Project {
             get {
                 if (!_replaced) {
                     _replaced = true;
-                    DescriptionValue = Strings.ResourceManager.GetString(base.Description) ??
+                    DescriptionValue = Strings.ResourceManager.GetString(base.Description, Strings.Culture) ??
                         VisualStudioTools.Project.SR.GetString(base.Description);
                 }
                 return base.Description;
@@ -60,7 +61,7 @@ namespace Microsoft.PythonTools.Project {
         }
 
         protected override string GetLocalizedString(string value) {
-            return Strings.ResourceManager.GetString(value) ?? VisualStudioTools.Project.SR.GetString(value);
+            return Strings.ResourceManager.GetString(value, Strings.Culture) ?? VisualStudioTools.Project.SR.GetString(value);
         }
     }
 }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -239,13 +239,14 @@ namespace Microsoft.VisualStudioTools.Infrastructure {
         ) {
             var outFile = Path.GetTempFileName();
             var errFile = Path.GetTempFileName();
-            var psi = new ProcessStartInfo("cmd.exe");
-            psi.CreateNoWindow = true;
-            psi.WindowStyle = ProcessWindowStyle.Hidden;
-            psi.UseShellExecute = true;
-            psi.Verb = "runas";
+            var psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe")) {
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden,
+                UseShellExecute = true,
+                Verb = "runas"
+            };
 
-            string args;
+        string args;
             if (quoteArgs) {
                 args = string.Join(" ", arguments.Where(a => a != null).Select(QuoteSingleArgument));
             } else {

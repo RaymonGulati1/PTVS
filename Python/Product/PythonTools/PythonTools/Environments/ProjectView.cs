@@ -9,18 +9,20 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.Linq;
+using Microsoft.PythonTools.Interpreter;
 using Microsoft.PythonTools.Project;
 
 namespace Microsoft.PythonTools.Environments {
     sealed class ProjectView {
         public PythonProjectNode Node { get; }
+        public IPythonWorkspaceContext Workspace { get; }
         public string Name { get; set; }
         public string HomeFolder { get; set; }
         public string[] InterpreterIds { get; set; }
@@ -38,5 +40,23 @@ namespace Microsoft.PythonTools.Environments {
             RequirementsTxtPath = node.GetRequirementsTxtPath();
             EnvironmentYmlPath = node.GetEnvironmentYmlPath();
         }
+
+        public ProjectView(IPythonWorkspaceContext workspace) {
+            Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
+            Name = workspace.WorkspaceName;
+            HomeFolder = workspace.Location;
+            if (workspace.CurrentFactory != null) {
+                var id = workspace.CurrentFactory.Configuration.Id;
+                InterpreterIds = new string[] { id };
+                ActiveInterpreterId = id;
+            } else {
+                InterpreterIds = new string[0];
+                ActiveInterpreterId = string.Empty;
+            }
+            RequirementsTxtPath = workspace.GetRequirementsTxtPath();
+            EnvironmentYmlPath = workspace.GetEnvironmentYmlPath();
+        }
+
+        public override string ToString() => Name;
     }
 }

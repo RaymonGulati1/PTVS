@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -1227,7 +1227,7 @@ namespace ProfilingUITests {
 
         #region Helpers
 
-        public class DotNotWaitOnExit : PythonDebuggingGeneralOptionsSetter {
+        public class DotNotWaitOnExit : PythonOptionsSetter {
             public DotNotWaitOnExit(EnvDTE.DTE dte) :
                 base(dte, waitOnNormalExit: false, waitOnAbnormalExit: false) {
             }

@@ -9,13 +9,14 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
 
 using System;
 using System.ComponentModel;
+using System.Globalization;
 
 namespace Microsoft.CookiecutterTools {
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Property | AttributeTargets.Field, Inherited = false, AllowMultiple = false)]
@@ -26,7 +27,7 @@ namespace Microsoft.CookiecutterTools {
             _name = name;
         }
 
-        public override string DisplayName => Strings.ResourceManager.GetString(_name);
+        public override string DisplayName => Strings.ResourceManager.GetString(_name, Strings.Culture);
     }
 
     [AttributeUsage(AttributeTargets.All)]
@@ -41,7 +42,7 @@ namespace Microsoft.CookiecutterTools {
             get {
                 if (!_replaced) {
                     _replaced = true;
-                    DescriptionValue = Strings.ResourceManager.GetString(base.Description);
+                    DescriptionValue = Strings.ResourceManager.GetString(base.Description, Strings.Culture);
                 }
                 return base.Description;
             }
@@ -55,7 +56,7 @@ namespace Microsoft.CookiecutterTools {
         }
 
         protected override string GetLocalizedString(string value) {
-            return Strings.ResourceManager.GetString(value);
+            return Strings.ResourceManager.GetString(value, Strings.Culture);
         }
     }
 }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -74,10 +74,12 @@ namespace Microsoft.PythonTools.Logging {
         public string Architecture { get; set; }
         public string Version { get; set; }
         public string Reason { get; set; }
+        public bool IsIronPython { get; set; }
     }
 
     static class AnalysisInitializeReasons {
         public const string Project = "Project";
+        public const string Workspace = "Workspace";
         public const string Interactive = "Interactive";
         public const string Default = "Default";
     }
@@ -112,6 +114,11 @@ namespace Microsoft.PythonTools.Logging {
         public bool ExpressionFound { get; set; }
     }
 
+    static class InfoBarContexts {
+        public const string Project = "Project";
+        public const string Workspace = "Workspace";
+    }
+
     static class CondaEnvCreateInfoBarActions {
         public const string Prompt = "Prompt";
         public const string Create = "Create";
@@ -126,6 +133,7 @@ namespace Microsoft.PythonTools.Logging {
     sealed class CondaEnvCreateInfoBarInfo : PythonToolsLoggerData {
         public string Reason { get; set; }
         public string Action { get; set; }
+        public string Context { get; set; }
     }
 
     static class VirtualEnvCreateInfoBarActions {
@@ -136,6 +144,7 @@ namespace Microsoft.PythonTools.Logging {
 
     sealed class VirtualEnvCreateInfoBarInfo : PythonToolsLoggerData {
         public string Action { get; set; }
+        public string Context { get; set; }
     }
 
     static class PackageInstallInfoBarActions {
@@ -146,6 +155,7 @@ namespace Microsoft.PythonTools.Logging {
 
     sealed class PackageInstallInfoBarInfo : PythonToolsLoggerData {
         public string Action { get; set; }
+        public string Context { get; set; }
     }
 
     sealed class CreateCondaEnvInfo : PythonToolsLoggerData {
@@ -174,5 +184,13 @@ namespace Microsoft.PythonTools.Logging {
         public string Architecture { get; set; }
         public bool Custom { get; set; }
         public bool Global { get; set; }
+    }
+
+    sealed class SelectEnvFromToolbarInfo : PythonToolsLoggerData {
+        [PiiProperty]
+        public string InterpreterId { get; set; }
+        public string Architecture { get; set; }
+        public string Version { get; set; }
+        public bool IsIronPython { get; set; }
     }
 }

@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -31,11 +31,20 @@ namespace Microsoft.IronPythonTools.Interpreter {
 
         private static readonly PipPackageManagerCommands Commands = new IPyPipCommands();
 
+        private readonly ICondaLocatorProvider _condaLocatorProvider;
+
+        [ImportingConstructor]
+        public IronPythonPipPackageManagerProvider(
+            [Import] ICondaLocatorProvider condaLocatorProvider
+        ) {
+            _condaLocatorProvider = condaLocatorProvider;
+        }
+
         public IEnumerable<IPackageManager> GetPackageManagers(IPythonInterpreterFactory factory) {
             IPackageManager pm = null;
             if (factory is IronPythonAstInterpreterFactory) {
                 try {
-                    pm = new PipPackageManager(factory, Commands, 0);
+                    pm = new PipPackageManager(factory, Commands, 0, _condaLocatorProvider);
                 } catch (NotSupportedException) {
                 }
             }

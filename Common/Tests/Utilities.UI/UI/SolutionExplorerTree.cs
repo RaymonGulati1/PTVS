@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -93,7 +93,7 @@ namespace TestUtilities.UI {
         }
 
         public void SelectProject(EnvDTE.Project project) {
-            var slnName = string.Format("Solution '{0}' ({1} project{2})",
+            var slnName = string.Format("Solution '{0}' ({1} of {1} project{2})",
                 Path.GetFileNameWithoutExtension(project.DTE.Solution.FullName),
                 project.DTE.Solution.Projects.Count,
                 project.DTE.Solution.Projects.Count == 1 ? "" : "s"
@@ -125,6 +125,40 @@ namespace TestUtilities.UI {
             return new TreeNode(FindChildOfProjectHelper(project, path, false));
         }
 
+        public TreeNode WaitForChildOfWorkspace(params string[] path) {
+            return WaitForChildOfWorkspace(TimeSpan.FromSeconds(10), path);
+        }
+
+        public TreeNode WaitForChildOfWorkspace(TimeSpan timeout, params string[] path) {
+            var item = WaitForItemHelper(p => FindChildOfWorkspaceHelper(p, false), path, timeout);
+            // Check one more time, but now let the assertions be raised.
+            return new TreeNode(FindChildOfWorkspaceHelper(path, true));
+        }
+
+        private AutomationElement FindChildOfWorkspaceHelper(string[] path, bool assertOnFailure) {
+            var projElement = Nodes.FirstOrDefault()?.Element;
+            if (assertOnFailure) {
+                AutomationWrapper.DumpElement(Element);
+                Assert.IsNotNull(projElement, "Did not find solution explorer workspace root element");
+            }
+
+            if (projElement == null) {
+                return null;
+            }
+
+            var itemElement = path.Any() ? FindNode(
+                projElement.FindAll(TreeScope.Children, Condition.TrueCondition),
+                path,
+                0
+            ) : projElement;
+
+            if (assertOnFailure) {
+                AutomationWrapper.DumpElement(Element);
+                Assert.IsNotNull(itemElement, string.Format("Did not find element <{0}>", string.Join("\\", path)));
+            }
+            return itemElement;
+        }
+
         private AutomationElement FindChildOfProjectHelper(EnvDTE.Project project, string[] path, bool assertOnFailure) {
             var sln = project.DTE.Solution;
             int count = sln.Projects.OfType<EnvDTE.Project>().Count(p => {
@@ -135,7 +169,7 @@ namespace TestUtilities.UI {
                 }
             });
             var slnLabel = string.Format(
-                "Solution '{0}' ({1} project{2})",
+                "Solution '{0}' ({1} of {1} project{2})",
                 Path.GetFileNameWithoutExtension(sln.FullName),
                 count,
                 count == 1 ? "" : "s"

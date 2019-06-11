@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -32,6 +32,15 @@ namespace Microsoft.PythonTools.Interpreter {
 
         public const string CompanyPropertyKey = "Company";
         public const string SupportUrlPropertyKey = "SupportUrl";
+
+        // When Python is installed as a Store app, it does not expose
+        // the normal registry keys (because Store apps aren't allowed
+        // to write to the regular registry). It does expose the key
+        // when queried directly (e.g. as HKCU\Software\Python\PythonCore\3.7),
+        // but enumerating HKCU\Software\Python\PythonCore key does not
+        // find it (because of deliberate limitations in Windows).
+        private static readonly string[] StoreAppTags = new[] { "3.7", "3.8", "3.9" };
+        private static readonly string[] StoreAppCompanies = new[] { PythonCoreCompany };
 
         private readonly HashSet<string> _seenIds;
         private readonly List<PythonInterpreterInformation> _info;
@@ -70,8 +79,8 @@ namespace Microsoft.PythonTools.Interpreter {
                 return;
             }
 
-            var companies = GetSubkeys(root);
-            foreach (var company in companies.MaybeEnumerate()) {
+            var companies = GetSubkeys(root).Union(StoreAppCompanies);
+            foreach (var company in companies) {
                 if ("PyLauncher".Equals(company, StringComparison.OrdinalIgnoreCase)) {
                     continue;
                 }
@@ -92,8 +101,8 @@ namespace Microsoft.PythonTools.Interpreter {
                         companyDisplay = companyDisplay ?? company;
                     }
 
-                    var tags = GetSubkeys(companyKey);
-                    foreach (var tag in tags.MaybeEnumerate()) {
+                    var tags = GetSubkeys(companyKey).Union(StoreAppTags);
+                    foreach (var tag in tags) {
                         using (var tagKey = companyKey.OpenSubKey(tag))
                         using (var installKey = tagKey?.OpenSubKey("InstallPath")) {
                             var config = TryReadConfiguration(company, tag, tagKey, installKey, pythonCore, assumedArch);
@@ -125,7 +134,7 @@ namespace Microsoft.PythonTools.Interpreter {
             InterpreterConfiguration.DisambiguateDescriptions(_info.Select(i => i.Configuration).ToArray());
         }
 
-        private InterpreterConfiguration TryReadConfiguration(
+        private VisualStudioInterpreterConfiguration TryReadConfiguration(
             string company,
             string tag,
             RegistryKey tagKey,
@@ -220,7 +229,7 @@ namespace Microsoft.PythonTools.Interpreter {
                 }
             }
 
-            return new InterpreterConfiguration(
+            return new VisualStudioInterpreterConfiguration(
                 id,
                 description,
                 prefixPath,
@@ -247,7 +256,7 @@ namespace Microsoft.PythonTools.Interpreter {
                     delay *= 5;
                 }
             }
-            return subKeyNames;
+            return subKeyNames ?? new string[0];
         }
     }
 }

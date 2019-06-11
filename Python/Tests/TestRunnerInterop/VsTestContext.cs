@@ -9,7 +9,7 @@
 // THIS CODE IS PROVIDED ON AN  *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS
 // OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY
 // IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
-// MERCHANTABLITY OR NON-INFRINGEMENT.
+// MERCHANTABILITY OR NON-INFRINGEMENT.
 //
 // See the Apache Version 2.0 License for specific language governing
 // permissions and limitations under the License.
@@ -80,7 +80,7 @@ namespace TestRunnerInterop {
                             return _devenvExe;
                         }
 
-                        _devenvExe = Path.Combine(Path.GetDirectoryName(_devenvExe), "IDE", "Common7", "devenv.exe");
+                        _devenvExe = Path.Combine(Path.GetDirectoryName(_devenvExe), "Common7", "IDE", "devenv.exe");
                         if (File.Exists(_devenvExe)) {
                             return _devenvExe;
                         }
