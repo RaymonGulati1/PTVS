@@ -146,7 +146,7 @@ namespace Microsoft.PythonTools.Debugger {
                 throw new NoStartupFileException(Strings.DebugLaunchScriptNameMissing);
             }
 
-            if (!File.Exists(config.ScriptName)) {
+            if(!File.Exists(Path.Combine(config.WorkingDirectory ?? "", config.ScriptName))) {
                 throw new NoStartupFileException(Strings.DebugLaunchScriptNameDoesntExist.FormatUI(config.ScriptName));
             }
         }
