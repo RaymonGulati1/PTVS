@@ -39,31 +39,31 @@ namespace PythonToolsUITestsRunner {
         public static void ClassCleanup() => VsTestContext.Instance.Dispose();
         #endregion
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P1)]
         [TestCategory("Installed")]
         public void RunAllUnittestProject() {
             _vs.RunTest(nameof(PythonToolsUITests.TestExplorerTests.RunAllUnittestProject));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P1)]
         [TestCategory("Installed")]
         public void RunAllUnittestWorkspace() {
             _vs.RunTest(nameof(PythonToolsUITests.TestExplorerTests.RunAllUnittestWorkspace));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P1)]
         [TestCategory("Installed")]
         public void RunAllPytestProject() {
             _vs.RunTest(nameof(PythonToolsUITests.TestExplorerTests.RunAllPytestProject));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P1)]
         [TestCategory("Installed")]
         public void RunAllPytestWorkspace() {
             _vs.RunTest(nameof(PythonToolsUITests.TestExplorerTests.RunAllPytestWorkspace));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P1)]
         [TestCategory("Installed")]
         public void DebugPytestProject() {
             _vs.RunTest(nameof(PythonToolsUITests.TestExplorerTests.DebugPytestProject));

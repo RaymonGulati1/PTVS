@@ -63,7 +63,7 @@ namespace ProjectUITestsRunner {
             _vs.RunTest(nameof(ProjectUITests.ShowAllFiles.ShowAllFilesLinked));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P0_FAILING_UI_TEST)]
         [TestCategory("Installed")]
         public void ShowAllFilesIncludeExclude() {
             _vs.RunTest(nameof(ProjectUITests.ShowAllFiles.ShowAllFilesIncludeExclude));

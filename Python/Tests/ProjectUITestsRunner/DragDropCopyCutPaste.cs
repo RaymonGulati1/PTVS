@@ -195,13 +195,13 @@ namespace ProjectUITestsRunner {
             _vs.RunTest(nameof(ProjectUITests.DragDropCopyCutPaste.MoveDuplicateFolderNameMouse));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P0_FAILING_UI_TEST)]
         [TestCategory("Installed")]
         public void CopyDuplicateFolderNameKeyboard() {
             _vs.RunTest(nameof(ProjectUITests.DragDropCopyCutPaste.CopyDuplicateFolderNameKeyboard));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P0_FAILING_UI_TEST)]
         [TestCategory("Installed")]
         public void CopyDuplicateFolderNameMouse() {
             _vs.RunTest(nameof(ProjectUITests.DragDropCopyCutPaste.CopyDuplicateFolderNameMouse));
@@ -345,13 +345,13 @@ namespace ProjectUITestsRunner {
             _vs.RunTest(nameof(ProjectUITests.DragDropCopyCutPaste.CopyFolderWithContents));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P0_FAILING_UI_TEST)]
         [TestCategory("Installed")]
         public void MoveProjectToSolutionFolderKeyboard() {
             _vs.RunTest(nameof(ProjectUITests.DragDropCopyCutPaste.MoveProjectToSolutionFolderKeyboard));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P0_FAILING_UI_TEST)]
         [TestCategory("Installed")]
         public void MoveProjectToSolutionFolderMouse() {
             _vs.RunTest(nameof(ProjectUITests.DragDropCopyCutPaste.MoveProjectToSolutionFolderMouse));

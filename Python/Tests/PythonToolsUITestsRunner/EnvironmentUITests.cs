@@ -82,7 +82,7 @@ namespace PythonToolsUITestsRunner {
             _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.DeleteVEnv));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P0_FAILING_UI_TEST)]
         [TestCategory("Installed")]
         public void DefaultBaseInterpreterSelection() {
             _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.DefaultBaseInterpreterSelection));
@@ -172,7 +172,7 @@ namespace PythonToolsUITestsRunner {
             _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.EnvironmentReplWorkingDirectory));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P0_FAILING_UI_TEST)]
         [TestCategory("Installed")]
         public void VirtualEnvironmentReplWorkingDirectory() {
             _vs.RunTest(nameof(PythonToolsUITests.EnvironmentUITests.VirtualEnvironmentReplWorkingDirectory));

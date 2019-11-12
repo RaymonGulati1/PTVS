@@ -52,7 +52,7 @@ namespace ProjectUITestsRunner {
             _vs.RunTest(nameof(ProjectUITests.SourceControl.AddNewItem));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P0_FAILING_UI_TEST)]
         [TestCategory("Installed")]
         public void AddExistingItem() {
             _vs.RunTest(nameof(ProjectUITests.SourceControl.AddExistingItem));

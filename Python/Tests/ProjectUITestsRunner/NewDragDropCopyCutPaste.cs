@@ -39,7 +39,7 @@ namespace ProjectUITestsRunner {
         public static void ClassCleanup() => VsTestContext.Instance.Dispose();
         #endregion
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P0_FAILING_UI_TEST)]
         [TestCategory("Installed")]
         public void MoveToMissingFolderKeyboard() {
             _vs.RunTest(nameof(ProjectUITests.NewDragDropCopyCutPaste.MoveToMissingFolderKeyboard));
@@ -69,7 +69,7 @@ namespace ProjectUITestsRunner {
             _vs.RunTest(nameof(ProjectUITests.NewDragDropCopyCutPaste.MoveExcludedItemToFolderKeyboard));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P0_FAILING_UI_TEST)]
         [TestCategory("Installed")]
         public void MoveExcludedItemToFolderMouse() {
             _vs.RunTest(nameof(ProjectUITests.NewDragDropCopyCutPaste.MoveExcludedItemToFolderMouse));

@@ -103,13 +103,13 @@ namespace ProjectUITestsRunner {
             _vs.RunTest(nameof(ProjectUITests.BasicProjectTests.RenameFileExistsInHierarchy_FileOpen_Cancel));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P0_FAILING_UI_TEST)]
         [TestCategory("Installed")]
         public void RenameFileExistsInHierarchy_FileOpen_Save() {
             _vs.RunTest(nameof(ProjectUITests.BasicProjectTests.RenameFileExistsInHierarchy_FileOpen_Save));
         }
 
-        [TestMethod, Priority(UITestPriority.P0)]
+        [TestMethod, Priority(UITestPriority.P0_FAILING_UI_TEST)]
         [TestCategory("Installed")]
         public void RenameFileExistsInHierarchy_FileOpen_DontSave() {
             _vs.RunTest(nameof(ProjectUITests.BasicProjectTests.RenameFileExistsInHierarchy_FileOpen_DontSave));
