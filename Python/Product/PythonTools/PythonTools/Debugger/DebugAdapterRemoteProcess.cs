@@ -30,11 +30,14 @@ namespace Microsoft.PythonTools.Debugger {
         private const int _debuggerConnectionTimeout = 20000; // 20 seconds
         private DebugAdapterProcessStream _stream;
         private bool _debuggerConnected = false;
+        CustomDebugAdapterLauncher _debugAdapterLauncher;
 
-        private DebugAdapterRemoteProcess() {}
+        private DebugAdapterRemoteProcess(CustomDebugAdapterLauncher debugAdapterLauncher) {
+            _debugAdapterLauncher = debugAdapterLauncher;
+        }
 
-        public static ITargetHostProcess Attach(string attachJson) {
-            var process = new DebugAdapterRemoteProcess();
+        public static ITargetHostProcess Attach(CustomDebugAdapterLauncher debugAdapterLauncher, string attachJson) {
+            var process = new DebugAdapterRemoteProcess(debugAdapterLauncher);
             var attached = process.AttachProcess(attachJson);
             return attached ? process : null;
         }
@@ -87,10 +90,11 @@ namespace Microsoft.PythonTools.Debugger {
         }
 
         private void OnInitialized(object sender, EventArgs e) {
-            CustomDebugAdapterProtocolExtension.SendRequest(
+            _debugAdapterLauncher.SendRequest(
                 new PtvsdVersionRequest(),
                 PtvsdVersionHelper.VerifyPtvsdVersion,
-                PtvsdVersionHelper.VerifyPtvsdVersionError);
+                PtvsdVersionHelper.VerifyPtvsdVersionError
+            );
         }
 
         private void OnLegacyDebugger(object sender, EventArgs e) {
@@ -109,7 +113,7 @@ namespace Microsoft.PythonTools.Debugger {
         public event DataReceivedEventHandler ErrorDataReceived;
 
         public void Dispose() {
-            if(_stream != null) {
+            if (_stream != null) {
                 _stream.Dispose();
             }
         }

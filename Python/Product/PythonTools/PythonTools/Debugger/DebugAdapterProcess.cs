@@ -44,9 +44,11 @@ namespace Microsoft.PythonTools.Debugger {
         private int _listenerPort = -1;
         private DebugAdapterProcessStream _stream;
         private bool _debuggerConnected = false;
+        private CustomDebugAdapterLauncher _debugAdapterLauncher;
 
-        public DebugAdapterProcess() {
+        public DebugAdapterProcess(CustomDebugAdapterLauncher debugAdapterLauncher) {
             _processGuid = Guid.NewGuid();
+            _debugAdapterLauncher = debugAdapterLauncher;
         }
 
         public void Dispose() {
@@ -65,8 +67,8 @@ namespace Microsoft.PythonTools.Debugger {
             }
         }
 
-        public static ITargetHostProcess Start(string launchJson) {
-            var debugProcess = new DebugAdapterProcess();
+        public static ITargetHostProcess Start(CustomDebugAdapterLauncher debugAdapterLauncher, string launchJson) {
+            var debugProcess = new DebugAdapterProcess(debugAdapterLauncher);
             debugProcess.StartProcess(launchJson);
             return debugProcess;
         }
@@ -148,10 +150,7 @@ namespace Microsoft.PythonTools.Debugger {
         }
 
         private void OnInitialized(object sender, EventArgs e) {
-            CustomDebugAdapterProtocolExtension.SendRequest(
-                new PtvsdVersionRequest(),
-                PtvsdVersionHelper.VerifyPtvsdVersion,
-                PtvsdVersionHelper.VerifyPtvsdVersionError);
+            _debugAdapterLauncher.SendRequest(new PtvsdVersionRequest(), PtvsdVersionHelper.VerifyPtvsdVersion, PtvsdVersionHelper.VerifyPtvsdVersionError);
         }
 
         private void OnLegacyDebugger(object sender, EventArgs e) {
@@ -240,7 +239,7 @@ namespace Microsoft.PythonTools.Debugger {
             return Task.FromResult((Socket)null);
         }
 
-        
+
 
         /***************************************************************************************************************
         * The code below should go into refactored PythonDebugOptions class. See AD7Engine ParseOptions for more info

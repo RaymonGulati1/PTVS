@@ -23,27 +23,29 @@ namespace Microsoft.VisualStudioTools {
         private readonly string _debugAdapterHostCLSID = "{DAB324E9-7B35-454C-ACA8-F6BB0D5C8673}";
         private readonly string _name;
         private readonly string _engineId;
-        private readonly string _adapterLauncherCLSID;
-        private readonly string _customProtocolExtensionCLSID;
+        private readonly string _customDebugAdapterLauncherCLSID;
         private readonly string _languageName;
         private readonly string _languageId;
-        private readonly Type _adapterLauncherType;
-        private readonly Type _customProtocolType;
+        private readonly Type _customDebugAdapterCLSIDType;
 
-        public ProvideDebugAdapterAttribute(string name, string engineId, string adapterLauncherCLSID, string customProtocolExtensionCLSID, string languageName, string languageId, Type adapterLauncherType, Type customProtocolType) {
+        public ProvideDebugAdapterAttribute(
+            string name,
+            string engineId,
+            string customDebugAdapterLauncherCLSID,
+            string languageName,
+            string languageId,
+            Type customDebugAdapterCLSIDType
+        ) {
             _name = name;
             _engineId = engineId;
-            _adapterLauncherCLSID = adapterLauncherCLSID;
-            _customProtocolExtensionCLSID = customProtocolExtensionCLSID;
+            _customDebugAdapterLauncherCLSID = customDebugAdapterLauncherCLSID;
             _languageName = languageName;
             _languageId = languageId;
-            _adapterLauncherType = adapterLauncherType;
-            _customProtocolType = customProtocolType;
+            _customDebugAdapterCLSIDType = customDebugAdapterCLSIDType;
         }
 
         public override void Register(RegistrationContext context) {
             var engineKey = context.CreateKey("AD7Metrics\\Engine\\" + _engineId);
-
 
             // The following this line are boiler-plate settings required by all debug adapters.
             // Indicates that the "Debug Adapter Host" engine should be used
@@ -71,7 +73,6 @@ namespace Microsoft.VisualStudioTools {
              */
             engineKey.SetValue("Attach", 1);
             // engineKey.SetValue("PortSupplier", "{708C1ECA-FF48-11D2-904F-00C04FA302A1}");
-            engineKey.SetValue("AdapterLauncher", _adapterLauncherCLSID);
 
             /*
              * Modules request on attach behavior(optional)
@@ -80,14 +81,6 @@ namespace Microsoft.VisualStudioTools {
              * attach and don't need the "modules" request, so it can be disabled by setting this property to "1".
              */
             engineKey.SetValue("SuppressModulesRequestOnAttach", 1);
-            /*
-             * Custom Protocol Extensions (optional)
-             *   A debug adapter can implement non-standard extensions to the VS Code Debug Protocol, e.g. to communicate with
-             *   custom UI or services hosted in Visual Studio.  To register custom protocol extensions, provide an implementation
-             *   of "ICustomProtocolExtension", and specify its CLSID below.  The CLSID is defined in the "Type Registrations"
-             *   section of this file.
-             */
-            engineKey.SetValue("CustomProtocolExtension", _customProtocolExtensionCLSID);
 
             /*
              * Set to "1" if the debug adapter will use the VS "Exception Setting" tool window.  The debug adapter's must
@@ -142,22 +135,13 @@ namespace Microsoft.VisualStudioTools {
             engineKey.SetValue("Language", _languageName);
             engineKey.SetValue("LanguageId", _languageId);
 
-            /* 
-             * Adapter launcher registration 
-             */
-            var adapterKey = context.CreateKey($"CLSID\\{_adapterLauncherCLSID}");
-            var adapterAssembly = _adapterLauncherType.Assembly.GetName().Name;
-            var adapterClassName = _adapterLauncherType.FullName;
-            adapterKey.SetValue("Assembly", adapterAssembly);
-            adapterKey.SetValue("Class", adapterClassName);
-            adapterKey.SetValue("CodeBase", $@"$PackageFolder$\{adapterAssembly}.dll");
+            engineKey.CreateSubkey("ExtensibilityObjects").SetValue("1", _customDebugAdapterLauncherCLSID);
 
-            var customProtocolKey = context.CreateKey($"CLSID\\{_customProtocolExtensionCLSID}");
-            var customProtocolAssembly = _customProtocolType.Assembly.GetName().Name;
-            var customProtocolClassName = _customProtocolType.FullName;
-            customProtocolKey.SetValue("Assembly", customProtocolAssembly);
-            customProtocolKey.SetValue("Class", customProtocolClassName);
-            customProtocolKey.SetValue("CodeBase", $@"$PackageFolder$\{customProtocolAssembly}.dll");
+            var debugAdapterProtocolKey = context.CreateKey($"CLSID\\{_customDebugAdapterLauncherCLSID}");
+            var debugAdapterProtocolAssembly = _customDebugAdapterCLSIDType.Assembly.GetName().Name;
+            debugAdapterProtocolKey.SetValue("Assembly", debugAdapterProtocolAssembly);
+            debugAdapterProtocolKey.SetValue("Class", _customDebugAdapterCLSIDType.FullName);
+            debugAdapterProtocolKey.SetValue("CodeBase", $@"$PackageFolder$\{debugAdapterProtocolAssembly}.dll");
         }
 
         public override void Unregister(RegistrationContext context) {
